@@ -1,4 +1,5 @@
 import { streamChat, ChatValidationError } from "@/lib/gemini";
+import { recordRequest, recordError } from "@/lib/usage";
 import { MAX_MESSAGES, type ChatImage, type ChatMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -52,6 +53,7 @@ export async function POST(req: Request) {
   }
 
   const encoder = new TextEncoder();
+  recordRequest();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
@@ -59,10 +61,15 @@ export async function POST(req: Request) {
           controller.enqueue(encoder.encode(text));
         }
       } catch (error) {
+        if (!(error instanceof ChatValidationError)) {
+          recordError();
+        }
         const message =
           error instanceof ChatValidationError
             ? error.message
-            : "Chat request failed. Is the API key valid? See README.";
+            : error instanceof Error && error.message
+              ? `Chat request failed: ${error.message}`
+              : "Chat request failed. See README.";
         controller.enqueue(encoder.encode(`\n\n[${message}]`));
       } finally {
         controller.close();

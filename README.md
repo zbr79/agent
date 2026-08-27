@@ -1,6 +1,8 @@
-# GemChat
+# InsChat
 
 Minimalist AI chatbot — text chat + image upload, streaming responses. Powered by the **Google Gemini API free tier** (no credit card).
+
+**Live:** https://inschat.renstoolbox.com
 
 ## Features
 
@@ -12,7 +14,9 @@ Minimalist AI chatbot — text chat + image upload, streaming responses. Powered
 
 ## Stack
 
-Next.js 16 (App Router, React 19) + `@google/genai` SDK. Model: `gemini-2.5-flash` (configurable via `GEMINI_MODEL`).
+Next.js 16 (App Router, React 19) + `@google/genai` SDK. Model: `gemini-3.6-flash` (configurable via `GEMINI_MODEL`).
+
+Note: Google retires model names over time (e.g. `gemini-2.5-flash` now 404s for new users). If a request says the model is unavailable, change `GEMINI_MODEL` — `gemini-flash-latest` tracks the current Flash, and `gemini-3-flash-preview` / `gemma-4-26b-a4b-it` also work with images on the free tier.
 
 ## Get an API key (free, ~2 minutes)
 
@@ -48,7 +52,7 @@ Put nginx (or any reverse proxy) in front and proxy `/` to `127.0.0.1:3001`. If 
 3. Gemini streams tokens back; the server relays them chunk-by-chunk to the browser.
 4. Images travel as base64 `inlineData` parts.
 
-Free-tier limits (Gemini, as of 2026): ~15 req/min on Pro models, ~60 req/min on Flash — fine for demos and small teams.
+Free-tier limits (Gemini): ~60 req/min on Flash models — fine for demos and small teams. The free tier occasionally returns transient **503 "high demand"** errors; the server retries up to 3 times with backoff, and the UI shows the error if all retries fail.
 
 ## Project structure
 

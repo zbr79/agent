@@ -111,7 +111,7 @@ export default function ChatApp() {
   return (
     <div className="app">
       <header className="header">
-        <h1>GemChat</h1>
+        <h1>InsChat</h1>
         <p>Powered by Google Gemini · text + images</p>
       </header>
       <MessageBubble messages={messages} />
