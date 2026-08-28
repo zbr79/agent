@@ -102,7 +102,7 @@ export default function Composer({ sending, onSend, onStop }: ComposerProps) {
         <textarea
           rows={1}
           value={text}
-          placeholder={image ? "Add a question about this image…" : "Type a message…"}
+          placeholder=""
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
           aria-label="Message"
@@ -123,11 +123,7 @@ export default function Composer({ sending, onSend, onStop }: ComposerProps) {
           </button>
         )}
       </div>
-      {imageError ? (
-        <p className="hint">{imageError}</p>
-      ) : (
-        <p className="hint">Enter to send · Shift+Enter for a new line</p>
-      )}
+      {imageError && <p className="hint">{imageError}</p>}
     </div>
   );
 }

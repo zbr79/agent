@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 interface UsageData {
   model: string;
@@ -9,12 +10,18 @@ interface UsageData {
   errors: number;
 }
 
+interface HealthData {
+  results: { model: string; status: string }[];
+  cachedAt: number;
+}
+
 function percent(used: number, limit: number): number {
   return Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
 }
 
 export default function UsagePanel() {
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [health, setHealth] = useState<HealthData | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -34,10 +41,21 @@ export default function UsagePanel() {
     };
   }, []);
 
-  const day = usage?.day ?? { used: 0, limit: 1500, resetAt: "" };
+  useEffect(() => {
+    fetch("/api/health")
+      .then((response) => response.json())
+      .then((data: HealthData) => setHealth(data))
+      .catch(() => {});
+  }, []);
+
+  const day = usage?.day ?? { used: 0, limit: 20, resetAt: "" };
   const minute = usage?.minute ?? { used: 0, limit: 10 };
   const dayPct = percent(day.used, day.limit);
   const minutePct = percent(minute.used, minute.limit);
+
+  const available = (health?.results ?? []).filter((r) => r.status === "ok").length;
+  const ranOut = (health?.results ?? []).filter((r) => r.status === "quota").length;
+  const busy = (health?.results ?? []).filter((r) => r.status === "busy").length;
   const resetLabel = day.resetAt
     ? new Date(day.resetAt).toLocaleString([], {
         weekday: "short",
@@ -100,10 +118,36 @@ export default function UsagePanel() {
         </section>
       )}
 
+      {health && health.results.length > 0 && (
+        <section className="usage-card">
+          <div className="usage-head">
+            <span className="usage-title">Model availability (last check)</span>
+            <Link href="/models" className="usage-title">
+              View models →
+            </Link>
+          </div>
+          <p className="health-counts">
+            <span className="health-count ok">{available} available</span>
+            <span className="health-count quota">{ranOut} ran out</span>
+            <span className="health-count busy">{busy} busy</span>
+          </p>
+        </section>
+      )}
+
+      {health && health.results.length === 0 && (
+        <section className="usage-card">
+          <span className="usage-title">
+            Model availability not checked yet —{" "}
+            <Link href="/models">run a check on the Models tab</Link> (manual
+            only, so it never burns quota on page loads).
+          </span>
+        </section>
+      )}
+
       <section className="usage-card note">
         <span className="usage-title">About these limits</span>
         <ul>
-          <li>Free tier: ~1,500 requests/day, ~10 requests/min on Flash models.</li>
+          <li>Free tier: ~20 requests/day per model, ~10 requests/min — confirmed by the API&apos;s quota error for {usage?.model ?? "the current model"}.</li>
           <li>Daily cap resets at midnight Pacific Time.</li>
           <li>Google has no public quota API, so this tracks this app&apos;s own calls.</li>
           <li>Occasional &quot;high demand&quot; errors are capacity, not quota — the app retries automatically.</li>

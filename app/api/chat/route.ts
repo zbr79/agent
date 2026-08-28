@@ -1,5 +1,4 @@
-import { streamChat, ChatValidationError } from "@/lib/gemini";
-import { recordRequest, recordError } from "@/lib/usage";
+import { streamChat, ChatValidationError, isValidTimeZone } from "@/lib/gemini";
 import { MAX_MESSAGES, type ChatImage, type ChatMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -42,8 +41,19 @@ function parseBody(body: unknown): ChatMessage[] {
 
 export async function POST(req: Request) {
   let messages: ChatMessage[];
+  let timeZone: string | undefined;
   try {
-    messages = parseBody(await req.json());
+    const body: unknown = await req.json();
+    messages = parseBody(body);
+    const rawZone = body && typeof body === "object"
+      ? (body as { timeZone?: unknown }).timeZone
+      : undefined;
+    if (rawZone !== undefined) {
+      if (!isValidTimeZone(rawZone)) {
+        throw new ChatValidationError('"timeZone" is invalid.');
+      }
+      timeZone = rawZone;
+    }
   } catch (error) {
     const message =
       error instanceof ChatValidationError
@@ -53,17 +63,16 @@ export async function POST(req: Request) {
   }
 
   const encoder = new TextEncoder();
-  recordRequest();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      req.signal.addEventListener("abort", () => {
+        console.log("[chat] client disconnected mid-stream");
+      });
       try {
-        for await (const text of streamChat(messages)) {
+        for await (const text of streamChat(messages, timeZone)) {
           controller.enqueue(encoder.encode(text));
         }
       } catch (error) {
-        if (!(error instanceof ChatValidationError)) {
-          recordError();
-        }
         const message =
           error instanceof ChatValidationError
             ? error.message

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import Sidebar from "@/components/Sidebar";
 import "./globals.css";
@@ -12,7 +13,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <div className="shell">
-          <Sidebar />
+          <Suspense>
+            <Sidebar />
+          </Suspense>
           <div className="main">{children}</div>
         </div>
       </body>

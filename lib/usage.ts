@@ -1,10 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
+import { CHAT_MODELS, getActiveModel } from "./models";
 
+// Free-tier limits, per model. Daily cap confirmed by the API's own 429
+// quota payload:
+//   GenerateRequestsPerDayPerProjectPerModel-FreeTier, quotaValue: "20"
+// (the old "1500/day" was an unverified v1 assumption, since removed).
 export const GEMINI_LIMITS = {
   rpm: 10,
-  rpd: 1500,
+  rpd: 20,
 };
+
+export function usableModelCount(): number {
+  return CHAT_MODELS.filter((model) => !model.retired).length;
+}
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const USAGE_FILE = path.join(DATA_DIR, "usage.json");
@@ -14,6 +23,8 @@ interface UsageState {
   requests: number;
   errors: number;
   minuteTimes: number[];
+  models: Record<string, number>;
+  exhausted: Record<string, number>;
 }
 
 function pacificDayKey(now = new Date()): string {
@@ -33,19 +44,31 @@ function nextPacificMidnight(): string {
   return reset.toISOString();
 }
 
+function freshState(minuteTimes: number[] = []): UsageState {
+  return { dayKey: pacificDayKey(), requests: 0, errors: 0, minuteTimes, models: {}, exhausted: {} };
+}
+
 function load(): UsageState {
   try {
     const raw = JSON.parse(fs.readFileSync(USAGE_FILE, "utf8")) as UsageState;
-    if (raw && raw.dayKey === pacificDayKey()) return raw;
+    if (raw && raw.dayKey === pacificDayKey()) {
+      return {
+        ...freshState(raw.minuteTimes ?? []),
+        requests: raw.requests ?? 0,
+        errors: raw.errors ?? 0,
+        models: raw.models ?? {},
+        exhausted: raw.exhausted ?? {},
+      };
+    }
   } catch {}
-  return { dayKey: pacificDayKey(), requests: 0, errors: 0, minuteTimes: [] };
+  return freshState();
 }
 
 let state: UsageState = load();
 
 function rolloverIfNeeded() {
   if (state.dayKey !== pacificDayKey()) {
-    state = { dayKey: pacificDayKey(), requests: 0, errors: 0, minuteTimes: state.minuteTimes };
+    state = freshState(state.minuteTimes);
   }
 }
 
@@ -56,10 +79,13 @@ function persist() {
   } catch {}
 }
 
-export function recordRequest() {
+export function recordRequest(model?: string) {
   rolloverIfNeeded();
   const now = Date.now();
   state.requests += 1;
+  if (model) {
+    state.models[model] = (state.models[model] ?? 0) + 1;
+  }
   state.minuteTimes = state.minuteTimes.filter((time) => now - time < 60_000);
   state.minuteTimes.push(now);
   persist();
@@ -71,15 +97,39 @@ export function recordError() {
   persist();
 }
 
+export function recordQuotaExhausted(model: string) {
+  rolloverIfNeeded();
+  state.exhausted[model] = Date.now();
+  persist();
+}
+
+export function recordQuotaCleared(model: string) {
+  rolloverIfNeeded();
+  if (state.exhausted[model]) {
+    delete state.exhausted[model];
+    persist();
+  }
+}
+
+export function getModelUsage(model: string): number {
+  rolloverIfNeeded();
+  return state.models[model] ?? 0;
+}
+
+export function getModelExhaustedAt(model: string): number | null {
+  rolloverIfNeeded();
+  return state.exhausted[model] ?? null;
+}
+
 export function getUsage() {
   rolloverIfNeeded();
   const now = Date.now();
   state.minuteTimes = state.minuteTimes.filter((time) => now - time < 60_000);
   return {
-    model: process.env.GEMINI_MODEL || "gemini-flash-latest",
+    model: getActiveModel() === "auto" ? "auto (fallback chain)" : getActiveModel(),
     day: {
       used: state.requests,
-      limit: GEMINI_LIMITS.rpd,
+      limit: usableModelCount() * GEMINI_LIMITS.rpd,
       resetAt: nextPacificMidnight(),
     },
     minute: {
