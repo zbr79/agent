@@ -36,7 +36,11 @@ Rules:
 - One item per metric. Do not repeat the same metric in multiple items.
 - N meals in the reply = N "meals" entries — never split one meal into multiple entries, never merge two meals into one entry. Each meal's foods and time must stay attached to that meal.
 - If the reply contains no concrete data to record, return an empty "items" array and a summary that says so.
-- If a time or time-of-day appears (e.g. "7 am", "morning"), include it as its own item named "time".`;
+- If a time or time-of-day appears (e.g. "7 am", "morning"), include it as its own item named "time".
+- If the reply is an insulin reading, produce an item named exactly 胰岛素 (or "insulin" for English replies) with the value and unit when stated, plus the 时间 item for its time.
+- If the reply is a blood glucose reading, produce an item named exactly 血糖 (or "glucose" for English replies) with the value and unit when stated, plus the 时间 item for its time.
+- If the unit is marked as missing/未说明/unknown, OMIT the "unit" field entirely.
+- If the reply contains a bare numeric reading with no metric name, treat it as a blood glucose value: item named exactly 血糖 (or "glucose") with that value.`;
 
 const LANG_CHINESE = `LANGUAGE RULE: The source reply is Chinese, so the ENTIRE conclusion must be in Chinese — "title", "summary", and every item "name" in Chinese (e.g. "早餐", "胰岛素", "血糖", "体重"). The item named for time must be "时间". Keep "unit" exactly as stated (e.g. "mg/dL"). No English words in title, summary, or item names.`;
 

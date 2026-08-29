@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { SavedRecord } from "@/lib/types";
 import { deleteGuestRecord, listGuestRecords } from "@/lib/guestStore";
 import { parseMealDateTime } from "@/lib/mealTime";
+import { isMealRelatedItem } from "@/lib/groupMeals";
+import { STR, useUiLang } from "@/lib/i18n";
 
 function toSavedRecord(record: {
   id: string;
@@ -64,14 +66,14 @@ function entryFor(record: SavedRecord): TimelineEntry {
   };
 }
 
-function dayLabel(dateKey: string): string {
+function dayLabel(dateKey: string, lang: "zh" | "en"): string {
   const now = new Date();
   const today = dayKeyOf(now.toISOString());
   const yesterday = dayKeyOf(new Date(now.getTime() - 86400000).toISOString());
-  if (dateKey === today) return "Today";
-  if (dateKey === yesterday) return "Yesterday";
+  if (dateKey === today) return lang === "zh" ? "今天" : "Today";
+  if (dateKey === yesterday) return lang === "zh" ? "昨天" : "Yesterday";
   const [year, month, day] = dateKey.split("-").map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString([], {
+  return new Date(year, month - 1, day).toLocaleDateString(lang === "zh" ? "zh-CN" : [], {
     month: "short",
     day: "numeric",
   });
@@ -82,6 +84,8 @@ export default function RecordsPanel() {
   const [records, setRecords] = useState<SavedRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const lang = useUiLang();
+  const t = STR[lang];
 
   const load = useCallback(async () => {
     if (guest === null) return;
@@ -151,7 +155,7 @@ export default function RecordsPanel() {
       } else {
         groups.push({
           key: entry.dateKey,
-          label: dayLabel(entry.dateKey),
+          label: dayLabel(entry.dateKey, lang),
           entries: [entry],
         });
       }
@@ -160,22 +164,20 @@ export default function RecordsPanel() {
 
   return (
     <div className="usage-page">
-      <h2>Records</h2>
+      <h2>{t["records.title"]}</h2>
       <p className="usage-sub">
-        {guest === true
-          ? "Saved reports (guest mode — stored on this device only)."
-          : "Saved reports on a timeline. Newest first."}
+        {guest === true ? t["records.subGuest"] : t["records.subOwner"]}
       </p>
 
       {error && <p className="conclusion-error">{error}</p>}
 
-      {records === null && !error && <p className="usage-sub">Loading…</p>}
+      {records === null && !error && (
+        <p className="usage-sub">{t["records.loading"]}</p>
+      )}
 
       {records !== null && records.length === 0 && (
         <section className="usage-card">
-          <span className="usage-title">
-            Nothing saved yet — chat, then click Conclude and Save.
-          </span>
+          <span className="usage-title">{t["records.empty"]}</span>
         </section>
       )}
 
@@ -183,11 +185,26 @@ export default function RecordsPanel() {
         {groups.map((group) => (
           <div key={group.key} className="timeline-day-group">
             <div className="timeline-day">{group.label}</div>
-            {group.entries.map(({ record, timeLabel }) => (
+            {group.entries.map(({ record, timeLabel }) => {
+              const readings = record.items.filter(
+                (item) => !isMealRelatedItem(item.name)
+              );
+              return (
               <div key={record._id} className="timeline-entry">
                 <span className="timeline-dot" aria-hidden="true" />
                 <div className="timeline-content">
                   {timeLabel && <span className="timeline-time">{timeLabel}</span>}
+                  {readings.length > 0 && (
+                    <div className="timeline-readings">
+                      {readings.map((item, index) => (
+                        <span key={index} className="timeline-reading">
+                          {item.name}
+                          {item.value ? ` ${item.value}` : ""}
+                          {item.unit ? ` ${item.unit}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {record.meals && record.meals.length > 0 ? (
                     record.meals.map((meal, index) => (
                       <div key={index} className="timeline-meal">
@@ -198,19 +215,21 @@ export default function RecordsPanel() {
                       </div>
                     ))
                   ) : (
-                    <ul className="conclusion-items">
-                      {record.items.map((item, index) => (
-                        <li key={index}>
-                          <span className="item-name">{item.name}</span>
-                          {item.value && (
-                            <span className="item-value">{item.value}</span>
-                          )}
-                          {item.unit && (
-                            <span className="item-unit">{item.unit}</span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
+                    readings.length === 0 && (
+                      <ul className="conclusion-items">
+                        {record.items.map((item, index) => (
+                          <li key={index}>
+                            <span className="item-name">{item.name}</span>
+                            {item.value && (
+                              <span className="item-value">{item.value}</span>
+                            )}
+                            {item.unit && (
+                              <span className="item-unit">{item.unit}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )
                   )}
                   <button
                     type="button"
@@ -218,11 +237,12 @@ export default function RecordsPanel() {
                     disabled={deleting !== null}
                     onClick={() => remove(record._id)}
                   >
-                    {deleting === record._id ? "Deleting…" : "Delete"}
+                    {deleting === record._id ? t["records.deleting"] : t["records.delete"]}
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         ))}
       </div>

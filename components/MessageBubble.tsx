@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import SummaryCard from "./SummaryCard";
 import ImageViewer from "./ImageViewer";
 import type { ConcludeResult } from "@/lib/types";
+import { STR, useUiLang } from "@/lib/i18n";
 
 interface Message {
   id: number;
@@ -42,6 +43,8 @@ export default function MessageBubble({
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const [viewer, setViewer] = useState<string | null>(null);
+  const lang = useUiLang();
+  const t = STR[lang];
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -71,9 +74,9 @@ export default function MessageBubble({
               )}
               {message.streaming && !message.text && (
                 <span className="thinking">
-                  {!message.trying && message.model && (
-                    <span className="thinking-label">Thinking…</span>
-                  )}
+                    {!message.trying && message.model && (
+                      <span className="thinking-label">{t["thinking"]}</span>
+                    )}
                   <span className="thinking-dots" aria-hidden="true">
                     <i />
                     <i />

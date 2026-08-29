@@ -42,6 +42,7 @@ function parseBody(body: unknown): ChatMessage[] {
 export async function POST(req: Request) {
   let messages: ChatMessage[];
   let timeZone: string | undefined;
+  let language: "zh" | "en" | undefined;
   try {
     const body: unknown = await req.json();
     messages = parseBody(body);
@@ -53,6 +54,15 @@ export async function POST(req: Request) {
         throw new ChatValidationError('"timeZone" is invalid.');
       }
       timeZone = rawZone;
+    }
+    const rawLanguage = body && typeof body === "object"
+      ? (body as { language?: unknown }).language
+      : undefined;
+    if (rawLanguage !== undefined) {
+      if (rawLanguage !== "zh" && rawLanguage !== "en") {
+        throw new ChatValidationError('"language" must be "zh" or "en".');
+      }
+      language = rawLanguage;
     }
   } catch (error) {
     const message =
@@ -69,7 +79,7 @@ export async function POST(req: Request) {
         console.log("[chat] client disconnected mid-stream");
       });
       try {
-        for await (const text of streamChat(messages, timeZone)) {
+        for await (const text of streamChat(messages, timeZone, language)) {
           controller.enqueue(encoder.encode(text));
         }
       } catch (error) {

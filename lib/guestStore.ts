@@ -6,6 +6,9 @@ export interface GuestMessage {
   role: "user" | "model";
   text: string;
   image?: ChatImage;
+  imageKey?: string;
+  model?: string;
+  elapsed?: number;
 }
 
 export interface GuestSession {

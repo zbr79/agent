@@ -137,5 +137,14 @@ export function getUsage() {
       limit: GEMINI_LIMITS.rpm,
     },
     errors: state.errors,
+    models: CHAT_MODELS.map((model) => ({
+      name: model.name,
+      label: model.label,
+      tier: model.tier,
+      vision: model.vision,
+      retired: !!model.retired,
+      used: state.models[model.name] ?? 0,
+      exhaustedAt: state.exhausted[model.name] ?? null,
+    })),
   };
 }

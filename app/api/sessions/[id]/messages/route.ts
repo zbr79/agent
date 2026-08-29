@@ -16,15 +16,19 @@ export async function POST(
   let role: "user" | "model";
   let text: string;
   let image: { mimeType: string; data: string } | undefined;
+  let model: string | undefined;
+  let elapsed: number | undefined;
   try {
     const body: unknown = await req.json();
     if (!body || typeof body !== "object") {
       throw new Error("Request body must be a JSON object.");
     }
-    const { role: rawRole, text: rawText, image: rawImage } = body as {
+    const { role: rawRole, text: rawText, image: rawImage, model: rawModel, elapsed: rawElapsed } = body as {
       role?: unknown;
       text?: unknown;
       image?: unknown;
+      model?: unknown;
+      elapsed?: unknown;
     };
     if (rawRole !== "user" && rawRole !== "model") {
       throw new Error('"role" must be "user" or "model".');
@@ -44,6 +48,18 @@ export async function POST(
       }
       image = rawImage as { mimeType: string; data: string };
     }
+    if (rawModel !== undefined && rawModel !== null) {
+      if (typeof rawModel !== "string" || rawModel.length > 100) {
+        throw new Error('"model" is invalid.');
+      }
+      model = rawModel;
+    }
+    if (rawElapsed !== undefined && rawElapsed !== null) {
+      if (typeof rawElapsed !== "number" || rawElapsed < 0 || rawElapsed > 3600) {
+        throw new Error('"elapsed" is invalid.');
+      }
+      elapsed = rawElapsed;
+    }
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "Invalid request body." },
@@ -52,7 +68,7 @@ export async function POST(
   }
 
   try {
-    const message = await appendMessage(auth._id, id, { role, text, image });
+    const message = await appendMessage(auth._id, id, { role, text, image, model, elapsed });
     if (!message) {
       return Response.json({ error: "Session not found." }, { status: 404 });
     }

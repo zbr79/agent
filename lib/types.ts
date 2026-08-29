@@ -70,6 +70,8 @@ export interface StoredMessage {
   role: "user" | "model";
   text: string;
   image?: ChatImage;
+  model?: string;
+  elapsed?: number;
   createdAt: string;
 }
 

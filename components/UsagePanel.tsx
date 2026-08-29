@@ -1,18 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { STR, useUiLang } from "@/lib/i18n";
+
+interface UsageModel {
+  name: string;
+  label: string;
+  tier: string;
+  vision: string;
+  retired: boolean;
+  used: number;
+  exhaustedAt: number | null;
+}
 
 interface UsageData {
   model: string;
   day: { used: number; limit: number; resetAt: string };
   minute: { used: number; limit: number };
   errors: number;
-}
-
-interface HealthData {
-  results: { model: string; status: string }[];
-  cachedAt: number;
+  models: UsageModel[];
 }
 
 function percent(used: number, limit: number): number {
@@ -21,7 +27,8 @@ function percent(used: number, limit: number): number {
 
 export default function UsagePanel() {
   const [usage, setUsage] = useState<UsageData | null>(null);
-  const [health, setHealth] = useState<HealthData | null>(null);
+  const lang = useUiLang();
+  const t = STR[lang];
 
   useEffect(() => {
     let alive = true;
@@ -41,21 +48,10 @@ export default function UsagePanel() {
     };
   }, []);
 
-  useEffect(() => {
-    fetch("/api/health")
-      .then((response) => response.json())
-      .then((data: HealthData) => setHealth(data))
-      .catch(() => {});
-  }, []);
-
   const day = usage?.day ?? { used: 0, limit: 20, resetAt: "" };
   const minute = usage?.minute ?? { used: 0, limit: 10 };
   const dayPct = percent(day.used, day.limit);
   const minutePct = percent(minute.used, minute.limit);
-
-  const available = (health?.results ?? []).filter((r) => r.status === "ok").length;
-  const ranOut = (health?.results ?? []).filter((r) => r.status === "quota").length;
-  const busy = (health?.results ?? []).filter((r) => r.status === "busy").length;
   const resetLabel = day.resetAt
     ? new Date(day.resetAt).toLocaleString([], {
         weekday: "short",
@@ -67,15 +63,15 @@ export default function UsagePanel() {
 
   return (
     <div className="usage-page">
-      <h2>API Usage</h2>
+      <h2>{t["usage.title"]}</h2>
       <p className="usage-sub">
-        Calls made by this app against the Gemini free tier
+        {t["usage.sub"]}
         {usage ? ` (${usage.model})` : ""}.
       </p>
 
       <section className="usage-card">
         <div className="usage-head">
-          <span className="usage-title">Requests today</span>
+          <span className="usage-title">{t["usage.requestsToday"]}</span>
           <span className="usage-big">
             {day.used.toLocaleString()}{" "}
             <span className="usage-dim">/ {day.limit.toLocaleString()}</span>
@@ -88,14 +84,14 @@ export default function UsagePanel() {
           />
         </div>
         <div className="usage-meta">
-          <span>{dayPct}% used</span>
-          <span>resets {resetLabel} PT</span>
+          <span>{dayPct}% {t["usage.usedPct"]}</span>
+          <span>{t["usage.resets"]} {resetLabel} PT</span>
         </div>
       </section>
 
       <section className="usage-card">
         <div className="usage-head">
-          <span className="usage-title">Requests in the last 60 seconds</span>
+          <span className="usage-title">{t["usage.requestsMinute"]}</span>
           <span className="usage-big">
             {minute.used} <span className="usage-dim">/ {minute.limit}</span>
           </span>
@@ -107,45 +103,57 @@ export default function UsagePanel() {
           />
         </div>
         <div className="usage-meta">
-          <span>{minutePct}% used</span>
+          <span>{minutePct}% {t["usage.usedPct"]}</span>
         </div>
       </section>
 
       {usage && usage.errors > 0 && (
         <section className="usage-card warn-card">
-          <span className="usage-title">Failed calls today</span>
+          <span className="usage-title">{t["usage.failed"]}</span>
           <span className="usage-big">{usage.errors}</span>
         </section>
       )}
 
-      {health && health.results.length > 0 && (
-        <section className="usage-card">
-          <div className="usage-head">
-            <span className="usage-title">Model availability (last check)</span>
-            <Link href="/models" className="usage-title">
-              View models →
-            </Link>
-          </div>
-          <p className="health-counts">
-            <span className="health-count ok">{available} available</span>
-            <span className="health-count quota">{ranOut} ran out</span>
-            <span className="health-count busy">{busy} busy</span>
-          </p>
-        </section>
-      )}
-
-      {health && health.results.length === 0 && (
-        <section className="usage-card">
-          <span className="usage-title">
-            Model availability not checked yet —{" "}
-            <Link href="/models">run a check on the Models tab</Link> (manual
-            only, so it never burns quota on page loads).
-          </span>
-        </section>
-      )}
+      <section className="usage-card">
+        <span className="usage-title">{t["usage.catalog"]}</span>
+        <p className="usage-sub">{t["usage.catalogNote"]}</p>
+        {usage && (
+          <table className="usage-models">
+            <thead>
+              <tr>
+                <th>{t["usage.colModel"]}</th>
+                <th>{t["usage.colSent"]}</th>
+                <th>{t["usage.colStatus"]}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {usage.models.map((model) => (
+                <tr key={model.name} className={model.retired ? "retired" : ""}>
+                  <td className="model-name">
+                    {model.label}
+                    <span className="model-name-raw">{model.name}</span>
+                  </td>
+                  <td className="model-used">{model.used}</td>
+                  <td className="model-status">
+                    {model.retired ? (
+                      <span className="status-badge retired">{t["usage.retired"]}</span>
+                    ) : model.exhaustedAt ? (
+                      <span className="status-badge quota">{t["usage.ranOut"]}</span>
+                    ) : model.used > 0 ? (
+                      <span className="status-badge used">{t["usage.inUse"]}</span>
+                    ) : (
+                      <span className="status-badge ok">{t["usage.available"]}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
 
       <section className="usage-card note">
-        <span className="usage-title">About these limits</span>
+        <span className="usage-title">{t["usage.aboutTitle"]}</span>
         <ul>
           <li>Free tier: ~20 requests/day per model, ~10 requests/min — confirmed by the API&apos;s quota error for {usage?.model ?? "the current model"}.</li>
           <li>Daily cap resets at midnight Pacific Time.</li>

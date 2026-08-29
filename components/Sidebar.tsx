@@ -5,18 +5,20 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ChatSession } from "@/lib/types";
 import { deleteGuestSession, listGuestSessions } from "@/lib/guestStore";
+import { STR, useUiLang } from "@/lib/i18n";
 
 const ownerItems = [
-  { href: "/", label: "Chat" },
-  { href: "/records", label: "Records" },
-  { href: "/calls", label: "Calls" },
-  { href: "/models", label: "Models" },
-  { href: "/usage", label: "Usage" },
+  { href: "/", label: "nav.chat" },
+  { href: "/records", label: "nav.records" },
+  { href: "/calls", label: "nav.calls" },
+  { href: "/models", label: "nav.models" },
+  { href: "/usage", label: "nav.usage" },
 ];
 
 const guestItems = [
-  { href: "/", label: "Chat" },
-  { href: "/records", label: "Records" },
+  { href: "/", label: "nav.chat" },
+  { href: "/records", label: "nav.records" },
+  { href: "/usage", label: "nav.usage" },
 ];
 
 interface MeUser {
@@ -30,6 +32,8 @@ export default function Sidebar() {
   const searchParams = useSearchParams();
   const onHome = pathname === "/";
   const currentSession = searchParams.get("session");
+  const lang = useUiLang();
+  const t = STR[lang];
   const [user, setUser] = useState<MeUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[] | null>(null);
@@ -110,21 +114,21 @@ export default function Sidebar() {
             href={item.href}
             className={`sidebar-link ${pathname === item.href ? "active" : ""}`}
           >
-            {item.label}
+            {t[item.label]}
           </Link>
         ))}
       </nav>
       {onHome && authChecked && (
         <div className="session-nav">
           <Link href="/" className="session-new">
-            + New chat
+            {t["nav.newChat"]}
           </Link>
           <div className="session-list">
             {user ? (
               <>
-                {sessions === null && <p className="session-hint">Loading…</p>}
+                {sessions === null && <p className="session-hint">{t["nav.loading"]}</p>}
                 {sessions !== null && sessions.length === 0 && (
-                  <p className="session-hint">No saved chats yet.</p>
+                  <p className="session-hint">{t["nav.noSessions"]}</p>
                 )}
                 {sessions?.map((session) => (
                   <div key={session._id} className="session-row">
@@ -150,9 +154,7 @@ export default function Sidebar() {
             ) : (
               <>
                 {guestSessions.length === 0 && (
-                  <p className="session-hint">
-                    Guest chats save on this device.
-                  </p>
+                  <p className="session-hint">{t["nav.guestHint"]}</p>
                 )}
                 {guestSessions.map((session) => (
                   <div key={session.id} className="session-row">
@@ -184,12 +186,12 @@ export default function Sidebar() {
           <div className="sidebar-user">
             <span className="user-name">{user.username}</span>
             <button type="button" className="logout-button" onClick={logout}>
-              Sign out
+              {t["nav.signOut"]}
             </button>
           </div>
         ) : (
           <Link href="/login" className="login-link">
-            Sign in
+            {t["nav.signIn"]}
           </Link>
         )}
         <a

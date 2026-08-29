@@ -363,3 +363,74 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 - Data: records now carry `meals[]` (Mongo `records.meals` + guest localStorage). Authed `datetime` derived server-side from the first meal's time via new `lib/mealTime.ts` `parseMealDateTime` ("2026年8月26日 下午 6:17" → zoned Date); guest timeline sorts/groups client-side from the same parser.
 - `parseMealDateTime` handles 凌晨/早上/上午/中午/下午/晚上 shifts (下午6:17 → 18:17, 下午12:xx stays noon, 晚上11:05 → 23:05).
 - Verified: unit tests (parser cases), E2E food flow → 已保存 → /records timeline shows 1 day group "Today", entry 加餐 / 晚上 10:35 / foods, no summary.
+
+---
+
+## 2026-08-29 — Insulin reading strict template
+
+### Solved
+- New SYSTEM_PROMPT section 2: insulin readings (text or device photo) get a strict template — time line (same format as food, 12-hour + period word) then `胰岛素 {数值} {单位}` then one-line 解读. Only insulin; other metrics stay free-form (section 3).
+- TIME RULE extended: typed time wins → visible time on the image wins → else 当前时间 (and the 解读 line says so). Unreadable value → say so and ask; missing unit → 单位未说明 + ask. Never invent.
+- Conclude prompt: insulin replies must produce 胰岛素 + 时间 items so the reading lands in the timeline report.
+- Verified: "胰岛素 130 早上7点" → strict template with 单位未说明 + ask; "胰岛素 130" → uses 当前时间 (7:03) + asks for unit; conclude extracts {时间, 胰岛素 130 U}.
+- Not yet verified: real insulin-device photos (no sample image) — needs a photo of a pen/meter display to confirm vision extraction.
+
+---
+
+## 2026-08-29 — Bare numbers default to insulin
+
+### Solved
+- SYSTEM_PROMPT section 2: a bare number with no metric/unit is now an insulin reading by default (that number = 数值; time = 当前时间 with a note; unit flagged + asked).
+- Conclude prompt: bare numeric readings extract as 胰岛素 items; units marked missing (单位未说明/unknown) now OMIT the unit field instead of storing junk like "单位".
+- Verified: "140" → insulin template `胰岛素 140 单位未说明` with 当前时间; conclude → {胰岛素: 140} + {时间: …} with no unit field.
+
+---
+
+## 2026-08-29 — Glucose unit inference by magnitude
+
+### Solved
+- User rule: the model should understand the number, not "dead translate". Prompt section 3 now: 血糖 without unit → ≥40 mg/dL, <20 mmol/L, 20–40 ask; show the other unit in parentheses (mg/dL = mmol/L × 18.02); never change the stated number.
+- Bare number default stays insulin, but with a judgment escape: if it clearly reads as a glucose value, state the inference and ask to confirm.
+- Verified: 血糖 6.1 → mmol/L（约 110 mg/dL）; 血糖 110 → mg/dL（约 6.1 mmol/L）; 血糖 30 → asks which unit with both conversions shown.
+
+---
+
+## 2026-08-29 — Usage tab rework (no model checks, per-model table)
+
+### Solved
+- Usage tab was hidden for guests (the DB has no accounts — the user runs guest mode): `/api/usage` is now public and `guestItems` includes Usage.
+- UsagePanel no longer calls /api/health — no live model checks on the page. New per-model table from the catalog + own-call counters: model label/name, sent today, status badge (retired / ran out / in use / available).
+- `getUsage()` now exposes `models[]` merged from CHAT_MODELS with `used` and `exhaustedAt` (PT-day state, rolls over at Pacific midnight).
+- Verified: 14 rows with counts (3.6-flash=25 ran out, …), no health section, works logged-out, no horizontal overflow at 375px.
+
+---
+
+## 2026-08-29 — Health check, EN/中文 mode, responsive pass
+
+### Solved
+- System check: PM2 online, no current errors (stale build-race errors only), all endpoints return expected codes (405 on POST-only, 401 on authed), disk 45%, RAM fine. Healthy.
+- Language mode: `lib/i18n.ts` — `useUiLang()` (localStorage + custom event, default 中文), dictionary for nav/records/usage/thinking strings. Header toggle (EN/中文 pill, right side). `/api/chat` accepts `language: zh|en`; `getSystemPrompt` appends the mode line. SYSTEM_PROMPT.md rewritten with parallel templates: food (Chinese template + English template), insulin, glucose two-line format, time formats (`2025年4月2日 下午 5:20` vs `April 2, 2025 5:20 PM`).
+- Verified: zh mode → Chinese reply, en mode → English reply; UI nav 聊天→Chat on toggle, persists after reload.
+- Responsive: 320/375/768/1024/1280 widths — no horizontal overflow on /, /records, /usage; composer/header/toggle fine on chat page.
+- Usage tab: public API + guest nav item (DB has no users — the operator is a guest), per-model table verified 14 rows.
+
+---
+
+## 2026-08-29 — Timeline merge, meta persistence, IndexedDB images, transparent photo bubble
+
+### Solved
+- Timeline entries now merge readings + meals: non-meal items (胰岛素/血糖…) render as small pills above the meal blocks in the same entry — a food+insulin session shows `胰岛素 120` + the meal under one dot. Verified via a mixed conversation E2E.
+- Model name + elapsed now persist with messages (Mongo `messages.model/elapsed` + guest localStorage), so the `21s · gemini-3.6-flash` meta survives refresh. Messages route validates the new optional fields.
+- Guest photos now live in IndexedDB (`lib/guestImages.ts`, key = `sessionId:messageId`); localStorage messages keep only `imageKey`, with inline-image fallback when IDB fails. Verified: 3 MB food photo survives reload.
+- Sent photos no longer sit on the dark bubble: `.message.user .bubble:has(img)` → transparent + no padding.
+- Also fixed earlier in this batch: bare-number insulin replies are now exactly two lines (time + 胰岛素 数值), no unit question, no uncertainty — the "looks like glucose" escape clause that caused the "120" interrogation was removed.
+
+---
+
+## 2026-08-29 — Terminology: 血糖 vs 胰岛素, bare numbers now glucose
+
+### Solved
+- Naming clarified with user: 胰岛素 = insulin (dose, U/IU), 血糖 = blood glucose (mg/dL or mmol/L); English names: insulin / blood glucose (blood sugar).
+- Bare numbers now default to 血糖 (blood glucose) with the magnitude unit rule — a bare "140" is a glucose reading, not an insulin dose. Insulin template only triggers on explicit insulin context (胰岛素/insulin/注射/units/pen photo).
+- Conclude prompt updated: bare numeric readings extract as 血糖/glucose items; insulin only for explicit insulin replies.
+- Verified: "140" → 血糖: 140 mg/dL + time; "6.1" → 血糖: 6.1 mmol/L; "胰岛素 10 U 早上7点" → insulin template; conclude → {血糖: 140 mg/dL} + 时间.

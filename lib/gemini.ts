@@ -44,7 +44,7 @@ function currentTimeLabel(timeZone: string): string {
   }
 }
 
-function getSystemPrompt(timeZone?: string): string {
+function getSystemPrompt(timeZone?: string, language?: "zh" | "en"): string {
   const zone =
     timeZone && isValidTimeZone(timeZone)
       ? timeZone
@@ -52,7 +52,11 @@ function getSystemPrompt(timeZone?: string): string {
   try {
     const prompt = fs.readFileSync(PROMPT_FILE, "utf8").trim();
     if (prompt) {
-      return `${prompt}\n\n当前时间（${zone}）: ${currentTimeLabel(zone)}`;
+      const modeLine =
+        language === "en"
+          ? "\n\nUI language mode: English — reply in English, using the English template variants."
+          : "\n\nUI语言模式：中文 — 请用中文回复，并使用中文模板格式。";
+      return `${prompt}${modeLine}\n\n当前时间（${zone}）: ${currentTimeLabel(zone)}`;
     }
   } catch {}
   return FALLBACK_PROMPT;
@@ -112,12 +116,13 @@ export function toContents(messages: ChatMessage[]): Content[] {
 
 export async function* streamChat(
   messages: ChatMessage[],
-  timeZone?: string
+  timeZone?: string,
+  language?: "zh" | "en"
 ): AsyncGenerator<string> {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const contents = toContents(messages);
   const chain = getChatChain();
-  const systemPrompt = getSystemPrompt(timeZone);
+  const systemPrompt = getSystemPrompt(timeZone, language);
 
   const requestId = Math.random().toString(36).slice(2, 8);
   const imageBytes = contents.reduce(

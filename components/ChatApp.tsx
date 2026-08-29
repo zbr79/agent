@@ -18,6 +18,8 @@ import {
   getGuestSession,
   setGuestConclusion,
 } from "@/lib/guestStore";
+import { putGuestImage, getGuestImage } from "@/lib/guestImages";
+import { STR, useUiLang, setUiLang } from "@/lib/i18n";
 
 interface UiMessage {
   id: number;
@@ -41,7 +43,13 @@ function toApiMessages(messages: UiMessage[]): ChatMessage[] {
 
 function persistMessage(
   sessionId: string,
-  message: { role: "user" | "model"; text: string; image?: ChatImage }
+  message: {
+    role: "user" | "model";
+    text: string;
+    image?: ChatImage;
+    model?: string;
+    elapsed?: number;
+  }
 ) {
   fetch(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
@@ -59,6 +67,8 @@ export default function ChatApp() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionParam = searchParams.get("session");
+  const lang = useUiLang();
+  const t = STR[lang];
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -118,7 +128,13 @@ export default function ChatApp() {
         })
         .then(
           (body: {
-            messages: { role: string; text: string; image?: ChatImage }[];
+            messages: {
+              role: string;
+              text: string;
+              image?: ChatImage;
+              model?: string;
+              elapsed?: number;
+            }[];
             conclusion?: SessionConclusion | null;
           }) => {
             if (sessionIdRef.current !== id) return;
@@ -128,6 +144,8 @@ export default function ChatApp() {
                 role: message.role === "model" ? "model" : "user",
                 text: message.text,
                 image: message.image,
+                model: message.model,
+                elapsed: message.elapsed,
               }))
             );
             setSummary(
@@ -156,14 +174,20 @@ export default function ChatApp() {
       const local = getGuestSession(id);
       if (local) {
         sessionIdRef.current = id;
-        setMessages(
-          local.messages.map((message) => ({
+        Promise.all(
+          local.messages.map(async (message) => ({
             id: nextId++,
-            role: message.role === "model" ? "model" : "user",
+            role: (message.role === "model" ? "model" : "user") as "user" | "model",
             text: message.text,
-            image: message.image,
+            image:
+              message.image ??
+              (message.imageKey ? await getGuestImage(message.imageKey) : undefined),
+            model: message.model,
+            elapsed: message.elapsed,
           }))
-        );
+        ).then((hydrated) => {
+          if (sessionIdRef.current === id) setMessages(hydrated);
+        });
         setSummary(
           local.conclusion
             ? {
@@ -226,7 +250,9 @@ export default function ChatApp() {
       setMessages((prev) => [...prev, userMessage, modelMessage]);
       setSending(true);
 
+      let elapsedValue = 0;
       let elapsedTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
+        elapsedValue += 1;
         setMessages((prev) =>
           prev.map((message) =>
             message.id === modelMessage.id
@@ -239,8 +265,17 @@ export default function ChatApp() {
       if (sessionId) {
         if (authed) {
           persistMessage(sessionId, { role: "user", text, image });
+        } else if (image) {
+          const key = `${sessionId}:${userMessage.id}`;
+          const stored = await putGuestImage(key, image);
+          appendGuestMessage(sessionId, {
+            role: "user",
+            text,
+            image: stored ? undefined : image,
+            imageKey: stored ? key : undefined,
+          });
         } else {
-          appendGuestMessage(sessionId, { role: "user", text, image });
+          appendGuestMessage(sessionId, { role: "user", text });
         }
       }
 
@@ -254,6 +289,7 @@ export default function ChatApp() {
           body: JSON.stringify({
             messages: history,
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            language: lang,
           }),
           signal: controller.signal,
         });
@@ -324,9 +360,19 @@ export default function ChatApp() {
         );
         if (sessionId) {
           if (authed) {
-            persistMessage(sessionId, { role: "model", text: modelText });
+            persistMessage(sessionId, {
+              role: "model",
+              text: modelText,
+              model: modelName,
+              elapsed: elapsedValue,
+            });
           } else {
-            appendGuestMessage(sessionId, { role: "model", text: modelText });
+            appendGuestMessage(sessionId, {
+              role: "model",
+              text: modelText,
+              model: modelName,
+              elapsed: elapsedValue,
+            });
           }
         }
       } catch (error) {
@@ -351,7 +397,7 @@ export default function ChatApp() {
         abortRef.current = null;
       }
     },
-    [messages, sending, isAuthed, router]
+    [messages, sending, isAuthed, router, lang]
   );
 
   const stop = useCallback(() => {
@@ -416,10 +462,18 @@ export default function ChatApp() {
     <div className="app">
       <header className="header">
         <h1>InsChat</h1>
+        <button
+          type="button"
+          className="lang-toggle"
+          onClick={() => setUiLang(lang === "zh" ? "en" : "zh")}
+          aria-label="Switch language"
+        >
+          {t["lang.button"]}
+        </button>
       </header>
       {loading ? (
         <main className="messages">
-          <p className="empty">Loading conversation…</p>
+          <p className="empty">{t["records.loading"]}</p>
         </main>
       ) : (
         <MessageBubble

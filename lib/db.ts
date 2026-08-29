@@ -164,6 +164,8 @@ interface MessageDoc {
   role: "user" | "model";
   text: string;
   image?: ChatImage;
+  model?: string;
+  elapsed?: number;
   createdAt: Date;
 }
 
@@ -183,6 +185,8 @@ function toStoredMessage(doc: MessageDoc): StoredMessage {
     role: doc.role,
     text: doc.text,
     image: doc.image,
+    model: doc.model,
+    elapsed: doc.elapsed,
     createdAt: doc.createdAt.toISOString(),
   };
 }
@@ -251,7 +255,13 @@ export async function setSessionConclusion(
 export async function appendMessage(
   userId: string,
   sessionId: string,
-  input: { role: "user" | "model"; text: string; image?: ChatImage }
+  input: {
+    role: "user" | "model";
+    text: string;
+    image?: ChatImage;
+    model?: string;
+    elapsed?: number;
+  }
 ): Promise<StoredMessage | null> {
   if (!ObjectId.isValid(sessionId)) return null;
   const db = await getDb();
@@ -261,6 +271,8 @@ export async function appendMessage(
     role: input.role,
     text: input.text,
     image: input.image,
+    model: input.model,
+    elapsed: input.elapsed,
     createdAt: now,
   };
   await db.collection<MessageDoc>("messages").insertOne(doc);
