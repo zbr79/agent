@@ -9,6 +9,8 @@ import { STR, useUiLang } from "@/lib/i18n";
 
 const ownerItems = [
   { href: "/", label: "nav.chat" },
+  { href: "/opencode", label: "nav.opencode" },
+  { href: "/opencode-calls", label: "nav.opencodeCalls" },
   { href: "/records", label: "nav.records" },
   { href: "/calls", label: "nav.calls" },
   { href: "/models", label: "nav.models" },
@@ -17,6 +19,8 @@ const ownerItems = [
 
 const guestItems = [
   { href: "/", label: "nav.chat" },
+  { href: "/opencode", label: "nav.opencode" },
+  { href: "/opencode-calls", label: "nav.opencodeCalls" },
   { href: "/records", label: "nav.records" },
   { href: "/usage", label: "nav.usage" },
 ];

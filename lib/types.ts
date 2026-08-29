@@ -50,7 +50,7 @@ export interface SavedRecord {
 
 export interface ApiCall {
   _id: string;
-  kind: "chat" | "conclude" | "health";
+  kind: "chat" | "conclude" | "health" | "opencode";
   model: string;
   ok: boolean;
   error?: string;

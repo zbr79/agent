@@ -44,7 +44,7 @@ function currentTimeLabel(timeZone: string): string {
   }
 }
 
-function getSystemPrompt(timeZone?: string, language?: "zh" | "en"): string {
+export function getSystemPrompt(timeZone?: string, language?: "zh" | "en"): string {
   const zone =
     timeZone && isValidTimeZone(timeZone)
       ? timeZone

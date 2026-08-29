@@ -434,3 +434,47 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 - Bare numbers now default to 血糖 (blood glucose) with the magnitude unit rule — a bare "140" is a glucose reading, not an insulin dose. Insulin template only triggers on explicit insulin context (胰岛素/insulin/注射/units/pen photo).
 - Conclude prompt updated: bare numeric readings extract as 血糖/glucose items; insulin only for explicit insulin replies.
 - Verified: "140" → 血糖: 140 mg/dL + time; "6.1" → 血糖: 6.1 mmol/L; "胰岛素 10 U 早上7点" → insulin template; conclude → {血糖: 140 mg/dL} + 时间.
+
+## 2026-08-29 — OpenCode page: DeepSeek V4 Pro via opencode-go subscription
+
+### Solved
+- opencode-go API verified usable outside the TUI: key from `~/.local/share/opencode/auth.json` (`opencode-go.key`), base `https://opencode.ai/zen/go/v1` (models.dev), OpenAI-compatible `/chat/completions` with SSE streaming; 33 models listed; unknown model → `ModelError ... is not supported` (HTTP 401).
+- New page `/opencode` (`app/opencode/page.tsx` + `components/OpenCodeChat.tsx`): in-memory text-only chat pinned to `deepseek-v4-pro`. Reuses MessageBubble/ModelMarkerParser/CSS classes; emits `MODEL:deepseek-v4-pro` marker so model-meta renders. No persistence, no images, no Conclude.
+- New `lib/opencode.ts`: fetch-based client (no SDK) — OpenAI message format (system prompt reuses `getSystemPrompt`, now exported from lib/gemini.ts), SSE parser (yields `delta.content`, ignores `reasoning_content`), logs calls via existing `insertCall` (appears on /calls page). Key from `OPENCODE_API_KEY` env.
+- Request parsing extracted from `app/api/chat/route.ts` into `lib/chatRequest.ts` (parseChatBody: roles/text/image/timezone/language validation); `/api/chat` behavior unchanged (verified markers+response after refactor).
+- nginx: POST to the new route fell through `location /` (GET/HEAD/OPTIONS only → 405). Added a `location /api/opencode` block mirroring `/api/chat` (POST|OPTIONS, proxy_buffering off, 300s timeouts) to /etc/nginx/conf.d/inschat.renstoolbox.com.conf (backup `.bak-20260829`). Verified public POST reaches the app (400 on empty body = app-level).
+- E2E verified on the public site (headless chromium): nav link + active state, empty hint, send → user bubble + "hello from opencode" + `2s · deepseek-v4-pro` meta; layout geometry OK (no overflow).
+
+### Unresolved
+- Vision support for deepseek-v4-pro untested; page is text-only by design. `deepseek-v4-flash-vision-exp` exists on the catalog if images are ever needed.
+- Subscription rate limits unknown; single attempt, error streamed into the bubble (no fallback chain on this page).
+
+### Disproved
+- Assumed the Go API base was `https://api.opencode.ai/v1` — returns "Not Found". Correct base is `https://opencode.ai/zen/go/v1` (models.dev provider registry).
+
+## 2026-08-29 — OpenCode calls/usage page (usage count)
+
+### Solved
+- New page `/opencode-calls` + API `/api/opencode-calls`: counts of this app's opencode-go calls from MongoDB (`calls` collection, new kind "opencode" — added to `ApiCall`/`CallDoc`/`insertCall` unions; `lib/opencode.ts` now logs with kind "opencode").
+- `lib/db.ts:getOpenCodeUsage()`: total, 5h/7d/30d window counts, failed-30d, per-model 30d counts, 50 most recent calls (aggregate + countDocuments in parallel).
+- UI (`components/OpenCodeCallsPanel.tsx`): 3 progress cards vs. DeepSeek V4 Pro request estimates from the Go docs (1,050 / 2,600 / 5,200), total+failed card, per-model table, recent calls list, note card (dollar-based limits, console at opencode.ai/auth). i18n zh/en strings + sidebar nav item for both roles.
+- nginx gotcha: `location /api/opencode` is a PREFIX match and also swallowed `/api/opencode-calls` (GET → 405 because the block allows POST|OPTIONS only). Fixed with an exact match: `location = /api/opencode` (nginx -t + reload, both routes verified).
+
+### Unresolved
+- Go subscription has no usage API — the page tracks only this app's own calls; the authoritative counter is the opencode.ai/auth console.
+
+### Disproved
+- Assumed GET /api/opencode-calls would fall through nginx `location /` (GET allowed) — but nginx prefix matching routed it into the /api/opencode block first.
+
+## 2026-08-29 — Official Go quota API found, wired into /opencode-calls
+
+### Solved
+- Previous claim "opencode has no usage API" was WRONG. Official endpoint exists: `GET https://opencode.ai/zen/go/v1/usage` (Bearer = the Go API key) → `{usage:{rolling,weekly,monthly}}` each with `status/percent/resetsAt`. Verified live: rolling 36%, weekly 54%, monthly 77% (dollar-based windows: $12/5h, $30/wk, $60/mo). Sources: GitHub PR #16513 (feat(console): add go usage endpoint), issue #16017, docs guide opencode.ai/console/guides/usage (console CSV export for history; `/zen/go/v1/usage/history` is still only a feature request #43983).
+- `lib/opencode.ts:getOpenCodeOfficialUsage()` — fetches the endpoint, validates the three windows, 60s in-memory cache (page polls every 5s; don't hammer the endpoint), returns null on failure.
+- `/api/opencode-calls` now returns app counts (MongoDB) + `official` windows; panel shows an official-quota card (percent bars + reset times) above the app's own counts. i18n zh/en strings added; about-note updated.
+
+### Unresolved
+- No per-request usage history via the API key yet (only the aggregate windows); history exists only in the console UI / CSV export (service-account keys only).
+
+### Disproved
+- `GET /zen/v1/usage`, `opencode.ai/api/usage`, `api.opencode.ai/v1/usage` — all 404; the working path is `/zen/go/v1/usage`.

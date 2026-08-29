@@ -99,7 +99,7 @@ export async function deleteRecord(userId: string, id: string): Promise<boolean>
 
 interface CallDoc {
   _id?: ObjectId;
-  kind: "chat" | "conclude" | "health";
+  kind: "chat" | "conclude" | "health" | "opencode";
   model: string;
   ok: boolean;
   error?: string;
@@ -118,7 +118,7 @@ export function toApiCall(doc: CallDoc): ApiCall {
 }
 
 export async function insertCall(input: {
-  kind: "chat" | "conclude" | "health";
+  kind: "chat" | "conclude" | "health" | "opencode";
   model: string;
   ok: boolean;
   error?: string;
@@ -147,6 +147,61 @@ export async function countCalls(): Promise<{ total: number; failed: number }> {
     collection.countDocuments({ ok: false }),
   ]);
   return { total, failed };
+}
+
+export interface OpenCodeUsage {
+  total: number;
+  last5h: number;
+  last7d: number;
+  last30d: number;
+  failed30d: number;
+  models: { model: string; count: number }[];
+  recent: ApiCall[];
+}
+
+export async function getOpenCodeUsage(): Promise<OpenCodeUsage> {
+  const db = await getDb();
+  const collection = db.collection<CallDoc>("calls");
+  const now = new Date();
+  const since5h = new Date(now.getTime() - 5 * 3600_000);
+  const since7d = new Date(now.getTime() - 7 * 86400_000);
+  const since30d = new Date(now.getTime() - 30 * 86400_000);
+  const [total, failed30d, last5h, last7d, last30d, byModel, recent] =
+    await Promise.all([
+      collection.countDocuments({ kind: "opencode" }),
+      collection.countDocuments({
+        kind: "opencode",
+        ok: false,
+        at: { $gte: since30d },
+      }),
+      collection.countDocuments({ kind: "opencode", at: { $gte: since5h } }),
+      collection.countDocuments({ kind: "opencode", at: { $gte: since7d } }),
+      collection.countDocuments({ kind: "opencode", at: { $gte: since30d } }),
+      collection
+        .aggregate<{ _id: string; count: number }>([
+          { $match: { kind: "opencode", at: { $gte: since30d } } },
+          { $group: { _id: "$model", count: { $sum: 1 } } },
+          { $sort: { count: -1 } },
+        ])
+        .toArray(),
+      collection
+        .find({ kind: "opencode" })
+        .sort({ at: -1 })
+        .limit(50)
+        .toArray(),
+    ]);
+  return {
+    total,
+    last5h,
+    last7d,
+    last30d,
+    failed30d,
+    models: byModel.map((row) => ({
+      model: row._id ?? "unknown",
+      count: row.count,
+    })),
+    recent: recent.map(toApiCall),
+  };
 }
 
 interface SessionDoc {
