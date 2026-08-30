@@ -400,6 +400,37 @@ export async function appendMessage(
   return toStoredMessage(doc);
 }
 
+// Revert: keep the first `keep` messages of the session, delete the rest.
+export async function truncateMessages(
+  userId: string,
+  sessionId: string,
+  keep: number
+): Promise<number> {
+  if (!ObjectId.isValid(sessionId) || keep < 0) return 0;
+  const db = await getDb();
+  const session = await db
+    .collection<SessionDoc>("sessions")
+    .findOne({ _id: new ObjectId(sessionId), userId: new ObjectId(userId) });
+  if (!session) return 0;
+  const docs = await db
+    .collection<MessageDoc>("messages")
+    .find({ sessionId: new ObjectId(sessionId) })
+    .sort({ createdAt: 1 })
+    .toArray();
+  const removed = docs.slice(keep);
+  if (removed.length === 0) return 0;
+  await db
+    .collection<MessageDoc>("messages")
+    .deleteMany({ _id: { $in: removed.map((doc) => doc._id) } });
+  await db
+    .collection<SessionDoc>("sessions")
+    .updateOne(
+      { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
+      { $set: { updatedAt: new Date(), conclusion: null } }
+    );
+  return removed.length;
+}
+
 export async function deleteSession(userId: string, id: string): Promise<boolean> {
   if (!ObjectId.isValid(id)) return false;
   const db = await getDb();

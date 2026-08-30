@@ -623,3 +623,17 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 
 ### Disproved
 - n/a
+
+## 2026-08-30 — Conversation revert (opencode-style)
+
+### Solved
+- Added "↩ revert to this message": every message except the last gets a hover-reveal circular button (always faintly visible on touch devices). Clicking truncates the conversation to that message — locally, and persisted.
+- Persistence: authed → new `DELETE /api/sessions/[id]/messages` with `{ keep: n }` (`lib/db.ts:truncateMessages` deletes messages after the first n and clears the session conclusion); guests → `truncateGuestSession` (localStorage). `keep` counts only persisted messages (user messages always persist; model messages only when not failed) so local state and server state stay in sync.
+- Revert also clears the stored conclusion on both paths.
+- Verified E2E (guest): 3 turns → revert to message 2 → bubbles truncated to 2, survives page reload (localStorage).
+
+### Unresolved
+- Authed path verified by code review only (no test login credentials); DELETE route returns { removed }.
+
+### Disproved
+- Absolute-positioned hover button overflowed the 4px message padding — moved to in-flow inside message-body instead.

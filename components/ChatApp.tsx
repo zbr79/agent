@@ -17,6 +17,7 @@ import {
   createGuestSession,
   getGuestSession,
   setGuestConclusion,
+  truncateGuestSession,
 } from "@/lib/guestStore";
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
 import { STR, useUiLang } from "@/lib/i18n";
@@ -421,6 +422,36 @@ export default function ChatApp() {
     [isAuthed]
   );
 
+  // Revert: drop everything after the chosen message (locally + persisted).
+  const revertTo = useCallback(
+    async (id: number) => {
+      if (sending) return;
+      const index = messages.findIndex((message) => message.id === id);
+      if (index < 0 || index >= messages.length - 1) return;
+      const kept = messages.slice(0, index + 1);
+      // Only successfully persisted messages count toward the server's list:
+      // user messages always persist; model messages persist only when ok.
+      const keep = kept.filter(
+        (message) => message.role === "user" || !message.failed
+      ).length;
+      setMessages(kept);
+      setSummary(null);
+      const sessionId = sessionIdRef.current;
+      if (!sessionId) return;
+      if (isAuthed) {
+        fetch(`/api/sessions/${sessionId}/messages`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keep }),
+        }).catch(() => {});
+        persistConclusion(null);
+      } else {
+        truncateGuestSession(sessionId, keep);
+      }
+    },
+    [messages, sending, isAuthed, persistConclusion]
+  );
+
   const concludeAll = useCallback(async () => {
     if (concluding || sending) return;
     const sourceText = messages
@@ -469,6 +500,8 @@ export default function ChatApp() {
           messages={messages}
           guest={isAuthed === false}
           summary={summary}
+          onRevert={revertTo}
+          canRevert={!sending}
         />
       )}
       <div className="conclude-bar">

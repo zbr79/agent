@@ -611,6 +611,38 @@ body {
   color: inherit;
 }
 
+.revert-button {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.message:hover .revert-button {
+  opacity: 1;
+}
+
+.revert-button:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+@media (hover: none) {
+  .revert-button {
+    opacity: 0.45;
+  }
+}
+
 .bubble h1,
 .bubble h2,
 .bubble h3 {

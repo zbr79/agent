@@ -111,6 +111,16 @@ export function setGuestConclusion(
   writeSessions(sessions);
 }
 
+export function truncateGuestSession(sessionId: string, keep: number): void {
+  const sessions = readJson<GuestSession[]>(SESSIONS_KEY, []);
+  const target = sessions.find((session) => session.id === sessionId);
+  if (!target) return;
+  target.messages = target.messages.slice(0, keep);
+  target.conclusion = null;
+  target.updatedAt = Date.now();
+  writeSessions(sessions);
+}
+
 export function deleteGuestSession(id: string): void {
   writeSessions(
     readJson<GuestSession[]>(SESSIONS_KEY, []).filter((session) => session.id !== id)

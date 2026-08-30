@@ -39,10 +39,14 @@ export default function MessageBubble({
   messages,
   guest = false,
   summary = null,
+  onRevert,
+  canRevert = true,
 }: {
   messages: Message[];
   guest?: boolean;
   summary?: { result: ConcludeResult; sourceText: string } | null;
+  onRevert?: (id: number) => void;
+  canRevert?: boolean;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const [viewer, setViewer] = useState<string | null>(null);
@@ -123,6 +127,17 @@ export default function MessageBubble({
                 )}
                 <span>{message.model}</span>
               </div>
+            )}
+            {onRevert && canRevert && index < messages.length - 1 && (
+              <button
+                type="button"
+                className="revert-button"
+                title={t["messages.revert"]}
+                aria-label={t["messages.revert"]}
+                onClick={() => onRevert(message.id)}
+              >
+                ↩
+              </button>
             )}
           </div>
         </div>

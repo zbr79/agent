@@ -1,4 +1,4 @@
-import { appendMessage } from "@/lib/db";
+import { appendMessage, truncateMessages } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -76,6 +76,41 @@ export async function POST(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Could not save the message.";
+    return Response.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await requireUser(req);
+  if (auth instanceof Response) return auth;
+  const { id } = await params;
+
+  let keep: number;
+  try {
+    const body: unknown = await req.json();
+    const rawKeep = body && typeof body === "object"
+      ? (body as { keep?: unknown }).keep
+      : undefined;
+    if (typeof rawKeep !== "number" || !Number.isInteger(rawKeep) || rawKeep < 1) {
+      throw new Error('"keep" must be a positive integer.');
+    }
+    keep = rawKeep;
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Invalid request body." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const removed = await truncateMessages(auth._id, id, keep);
+    return Response.json({ removed });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Could not revert messages.";
     return Response.json({ error: message }, { status: 500 });
   }
 }
