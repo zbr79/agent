@@ -37,17 +37,6 @@ function percent(used: number, limit: number): number {
   return Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
 }
 
-function resetLabel(resetsAt: string): string {
-  const date = new Date(resetsAt);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export default function OpenCodeCallsPanel() {
   const [data, setData] = useState<OpenCodeUsageData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,47 +78,6 @@ export default function OpenCodeCallsPanel() {
       <p className="usage-sub">{t["opencodeCalls.sub"]}</p>
 
       {error && <p className="conclusion-error">{error}</p>}
-
-      <section className="usage-card">
-        <span className="usage-title">{t["opencodeCalls.official"]}</span>
-        <p className="usage-sub">{t["opencodeCalls.officialSub"]}</p>
-        {data?.official ? (
-          <>
-            {(
-              [
-                ["rolling", t["opencodeCalls.rolling"]],
-                ["weekly", t["opencodeCalls.weekly"]],
-                ["monthly", t["opencodeCalls.monthly"]],
-              ] as const
-            ).map(([key, label]) => {
-              const window = data.official?.[key];
-              if (!window) return null;
-              const pct = Math.min(100, Math.round(window.percent));
-              return (
-                <div key={key} className="usage-window">
-                  <div className="usage-head">
-                    <span className="usage-title">{label}</span>
-                    <span className="usage-big">{pct}%</span>
-                  </div>
-                  <div className="usage-track large">
-                    <div
-                      className={`usage-fill ${pct >= 90 ? "warn" : ""}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <div className="usage-meta">
-                    <span>
-                      {t["opencodeCalls.resets"]} {resetLabel(window.resetsAt)}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </>
-        ) : (
-          <p className="usage-sub">{t["opencodeCalls.officialUnavailable"]}</p>
-        )}
-      </section>
 
       <section className="usage-card">
         <div className="usage-head">

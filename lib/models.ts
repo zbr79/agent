@@ -4,35 +4,43 @@ import path from "node:path";
 export interface ModelInfo {
   name: string;
   label: string;
-  tier: "lite" | "pro" | "omni";
-  vision: "yes" | "unverified";
+  tier: "pro" | "flash";
+  vision: boolean;
   retired?: boolean;
 }
 
-// Catalog of chat models returned by the models.list API on 2026-08-27,
-// annotated with results of the image-support probe run that day:
-// - vision "yes": returned a valid answer to a test image.
-// - vision "unverified": blocked by daily quota (pro/omni) or intermittent
-//   503 capacity at probe time — almost certainly multimodal, not confirmed.
-// Retired models (404 at probe time: gemini-2.5-*, gemini-3.1-flash-live-preview,
-// gemini-3.5-live-translate-preview) were removed from the catalog on 2026-08-28.
-// The health probe still classifies any live 404 as "retired" so the UI hides
-// newly retired models automatically.
+// opencode-go catalog: models reachable through the OpenAI-compatible
+// /chat/completions endpoint of https://opencode.ai/zen/go/v1.
+// Vision flags come from vendor documentation research (2026-08-29):
+// only models with documented image input are marked vision: true.
+// Models served only via /responses (grok-*, gpt-5.6-luna,
+// muse-spark-1.2-contributor) or /messages (minimax-*, qwen3.8-*)
+// are excluded from this catalog.
 export const CHAT_MODELS: ModelInfo[] = [
-  { name: "gemini-3.6-flash", label: "Gemini 3.6 Flash", tier: "lite", vision: "yes" },
-  { name: "gemini-3.5-flash", label: "Gemini 3.5 Flash", tier: "lite", vision: "unverified" },
-  { name: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite", tier: "lite", vision: "yes" },
-  { name: "gemini-3.7-flash", label: "Gemini 3.7 Flash", tier: "lite", vision: "unverified" },
-  { name: "gemini-flash-latest", label: "Gemini Flash (latest)", tier: "lite", vision: "unverified" },
-  { name: "gemini-flash-lite-latest", label: "Gemini Flash Lite (latest)", tier: "lite", vision: "yes" },
-  { name: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview", tier: "lite", vision: "yes" },
-  { name: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite", tier: "lite", vision: "yes" },
-  { name: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite Preview", tier: "lite", vision: "yes" },
-  { name: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview", tier: "pro", vision: "unverified" },
-  { name: "gemini-3.1-pro-preview-customtools", label: "Gemini 3.1 Pro Preview (customtools)", tier: "pro", vision: "unverified" },
-  { name: "gemini-pro-latest", label: "Gemini Pro (latest)", tier: "pro", vision: "unverified" },
-  { name: "gemini-omni-flash-preview", label: "Gemini Omni Flash Preview", tier: "omni", vision: "unverified" },
-  { name: "gemini-omni-1.1-flash", label: "Gemini Omni 1.1 Flash", tier: "omni", vision: "unverified" },
+  { name: "deepseek-v4-pro", label: "DeepSeek V4 Pro", tier: "pro", vision: false },
+  { name: "deepseek-v4-flash", label: "DeepSeek V4 Flash", tier: "flash", vision: false },
+  { name: "deepseek-v4-flash-vision-exp", label: "DeepSeek V4 Flash Vision Exp", tier: "flash", vision: true },
+  { name: "glm-5.3", label: "GLM-5.3", tier: "pro", vision: false },
+  { name: "glm-5.3-flash", label: "GLM-5.3 Flash", tier: "flash", vision: true },
+  { name: "glm-5.2", label: "GLM-5.2", tier: "pro", vision: false },
+  { name: "glm-5.1", label: "GLM-5.1", tier: "pro", vision: false },
+  { name: "glm-5", label: "GLM-5", tier: "pro", vision: false },
+  { name: "kimi-k3", label: "Kimi K3", tier: "pro", vision: true },
+  { name: "kimi-k2.7-code", label: "Kimi K2.7 Code", tier: "pro", vision: true },
+  { name: "kimi-k2.6", label: "Kimi K2.6", tier: "pro", vision: true },
+  { name: "kimi-k2.5", label: "Kimi K2.5", tier: "pro", vision: true },
+  { name: "longcat-2.0", label: "LongCat-2.0", tier: "flash", vision: false },
+  { name: "mimo-v2.5-pro", label: "MiMo-V2.5-Pro", tier: "pro", vision: true },
+  { name: "mimo-v2.5", label: "MiMo-V2.5", tier: "flash", vision: true },
+  { name: "mimo-v2-omni", label: "MiMo-V2-Omni", tier: "pro", vision: true },
+  { name: "mimo-v2-pro", label: "MiMo-V2-Pro", tier: "pro", vision: false },
+  { name: "qwen3.7-max", label: "Qwen3.7 Max", tier: "pro", vision: true },
+  { name: "qwen3.7-plus", label: "Qwen3.7 Plus", tier: "pro", vision: true },
+  { name: "qwen3.6-plus", label: "Qwen3.6 Plus", tier: "pro", vision: true },
+  { name: "qwen3.5-plus", label: "Qwen3.5 Plus", tier: "pro", vision: true },
+  { name: "hy4-preview", label: "Hy4 Preview", tier: "pro", vision: false },
+  { name: "hy3", label: "Hy3", tier: "flash", vision: false },
+  { name: "hy3-preview", label: "Hy3 Preview", tier: "flash", vision: false },
 ];
 
 export function findModel(name: string): ModelInfo | undefined {
@@ -44,47 +52,17 @@ const MODEL_FILE = path.join(DATA_DIR, "model.json");
 
 export const AUTO_MODEL = "auto";
 
-// Chat chain: best tier first, falling back one tier at a time.
-// Pro/omni lead (they are paid-only, so on the free tier they fail fast
-// with a free 429 and the chain lands on the first usable flash/lite).
-const CHAT_CHAIN: string[] = [
-  "gemini-3.1-pro-preview",
-  "gemini-3.1-pro-preview-customtools",
-  "gemini-pro-latest",
-  "gemini-omni-flash-preview",
-  "gemini-omni-1.1-flash",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
-  "gemini-3-flash-preview",
-  "gemini-3.7-flash",
-  "gemini-flash-latest",
-  "gemini-3.5-flash-lite",
-  "gemini-flash-lite-latest",
-  "gemini-3.1-flash-lite",
-  "gemini-3.1-flash-lite-preview",
-];
+// Chat chains (opencode-go): text goes pro first with flash as the cheap
+// same-family fallback; images always go to the Go gateway's only officially
+// image-billed model.
+export const TEXT_CHAIN: string[] = ["deepseek-v4-pro", "deepseek-v4-flash"];
+export const IMAGE_CHAIN: string[] = ["deepseek-v4-flash-vision-exp"];
 
-// Conclude chain: lowest tier first, moving up only when one is exhausted
-// (Conclude is pure text — lite models are enough).
-const CONCLUDE_CHAIN: string[] = [
-  "gemini-flash-lite-latest",
-  "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite",
-  "gemini-3.1-flash-lite-preview",
-  "gemini-3-flash-preview",
-  "gemini-3.5-flash",
-  "gemini-3.6-flash",
-  "gemini-3.7-flash",
-  "gemini-flash-latest",
-  "gemini-omni-flash-preview",
-  "gemini-omni-1.1-flash",
-  "gemini-3.1-pro-preview",
-  "gemini-3.1-pro-preview-customtools",
-  "gemini-pro-latest",
-];
+// Conclude chain: cheapest reliable text model first, then the stronger one.
+const CONCLUDE_CHAIN: string[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
 
 function filterChain(chain: string[]): string[] {
-  return chain.filter((name) => findModel(name));
+  return chain.filter((name) => findModel(name) && !findModel(name)?.retired);
 }
 
 export function defaultModel(): string {
@@ -115,15 +93,15 @@ export function setActiveModel(model: string): void {
   fs.writeFileSync(MODEL_FILE, JSON.stringify({ model }));
 }
 
-// Chat: in auto mode use the whole best→lowest chain; a manually pinned
-// model runs alone (no fallback).
-export function getChatChain(): string[] {
+// Images always route to the vision model; a manually pinned model applies
+// to text-only requests. In auto mode, text uses the pro→flash chain.
+export function getChatChain(hasImage: boolean): string[] {
+  if (hasImage) return filterChain(IMAGE_CHAIN);
   const selected = getActiveModel();
-  if (selected === AUTO_MODEL) return filterChain(CHAT_CHAIN);
+  if (selected === AUTO_MODEL) return filterChain(TEXT_CHAIN);
   return [selected];
 }
 
-// Conclude: lowest tier first; CONCLUDE_MODEL (if valid) jumps the queue.
 export function getConcludeChain(): string[] {
   const chain = filterChain(CONCLUDE_CHAIN);
   const preferred = process.env.CONCLUDE_MODEL;

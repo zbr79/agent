@@ -35,8 +35,8 @@ export default function CallsPanel() {
     <div className="usage-page">
       <h2>API Calls</h2>
       <p className="usage-sub">
-        Every Gemini call this app makes, logged in MongoDB — Google offers no
-        usage API, so this is our own record. Newest first.
+        Every API call this app makes, logged in MongoDB — our own record of
+        what the models did. Newest first.
       </p>
 
       {error && <p className="conclusion-error">{error}</p>}

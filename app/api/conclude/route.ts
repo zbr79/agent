@@ -1,5 +1,5 @@
 import { concludeMessage } from "@/lib/conclude";
-import { ChatValidationError } from "@/lib/gemini";
+import { ChatValidationError } from "@/lib/errors";
 
 export const runtime = "nodejs";
 

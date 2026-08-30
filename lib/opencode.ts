@@ -1,10 +1,14 @@
-import { ChatValidationError, getSystemPrompt } from "./gemini";
-import { encodeModelMarker } from "./markers";
+import { ChatValidationError } from "./errors";
+import { getSystemPrompt } from "./prompt";
+import { encodeModelMarker, encodeTryingMarker } from "./markers";
+import { getChatChain } from "./models";
 import { insertCall } from "./db";
-import type { ChatMessage } from "./types";
+import { fetchPageText } from "./webfetch";
+import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, type ChatMessage } from "./types";
 
 export const OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const OPENCODE_MODEL = "deepseek-v4-pro";
+export const OPENCODE_VISION_MODEL = "deepseek-v4-flash-vision-exp";
 
 export function getOpenCodeKey(): string {
   const key = process.env.OPENCODE_API_KEY;
@@ -14,6 +18,21 @@ export function getOpenCodeKey(): string {
     );
   }
   return key;
+}
+
+export function isQuotaError(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error);
+  return /429|RESOURCE_EXHAUSTED|rate limit|quota/i.test(message);
+}
+
+export function isUnavailableError(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error);
+  return /404|not found|not supported|does not exist|ModelError|retired/i.test(message);
+}
+
+export function isOverloadedError(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error);
+  return /503|overloaded|capacity/i.test(message);
 }
 
 export interface OpenCodeUsageWindow {
@@ -58,89 +77,181 @@ export async function getOpenCodeOfficialUsage(): Promise<OpenCodeOfficialUsage 
   }
 }
 
+interface OpenAiContentPart {
+  type: "text" | "image_url";
+  text?: string;
+  image_url?: { url: string };
+}
+
+interface ToolCallWire {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
 interface OpenAiMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | OpenAiContentPart[];
+  tool_calls?: ToolCallWire[];
+  tool_call_id?: string;
 }
 
 function toOpenAiMessages(
   messages: ChatMessage[],
   timeZone?: string,
-  language?: "zh" | "en"
+  language?: "zh" | "en",
+  systemPrompt?: string
 ): OpenAiMessage[] {
   const out: OpenAiMessage[] = [
-    { role: "system", content: getSystemPrompt(timeZone, language) },
+    { role: "system", content: systemPrompt ?? getSystemPrompt(timeZone, language) },
   ];
   for (const message of messages) {
+    const role = message.role === "model" ? "assistant" : "user";
     if (message.image) {
-      throw new ChatValidationError(
-        "The OpenCode page is text-only; images are not supported."
-      );
+      const mimeType = message.image.mimeType.toLowerCase();
+      if (!ALLOWED_IMAGE_TYPES.includes(mimeType)) {
+        throw new ChatValidationError(
+          `Unsupported image type: ${mimeType}. Allowed: JPEG, PNG, WebP.`
+        );
+      }
+      const bytes = Math.floor((message.image.data.length * 3) / 4);
+      if (bytes > MAX_IMAGE_BYTES) {
+        throw new ChatValidationError("Image is too large. Max size is 5 MB.");
+      }
+      const parts: OpenAiContentPart[] = [];
+      if (message.text.trim()) {
+        parts.push({ type: "text", text: message.text });
+      }
+      parts.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${message.image.mimeType};base64,${message.image.data}`,
+        },
+      });
+      out.push({ role, content: parts });
+      continue;
     }
     if (!message.text.trim()) continue;
-    out.push({
-      role: message.role === "model" ? "assistant" : "user",
-      content: message.text,
-    });
+    out.push({ role, content: message.text });
   }
   return out;
 }
 
+const WEB_FETCH_TOOL = {
+  type: "function",
+  function: {
+    name: "web_fetch",
+    description:
+      "Fetch a web page and return its readable text (up to 8000 characters). Use it to check live information: current prices, documentation, news, anything you cannot answer reliably from memory. Provide the full https URL.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "The full URL to fetch, e.g. https://api-docs.deepseek.com/quick_start/pricing",
+        },
+      },
+      required: ["url"],
+    },
+  },
+};
+
+interface DeltaToolCall {
+  index?: number;
+  id?: string;
+  type?: string;
+  function?: { name?: string; arguments?: string };
+}
+
 interface OpenAiChunk {
-  choices?: { delta?: { content?: string | null } }[];
+  choices?: {
+    delta?: { content?: string | null; tool_calls?: DeltaToolCall[] };
+    finish_reason?: string | null;
+  }[];
   error?: { message?: string };
 }
 
-export async function* streamOpenCodeChat(
-  messages: ChatMessage[],
-  timeZone?: string,
-  language?: "zh" | "en"
-): AsyncGenerator<string> {
-  const requestId = Math.random().toString(36).slice(2, 8);
-  const body = {
-    model: OPENCODE_MODEL,
-    messages: toOpenAiMessages(messages, timeZone, language),
-    stream: true,
-    temperature: 0.7,
-  };
-  console.log(`[opencode:${requestId}] start — ${body.messages.length} messages`);
+interface OpenAiCompletion {
+  choices?: { message?: { content?: string | null } }[];
+  error?: { message?: string };
+}
 
-  const response = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
+interface ToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+async function postCompletion(
+  model: string,
+  body: Record<string, unknown>,
+  timeoutMs: number
+): Promise<Response> {
+  return fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${getOpenCodeKey()}`,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
+}
+
+function errorFromResponse(status: number, text: string): Error {
+  let message = `OpenCode request failed (HTTP ${status}).`;
+  try {
+    const parsed = JSON.parse(text) as OpenAiChunk;
+    if (parsed.error?.message) message = parsed.error.message;
+  } catch {}
+  return new Error(message);
+}
+
+// One streaming round: yields content tokens and returns accumulated tool
+// calls (via the generator return value).
+async function* streamOpenCodeOnce(
+  messages: OpenAiMessage[],
+  model: string,
+  tools: boolean
+): AsyncGenerator<string, { toolCalls: ToolCall[] }, void> {
+  const requestId = Math.random().toString(36).slice(2, 8);
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    stream: true,
+    temperature: 0.7,
+    reasoning_effort: "max",
+  };
+  if (tools) body.tools = [WEB_FETCH_TOOL];
+  const startedAt = Date.now();
+  console.log(
+    `[opencode:${requestId}] start — model ${model}, ${messages.length} messages${tools ? ", tools on" : ""}`
+  );
+
+  const response = await postCompletion(model, body, 120_000);
 
   if (!response.ok || !response.body) {
     const text = await response.text().catch(() => "");
-    let message = `OpenCode request failed (HTTP ${response.status}).`;
-    try {
-      const parsed = JSON.parse(text) as OpenAiChunk;
-      if (parsed.error?.message) message = parsed.error.message;
-    } catch {}
+    const error = errorFromResponse(response.status, text);
     insertCall({
       kind: "opencode",
-      model: OPENCODE_MODEL,
+      model,
       ok: false,
-      error: message.slice(0, 300),
+      error: error.message.slice(0, 300),
     }).catch(() => {});
-    throw new Error(message);
+    throw error;
   }
 
-  yield encodeModelMarker(OPENCODE_MODEL);
-  console.log(
-    `[opencode:${requestId}] connected ${OPENCODE_MODEL}, waiting for first token`
-  );
+  yield encodeModelMarker(model);
+  console.log(`[opencode:${requestId}] connected ${model}, waiting for first token`);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let produced = false;
+  let firstTokenAt: number | null = null;
   let failed: Error | null = null;
+  const toolAcc: Record<number, { id: string; name: string; args: string }> = {};
 
   try {
     while (true) {
@@ -163,9 +274,20 @@ export async function* streamOpenCodeChat(
         if (chunk.error?.message) {
           throw new Error(chunk.error.message);
         }
-        const text = chunk.choices?.[0]?.delta?.content;
+        const delta = chunk.choices?.[0]?.delta;
+        for (const tc of delta?.tool_calls ?? []) {
+          const tIdx = tc.index ?? 0;
+          const acc = (toolAcc[tIdx] ??= { id: "", name: "", args: "" });
+          if (tc.id) acc.id = tc.id;
+          if (tc.function?.name) acc.name = tc.function.name;
+          if (tc.function?.arguments) acc.args += tc.function.arguments;
+        }
+        const text = delta?.content;
         if (text) {
-          produced = true;
+          if (!produced) {
+            produced = true;
+            firstTokenAt = Date.now();
+          }
           yield text;
         }
       }
@@ -174,10 +296,17 @@ export async function* streamOpenCodeChat(
     failed = error instanceof Error ? error : new Error(String(error));
   }
 
+  const totalMs = Date.now() - startedAt;
+  const toolCalls: ToolCall[] = Object.values(toolAcc).map((acc) => ({
+    id: acc.id,
+    name: acc.name,
+    arguments: acc.args,
+  }));
+
   if (failed) {
     insertCall({
       kind: "opencode",
-      model: OPENCODE_MODEL,
+      model,
       ok: false,
       error: failed.message.slice(0, 300),
     }).catch(() => {});
@@ -186,16 +315,174 @@ export async function* streamOpenCodeChat(
     );
     throw failed;
   }
-  if (!produced) {
+  if (!produced && toolCalls.length === 0) {
     const error = new Error("OpenCode stream ended with no content.");
     insertCall({
       kind: "opencode",
-      model: OPENCODE_MODEL,
+      model,
       ok: false,
       error: error.message,
     }).catch(() => {});
     throw error;
   }
-  insertCall({ kind: "opencode", model: OPENCODE_MODEL, ok: true }).catch(() => {});
-  console.log(`[opencode:${requestId}] done — answered by ${OPENCODE_MODEL}`);
+  const ttfbMs = firstTokenAt ? firstTokenAt - startedAt : totalMs;
+  insertCall({ kind: "opencode", model, ok: true }).catch(() => {});
+  console.log(
+    `[opencode:${requestId}] done — ${model}: first token ${ttfbMs}ms, total ${totalMs}ms, ${toolCalls.length} tool calls`
+  );
+  return { toolCalls };
+}
+
+async function executeTool(
+  requestId: string,
+  call: ToolCall
+): Promise<OpenAiMessage> {
+  let text: string;
+  if (call.name === "web_fetch") {
+    let url: string | undefined;
+    try {
+      url = (JSON.parse(call.arguments) as { url?: unknown }).url as
+        | string
+        | undefined;
+    } catch {}
+    if (typeof url !== "string" || !url) {
+      text = "web_fetch failed: missing url argument.";
+    } else {
+      const result = await fetchPageText(url);
+      text = result.ok
+        ? `Fetched ${result.url}:\n${result.text}`
+        : `Fetch failed (${result.error}).`;
+    }
+  } else {
+    text = `Unknown tool: ${call.name}`;
+  }
+  console.log(`[opencode:${requestId}] tool ${call.name} → ${text.slice(0, 120)}`);
+  return {
+    role: "tool",
+    tool_call_id: call.id,
+    content: text.slice(0, 9000),
+  };
+}
+
+const MAX_TOOL_ROUNDS = 6;
+
+// Chat with web_fetch tool use: images → vision model (no tools); text →
+// pinned model or pro→flash chain, with an agent loop for tool calls.
+export async function* streamChat(
+  messages: ChatMessage[],
+  timeZone?: string,
+  language?: "zh" | "en"
+): AsyncGenerator<string> {
+  const hasImage = messages.some((message) => message.image);
+  const useTools = !hasImage;
+  const requestId = Math.random().toString(36).slice(2, 8);
+  let chain = getChatChain(hasImage);
+  let working: OpenAiMessage[] = toOpenAiMessages(messages, timeZone, language);
+  let lastError: unknown = null;
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    let roundDone = false;
+    for (const model of chain) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        let toolCalls: ToolCall[] = [];
+        try {
+          yield encodeTryingMarker(model);
+          const gen = streamOpenCodeOnce(working, model, useTools);
+          while (true) {
+            const { done, value } = await gen.next();
+            if (done) {
+              toolCalls = value?.toolCalls ?? [];
+              break;
+            }
+            yield value as string;
+          }
+        } catch (error) {
+          lastError = error;
+          if (error instanceof ChatValidationError) throw error;
+          if (isQuotaError(error) || isUnavailableError(error)) {
+            console.log(`[opencode:${requestId}] ${model} unavailable → next model`);
+            break;
+          }
+          if (isOverloadedError(error)) {
+            const delay = 1500 * (attempt + 1);
+            console.log(`[opencode:${requestId}] ${model} overloaded → retry in ${delay}ms`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            continue;
+          }
+          throw error;
+        }
+
+        if (toolCalls.length === 0) {
+          return; // final answer already streamed
+        }
+
+        const toolMessages = await Promise.all(
+          toolCalls.map((call) => executeTool(requestId, call))
+        );
+        working = [
+          ...working,
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: toolCalls.map((call) => ({
+              id: call.id,
+              type: "function" as const,
+              function: { name: call.name, arguments: call.arguments },
+            })),
+          },
+          ...toolMessages,
+        ];
+        // Stick with the model that just answered for the next round.
+        chain = [model, ...chain.filter((m) => m !== model)];
+        roundDone = true;
+        break;
+      }
+      if (roundDone) break;
+    }
+    if (!roundDone) {
+      console.log(
+        `[opencode:${requestId}] failed — all ${chain.length} models unavailable`
+      );
+      throw lastError ?? new Error("Chat request failed: all models unavailable.");
+    }
+  }
+
+  throw new Error(
+    `Research stopped after ${MAX_TOOL_ROUNDS} tool rounds — please narrow the question and try again.`
+  );
+}
+
+// Non-streaming completion, used by Conclude and the health probe.
+export async function completeOpenCode(
+  model: string,
+  messages: ChatMessage[],
+  timeZone?: string,
+  language?: "zh" | "en",
+  options?: {
+    maxTokens?: number;
+    json?: boolean;
+    systemPrompt?: string;
+    reasoning?: "none" | "minimal" | "low" | "medium" | "high" | "max";
+  }
+): Promise<string> {
+  const body: Record<string, unknown> = {
+    model,
+    messages: toOpenAiMessages(messages, timeZone, language, options?.systemPrompt),
+    stream: false,
+    temperature: options?.json ? 0.1 : 0.7,
+    reasoning_effort: options?.reasoning ?? "high",
+  };
+  if (options?.maxTokens) body.max_tokens = options.maxTokens;
+  if (options?.json) body.response_format = { type: "json_object" };
+
+  const response = await postCompletion(model, body, 60_000);
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw errorFromResponse(response.status, text);
+  }
+  const data = (await response.json().catch(() => ({}))) as OpenAiCompletion;
+  if (data.error?.message) throw new Error(data.error.message);
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("OpenCode returned an empty response.");
+  return content;
 }

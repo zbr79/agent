@@ -1,7 +1,5 @@
-import { GoogleGenAI, type GenerateContentResponse } from "@google/genai";
-import { getApiKey } from "./gemini";
+import { completeOpenCode, isOverloadedError, isQuotaError, isUnavailableError } from "./opencode";
 import { CHAT_MODELS } from "./models";
-import { recordRequest, recordQuotaCleared, recordQuotaExhausted } from "./usage";
 import { insertCall } from "./db";
 
 export type HealthStatus =
@@ -26,22 +24,19 @@ export interface HealthReport {
 }
 
 const CHECK_PROMPT = "Reply with the single word: ok";
-// Fast probe: thinking off (thinking models answer in <1s with it off);
-// non-thinking models reject thinkingConfig with 400 -> adaptive fallback.
 const TIMEOUT_MS = 20_000;
 
 let cache: { at: number; results: HealthResult[] } | null = null;
 let inflight: Promise<HealthResult[]> | null = null;
 
 function classify(message: string, ms: number, model: string): HealthResult {
-  if (/404|not found|retired|discontinued|does not exist/i.test(message)) {
-    return { model, status: "retired", ms, detail: "404 unavailable" };
+  if (/not supported|does not exist|ModelError/i.test(message)) {
+    return { model, status: "retired", ms, detail: "not on the Go plan" };
   }
-  if (/RESOURCE_EXHAUSTED|429/.test(message)) {
-    recordQuotaExhausted(model);
-    return { model, status: "quota", ms, detail: "daily quota exhausted" };
+  if (isQuotaError({ message })) {
+    return { model, status: "quota", ms, detail: "subscription limit reached" };
   }
-  if (message.includes("503")) {
+  if (isOverloadedError({ message })) {
     return { model, status: "busy", ms, detail: "503 capacity" };
   }
   if (/aborted|timeout/i.test(message)) {
@@ -50,41 +45,20 @@ function classify(message: string, ms: number, model: string): HealthResult {
   return { model, status: "error", ms, detail: message.slice(0, 80) };
 }
 
-async function generateOnce(
-  model: string,
-  signal: AbortSignal,
-  thinkingOff: boolean
-): Promise<GenerateContentResponse> {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const config = thinkingOff
-    ? { maxOutputTokens: 16, thinkingConfig: { thinkingBudget: 0 } }
-    : { maxOutputTokens: 16 };
-  return ai.models.generateContent({
-    model,
-    contents: [{ role: "user", parts: [{ text: CHECK_PROMPT }] }],
-    config: { ...config, abortSignal: signal },
-  });
-}
-
 async function probe(model: string): Promise<HealthResult> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const t0 = Date.now();
   try {
-    let response: GenerateContentResponse;
-    try {
-      response = await generateOnce(model, controller.signal, true);
-    } catch (error) {
-      const message = String(error instanceof Error ? error.message : error);
-      const isBadArgument = message.includes("400") || message.includes("invalid argument");
-      if (!isBadArgument) throw error;
-      response = await generateOnce(model, controller.signal, false);
-    }
+    const text = (
+      await completeOpenCode(
+        model,
+        [{ role: "user", text: CHECK_PROMPT }],
+        undefined,
+        undefined,
+        { maxTokens: 16, reasoning: "none" }
+      )
+    ).trim();
     const ms = Date.now() - t0;
-    recordRequest(model);
-    recordQuotaCleared(model);
     insertCall({ kind: "health", model, ok: true }).catch(() => {});
-    const text = (response.text || "").trim();
     if (!text) {
       return { model, status: "empty", ms, detail: "no text returned" };
     }
@@ -94,12 +68,10 @@ async function probe(model: string): Promise<HealthResult> {
     const message = String(error instanceof Error ? error.message : error);
     insertCall({ kind: "health", model, ok: false, error: message.slice(0, 300) }).catch(() => {});
     return classify(message, ms, model);
-  } finally {
-    clearTimeout(timer);
   }
 }
 
-export function checkAllModels(force = false): Promise<HealthResult[]> {
+export function checkAllModels(): Promise<HealthResult[]> {
   if (inflight) {
     return inflight;
   }
@@ -114,9 +86,8 @@ export function checkAllModels(force = false): Promise<HealthResult[]> {
   return inflight;
 }
 
-// Only an explicit force run sends probes (each probe costs 1 request on
-// models that answer). Plain reads return the last cached results — or
-// nothing — and never burn quota.
+// Only an explicit force run sends probes (each probe costs a tiny request
+// on models that answer). Plain reads return the last cached results.
 export async function getHealthReport(force = false): Promise<HealthReport> {
   if (!force) {
     if (cache) {
@@ -124,6 +95,6 @@ export async function getHealthReport(force = false): Promise<HealthReport> {
     }
     return { results: [], cachedAt: 0, stale: false };
   }
-  const results = await checkAllModels(true);
+  const results = await checkAllModels();
   return { results, cachedAt: cache?.at ?? Date.now(), stale: false };
 }

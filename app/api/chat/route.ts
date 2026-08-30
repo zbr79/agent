@@ -1,4 +1,5 @@
-import { streamChat, ChatValidationError } from "@/lib/gemini";
+import { streamChat } from "@/lib/opencode";
+import { ChatValidationError } from "@/lib/errors";
 import { parseChatBody, type ChatRequest } from "@/lib/chatRequest";
 
 export const runtime = "nodejs";

@@ -5,17 +5,14 @@ import { useCallback, useEffect, useState } from "react";
 interface ModelRow {
   name: string;
   label: string;
-  tier: "lite" | "pro" | "omni";
-  vision: "yes" | "unverified";
+  tier: "pro" | "flash";
+  vision: boolean;
   retired: boolean;
-  used: number;
-  exhaustedByApi: boolean;
 }
 
 interface ModelsData {
   current: string;
   concludeModel?: string;
-  limit: number;
   models: ModelRow[];
 }
 
@@ -89,14 +86,12 @@ export default function ModelsPanel() {
   };
 
   const models = data?.models ?? [];
-  const limit = data?.limit ?? 20;
   const autoMode = data?.current === "auto";
   const healthByModel = new Map((health?.results ?? []).map((r) => [r.model, r]));
   const visible = models.filter(
     (model) => !model.retired && healthByModel.get(model.name)?.status !== "retired"
   );
-  const visionConfirmed = visible.filter((model) => model.vision === "yes");
-  const liteModels = visible.filter((model) => model.tier === "lite");
+  const visionModels = visible.filter((model) => model.vision);
 
   const counts = { ok: 0, quota: 0, busy: 0, other: 0 };
   for (const model of visible) {
@@ -119,16 +114,16 @@ export default function ModelsPanel() {
     <div className="usage-page">
       <h2>Models</h2>
       <p className="usage-sub">
-        <strong>Auto</strong> (default): chat tries the best model first and falls
-        back down the tiers until one works — chat only fails if every model is
-        out. Picking a specific model pins it (no fallback). Live status only
-        updates when you click <strong>Re-check</strong> (each probe costs 1
-        request on models that answer — rejected probes are free). Retired
-        models are hidden.
+        <strong>Auto</strong> (default): text chat uses DeepSeek V4 Pro with
+        DeepSeek V4 Flash as fallback. Picking a specific model pins it for
+        text chats. Images always route to DeepSeek V4 Flash Vision Exp (the
+        Go plan&apos;s vision model). Live status only updates when you click{" "}
+        <strong>Re-check</strong> (each probe costs a tiny request on models
+        that answer).
         {data?.concludeModel && (
           <>
-            {" "}Conclude goes the other way: lowest-tier model first, moving up
-            only when needed (starts at <strong>{data.concludeModel}</strong>).
+            {" "}Conclude uses <strong>{data.concludeModel}</strong> first, then
+            the next model in its chain.
           </>
         )}
       </p>
@@ -154,7 +149,7 @@ export default function ModelsPanel() {
         {health && health.results.length > 0 ? (
           <p className="health-counts">
             <span className="health-count ok">{counts.ok} available</span>
-            <span className="health-count quota">{counts.quota} ran out</span>
+            <span className="health-count quota">{counts.quota} limit hit</span>
             <span className="health-count busy">{counts.busy} busy</span>
             {counts.other > 0 && (
               <span className="health-count other">{counts.other} unchecked</span>
@@ -162,26 +157,25 @@ export default function ModelsPanel() {
           </p>
         ) : (
           <p className="usage-sub" style={{ marginTop: 8 }}>
-            Click Re-check to probe every model now (~20s, costs 1 request per
-            answering model).
+            Click Re-check to probe every model now (~30s, costs one tiny
+            request per answering model).
           </p>
         )}
       </section>
 
       <section className="usage-card">
-        <span className="usage-title">Daily capacity (free tier, per model ≈ {limit})</span>
+        <span className="usage-title">Catalog (opencode-go)</span>
         <ul className="models-capacity">
           <li>
-            <strong>{visible.length}</strong> shown models → up to{" "}
-            <strong>{visible.length * limit}</strong> calls/day total
+            <strong>{visible.length}</strong> models on the Go plan via the
+            chat/completions endpoint
           </li>
           <li>
-            <strong>{visionConfirmed.length}</strong> with confirmed image support → up
-            to <strong>{visionConfirmed.length * limit}</strong> image uploads/day
+            <strong>{visionModels.length}</strong> with image input support
+            (vision flags from vendor docs)
           </li>
           <li>
-            <strong>{liteModels.length}</strong> lower-tier (flash/lite) models → up to{" "}
-            <strong>{liteModels.length * limit}</strong> text-only Conclude calls/day
+            Images in chat always use <strong>deepseek-v4-flash-vision-exp</strong>
           </li>
         </ul>
       </section>
@@ -190,9 +184,9 @@ export default function ModelsPanel() {
         <div className={`model-row${autoMode ? " current" : ""}`}>
           <div className="model-info">
             <span className="model-label">Auto — best available</span>
-            <span className="model-name">tries best model first, falls back down the tiers</span>
+            <span className="model-name">text: deepseek-v4-pro → deepseek-v4-flash; images: vision-exp</span>
             <span className="model-tags">
-              <span className="model-tag tier-lite">auto</span>
+              <span className="model-tag tier-flash">auto</span>
               {autoMode && <span className="model-tag state">Active</span>}
             </span>
           </div>
@@ -210,50 +204,37 @@ export default function ModelsPanel() {
         </div>
         {visible.map((model) => {
           const live = healthByModel.get(model.name);
-          const exhausted =
-            live?.status === "quota" ||
-            (live?.status !== "ok" &&
-              (model.exhaustedByApi || model.used >= limit));
           const current = model.name === data?.current;
-          const pct = Math.min(100, Math.round((model.used / limit) * 100));
-          const state = exhausted
-            ? live?.status === "quota" || model.exhaustedByApi
-              ? "Ran out (API)"
-              : "Ran out"
-            : current
-              ? "Active"
-              : live?.status === "ok"
-                ? "Available"
+          const state = current
+            ? "Active"
+            : live?.status === "ok"
+              ? "Available"
+              : live?.status === "quota"
+                ? "Limit hit"
                 : live?.status === "busy"
                   ? "Busy"
                   : live
-                    ? "Unchecked"
+                    ? live.status === "empty" || live.status === "error"
+                      ? "Error"
+                      : "Unchecked"
                     : "Unchecked";
+          const disabled = current || live?.status === "quota";
           return (
             <div
               key={model.name}
-              className={`model-row${exhausted ? " disabled" : ""}${current ? " current" : ""}`}
+              className={`model-row${current ? " current" : ""}${disabled ? " disabled" : ""}`}
             >
               <div className="model-info">
                 <span className="model-label">{model.label}</span>
                 <span className="model-name">{model.name}</span>
                 <span className="model-tags">
                   <span className={`model-tag tier-${model.tier}`}>{model.tier}</span>
-                  <span
-                    className="model-tag"
-                    title={
-                      model.vision === "yes"
-                        ? "Confirmed image support"
-                        : "Image support not confirmed"
-                    }
-                  >
-                    {model.vision === "yes" ? "vision ✓" : "vision ?"}
-                  </span>
-                  <span
-                    className={`model-tag state state-${live?.status ?? "none"}${
-                      exhausted ? " exhausted" : ""
-                    }${state === "Available" ? " ok" : ""}`}
-                  >
+                  {model.vision && (
+                    <span className="model-tag" title="Image input supported">
+                      vision ✓
+                    </span>
+                  )}
+                  <span className={`model-tag state state-${live?.status ?? "none"}${state === "Available" ? " ok" : ""}`}>
                     {state}
                   </span>
                   {live && live.status !== "ok" && live.detail && (
@@ -262,20 +243,14 @@ export default function ModelsPanel() {
                 </span>
               </div>
               <div className="model-meter">
-                <div className="usage-track">
-                  <div
-                    className={`usage-fill${pct >= 90 ? " warn" : ""}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
                 <span className="model-used">
-                  {model.used} / {limit}
+                  {live ? `${live.ms}ms probe` : "—"}
                 </span>
               </div>
               <button
                 type="button"
                 className="model-switch"
-                disabled={exhausted || current || switching !== null}
+                disabled={disabled || switching !== null}
                 onClick={() => switchTo(model.name)}
               >
                 {current ? "Active" : switching === model.name ? "Switching…" : "Use"}

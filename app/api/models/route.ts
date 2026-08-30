@@ -1,5 +1,4 @@
 import { CHAT_MODELS, getActiveModel, getConcludeChain, setActiveModel } from "@/lib/models";
-import { GEMINI_LIMITS, getModelExhaustedAt, getModelUsage } from "@/lib/usage";
 import { requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -11,15 +10,12 @@ export async function GET(req: Request) {
   return Response.json({
     current,
     concludeModel: getConcludeChain()[0] ?? null,
-    limit: GEMINI_LIMITS.rpd,
     models: CHAT_MODELS.map((model) => ({
       name: model.name,
       label: model.label,
       tier: model.tier,
       vision: model.vision,
       retired: Boolean(model.retired),
-      used: getModelUsage(model.name),
-      exhaustedByApi: getModelExhaustedAt(model.name) !== null,
     })),
   });
 }

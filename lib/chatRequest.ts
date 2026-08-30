@@ -1,4 +1,5 @@
-import { ChatValidationError, isValidTimeZone } from "./gemini";
+import { ChatValidationError } from "./errors";
+import { isValidTimeZone } from "./prompt";
 import { MAX_MESSAGES, type ChatImage, type ChatMessage } from "./types";
 
 export interface ChatRequest {

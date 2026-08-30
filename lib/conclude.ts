@@ -1,15 +1,13 @@
-import { GoogleGenAI, type Content } from "@google/genai";
 import {
-  ChatValidationError,
-  getApiKey,
+  completeOpenCode,
   isOverloadedError,
   isQuotaError,
   isUnavailableError,
-} from "./gemini";
+} from "./opencode";
+import { ChatValidationError } from "./errors";
 import { getConcludeChain } from "./models";
-import { recordError, recordQuotaExhausted, recordRequest } from "./usage";
 import { insertCall } from "./db";
-import type { ConcludeResult } from "./types";
+import type { ChatMessage, ConcludeResult } from "./types";
 
 const CONCLUDE_PROMPT = `You turn a chat assistant's reply into a compact structured conclusion.
 
@@ -40,7 +38,8 @@ Rules:
 - If the reply is an insulin reading, produce an item named exactly 胰岛素 (or "insulin" for English replies) with the value and unit when stated, plus the 时间 item for its time.
 - If the reply is a blood glucose reading, produce an item named exactly 血糖 (or "glucose" for English replies) with the value and unit when stated, plus the 时间 item for its time.
 - If the unit is marked as missing/未说明/unknown, OMIT the "unit" field entirely.
-- If the reply contains a bare numeric reading with no metric name, treat it as a blood glucose value: item named exactly 血糖 (or "glucose") with that value.`;
+- If the reply contains a bare numeric reading with no metric name, treat it as a blood glucose value: item named exactly 血糖 (or "glucose") with that value.
+- Reply with ONLY the JSON object — no markdown fences, no commentary.`;
 
 const LANG_CHINESE = `LANGUAGE RULE: The source reply is Chinese, so the ENTIRE conclusion must be in Chinese — "title", "summary", and every item "name" in Chinese (e.g. "早餐", "胰岛素", "血糖", "体重"). The item named for time must be "时间". Keep "unit" exactly as stated (e.g. "mg/dL"). No English words in title, summary, or item names.`;
 
@@ -52,72 +51,12 @@ function detectLanguage(text: string): "chinese" | "english" {
   return cjk > 0 && cjk >= nonSpace / 4 ? "chinese" : "english";
 }
 
-const CONCLUDE_SCHEMA = {
-  type: "object",
-  description: "Structured conclusion extracted from an assistant reply.",
-  properties: {
-    title: {
-      type: "string",
-      description: "Short label for the conclusion, e.g. 'Insulin reading'.",
-    },
-    summary: {
-      type: "string",
-      description: "One short sentence with the key facts.",
-    },
-    items: {
-      type: "array",
-      description: "Extracted data points. Empty when nothing concrete exists.",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Metric or thing measured." },
-          value: {
-            type: "string",
-            description: "Only the extracted value, e.g. '130' or 'rice, chicken, broccoli'. No commentary.",
-          },
-          unit: {
-            type: "string",
-            description: "Unit, when stated or implied, e.g. 'mg/dL'.",
-          },
-        },
-        required: ["name"],
-        additionalProperties: false,
-      },
-    },
-    meals: {
-      type: "array",
-      description: "One entry per meal described in the reply. Empty when no meals.",
-      items: {
-        type: "object",
-        properties: {
-          name: {
-            type: "string",
-            description: "Meal name: 早餐/午餐/晚餐/加餐 or breakfast/lunch/dinner/snack.",
-          },
-          foods: {
-            type: "string",
-            description: "The meal's foods as a comma-separated string.",
-          },
-          time: {
-            type: "string",
-            description: "The meal's time when stated.",
-          },
-        },
-        required: ["name"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ["title", "summary", "items", "meals"],
-  additionalProperties: false,
-};
-
-function toContents(text: string, context?: string): Content[] {
-  const parts = [{ text: `Assistant reply:\n"""\n${text}\n"""` }];
+function toMessages(text: string, context?: string): ChatMessage[] {
+  let prompt = `Assistant reply:\n"""\n${text}\n"""`;
   if (context) {
-    parts.push({ text: `User message that prompted it:\n"""\n${context}\n"""` });
+    prompt += `\n\nUser message that prompted it:\n"""\n${context}\n"""`;
   }
-  return [{ role: "user", parts }];
+  return [{ role: "user", text: prompt }];
 }
 
 function sanitize(raw: unknown, language: "chinese" | "english"): ConcludeResult {
@@ -166,13 +105,10 @@ export async function concludeMessage(
   text: string,
   context?: string
 ): Promise<ConcludeResult> {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const contents = toContents(text, context);
+  const messages = toMessages(text, context);
   const chain = getConcludeChain();
   const language = detectLanguage(text);
-  const systemInstruction = `${CONCLUDE_PROMPT}\n\n${
-    language === "chinese" ? LANG_CHINESE : LANG_ENGLISH
-  }`;
+  const systemExtra = language === "chinese" ? LANG_CHINESE : LANG_ENGLISH;
 
   let lastError: unknown = null;
 
@@ -180,19 +116,18 @@ export async function concludeMessage(
     let parsed: ConcludeResult | null = null;
     for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
       try {
-        const response = await ai.models.generateContent({
+        const raw = await completeOpenCode(
           model,
-          contents,
-          config: {
-            systemInstruction,
-            temperature: 0.1,
-            responseMimeType: "application/json",
-            responseJsonSchema: CONCLUDE_SCHEMA,
-          },
-        });
-        const raw = response.text;
-        if (!raw) throw new Error("Empty conclusion response.");
-        recordRequest(model);
+          messages,
+          undefined,
+          undefined,
+          {
+            maxTokens: 4096,
+            json: true,
+            systemPrompt: `${CONCLUDE_PROMPT}\n\n${systemExtra}`,
+          }
+        );
+        if (!raw.trim()) throw new Error("Empty conclusion response.");
         parsed = sanitize(JSON.parse(raw), language);
         insertCall({ kind: "conclude", model, ok: true }).catch(() => {});
       } catch (error) {
@@ -202,7 +137,6 @@ export async function concludeMessage(
           isUnavailableError(error) ||
           error instanceof SyntaxError;
         if (skip) {
-          if (isQuotaError(error)) recordQuotaExhausted(model);
           insertCall({
             kind: "conclude",
             model,
@@ -224,8 +158,5 @@ export async function concludeMessage(
     if (parsed) return parsed;
   }
 
-  if (!(lastError instanceof ChatValidationError)) {
-    recordError();
-  }
   throw lastError ?? new Error("Conclude request failed: all models unavailable.");
 }

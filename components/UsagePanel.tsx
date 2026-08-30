@@ -1,122 +1,117 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { STR, useUiLang } from "@/lib/i18n";
 
 interface UsageModel {
   name: string;
   label: string;
   tier: string;
-  vision: string;
+  vision: boolean;
   retired: boolean;
   used: number;
-  exhaustedAt: number | null;
+}
+
+interface UsageWindow {
+  status: string;
+  percent: number;
+  resetsAt: string;
 }
 
 interface UsageData {
   model: string;
-  day: { used: number; limit: number; resetAt: string };
-  minute: { used: number; limit: number };
-  errors: number;
+  official: {
+    rolling: UsageWindow;
+    weekly: UsageWindow;
+    monthly: UsageWindow;
+  } | null;
   models: UsageModel[];
 }
 
-function percent(used: number, limit: number): number {
-  return Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
+function relativeResets(at: string): string {
+  const ms = Date.parse(at) - Date.now();
+  if (ms <= 0) return "0 minutes";
+  const mins = Math.floor(ms / 60000);
+  const hours = Math.floor(mins / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) {
+    const restHours = hours % 24;
+    return `${days} day${days === 1 ? "" : "s"} ${restHours} hour${restHours === 1 ? "" : "s"}`;
+  }
+  if (hours > 0) {
+    const restMins = mins % 60;
+    return `${hours} hour${hours === 1 ? "" : "s"} ${restMins} minute${restMins === 1 ? "" : "s"}`;
+  }
+  if (mins > 0) return `${mins} minute${mins === 1 ? "" : "s"}`;
+  return "0 minutes";
 }
 
 export default function UsagePanel() {
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const lang = useUiLang();
   const t = STR[lang];
 
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      fetch("/api/usage")
-        .then((response) => response.json())
-        .then((data: UsageData) => {
-          if (alive) setUsage(data);
-        })
-        .catch(() => {});
-    };
-    load();
-    const timer = setInterval(load, 5_000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/usage");
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error ?? "Could not load usage.");
+      setUsage(body);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load usage.");
+    }
   }, []);
 
-  const day = usage?.day ?? { used: 0, limit: 20, resetAt: "" };
-  const minute = usage?.minute ?? { used: 0, limit: 10 };
-  const dayPct = percent(day.used, day.limit);
-  const minutePct = percent(minute.used, minute.limit);
-  const resetLabel = day.resetAt
-    ? new Date(day.resetAt).toLocaleString([], {
-        weekday: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: "America/Los_Angeles",
-      })
-    : "—";
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 5_000);
+    return () => clearInterval(timer);
+  }, [load]);
 
   return (
     <div className="usage-page">
       <h2>{t["usage.title"]}</h2>
-      <p className="usage-sub">
-        {t["usage.sub"]}
-        {usage ? ` (${usage.model})` : ""}.
-      </p>
+
+      {error && <p className="conclusion-error">{error}</p>}
 
       <section className="usage-card">
-        <div className="usage-head">
-          <span className="usage-title">{t["usage.requestsToday"]}</span>
-          <span className="usage-big">
-            {day.used.toLocaleString()}{" "}
-            <span className="usage-dim">/ {day.limit.toLocaleString()}</span>
-          </span>
-        </div>
-        <div className="usage-track large">
-          <div
-            className={`usage-fill ${dayPct >= 90 ? "warn" : ""}`}
-            style={{ width: `${dayPct}%` }}
-          />
-        </div>
-        <div className="usage-meta">
-          <span>{dayPct}% {t["usage.usedPct"]}</span>
-          <span>{t["usage.resets"]} {resetLabel} PT</span>
-        </div>
+        {t["opencodeCalls.official"] && (
+          <span className="usage-title">{t["opencodeCalls.official"]}</span>
+        )}
+        {t["opencodeCalls.officialSub"] && (
+          <p className="usage-sub">{t["opencodeCalls.officialSub"]}</p>
+        )}
+        {usage?.official ? (
+          (["rolling", "weekly", "monthly"] as const).map((win) => {
+            const w = usage.official![win];
+            return (
+              <div key={win} style={{ marginTop: 14 }}>
+                <div className="usage-head">
+                  <span className="usage-title">{t[`opencodeCalls.${win}`]}</span>
+                  <span className="usage-big">{w.percent}%</span>
+                </div>
+                <div className="usage-track large">
+                  <div
+                    className={`usage-fill ${w.percent >= 90 ? "warn" : ""}`}
+                    style={{ width: `${Math.min(100, Math.max(0, w.percent))}%` }}
+                  />
+                </div>
+                <div className="usage-meta">
+                  <span>
+                    {t["opencodeCalls.resets"]} {relativeResets(w.resetsAt)}
+                  </span>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <p className="usage-sub">{t["opencodeCalls.officialUnavailable"]}</p>
+        )}
       </section>
 
       <section className="usage-card">
-        <div className="usage-head">
-          <span className="usage-title">{t["usage.requestsMinute"]}</span>
-          <span className="usage-big">
-            {minute.used} <span className="usage-dim">/ {minute.limit}</span>
-          </span>
-        </div>
-        <div className="usage-track large">
-          <div
-            className={`usage-fill ${minutePct >= 90 ? "warn" : ""}`}
-            style={{ width: `${minutePct}%` }}
-          />
-        </div>
-        <div className="usage-meta">
-          <span>{minutePct}% {t["usage.usedPct"]}</span>
-        </div>
-      </section>
-
-      {usage && usage.errors > 0 && (
-        <section className="usage-card warn-card">
-          <span className="usage-title">{t["usage.failed"]}</span>
-          <span className="usage-big">{usage.errors}</span>
-        </section>
-      )}
-
-      <section className="usage-card">
-        <span className="usage-title">{t["usage.catalog"]}</span>
-        <p className="usage-sub">{t["usage.catalogNote"]}</p>
         {usage && (
           <table className="usage-models">
             <thead>
@@ -127,39 +122,24 @@ export default function UsagePanel() {
               </tr>
             </thead>
             <tbody>
-              {usage.models.map((model) => (
-                <tr key={model.name} className={model.retired ? "retired" : ""}>
-                  <td className="model-name">
-                    {model.label}
-                    <span className="model-name-raw">{model.name}</span>
-                  </td>
-                  <td className="model-used">{model.used}</td>
-                  <td className="model-status">
-                    {model.retired ? (
-                      <span className="status-badge retired">{t["usage.retired"]}</span>
-                    ) : model.exhaustedAt ? (
-                      <span className="status-badge quota">{t["usage.ranOut"]}</span>
-                    ) : model.used > 0 ? (
-                      <span className="status-badge used">{t["usage.inUse"]}</span>
-                    ) : (
-                      <span className="status-badge ok">{t["usage.available"]}</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {usage.models
+                .filter((model) => !model.retired && model.used > 0)
+                .map((model) => (
+                  <tr key={model.name}>
+                    <td className="model-name">{model.label}</td>
+                    <td className="model-used">{model.used}</td>
+                    <td className="model-status">
+                      {model.used > 0 ? (
+                        <span className="status-badge used">{t["usage.inUse"]}</span>
+                      ) : (
+                        <span className="status-badge ok">{t["usage.available"]}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         )}
-      </section>
-
-      <section className="usage-card note">
-        <span className="usage-title">{t["usage.aboutTitle"]}</span>
-        <ul>
-          <li>Free tier: ~20 requests/day per model, ~10 requests/min — confirmed by the API&apos;s quota error for {usage?.model ?? "the current model"}.</li>
-          <li>Daily cap resets at midnight Pacific Time.</li>
-          <li>Google has no public quota API, so this tracks this app&apos;s own calls.</li>
-          <li>Occasional &quot;high demand&quot; errors are capacity, not quota — the app retries automatically.</li>
-        </ul>
       </section>
     </div>
   );

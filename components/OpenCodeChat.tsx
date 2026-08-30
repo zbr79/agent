@@ -2,7 +2,8 @@
 
 import { useCallback, useRef, useState } from "react";
 import MessageBubble from "./MessageBubble";
-import type { ChatMessage } from "@/lib/types";
+import Composer from "./Composer";
+import type { ChatImage, ChatMessage } from "@/lib/types";
 import { ModelMarkerParser } from "@/lib/markers";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
 
@@ -10,6 +11,7 @@ interface UiMessage {
   id: number;
   role: "user" | "model";
   text: string;
+  image?: ChatImage;
   streaming?: boolean;
   failed?: boolean;
   model?: string;
@@ -21,69 +23,8 @@ let nextId = 1;
 
 function toApiMessages(messages: UiMessage[]): ChatMessage[] {
   return messages
-    .filter((message) => !message.failed && message.text)
-    .map(({ role, text }) => ({ role, text }));
-}
-
-function TextComposer({
-  sending,
-  onSend,
-  onStop,
-}: {
-  sending: boolean;
-  onSend: (text: string) => void;
-  onStop: () => void;
-}) {
-  const [text, setText] = useState("");
-  const canSend = text.trim().length > 0 && !sending;
-
-  const handleSend = () => {
-    if (!canSend) return;
-    onSend(text);
-    setText("");
-  };
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      handleSend();
-    }
-  };
-
-  return (
-    <div className="composer">
-      <div className="input-row">
-        <textarea
-          rows={1}
-          value={text}
-          placeholder=""
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={handleKeyDown}
-          aria-label="Message"
-        />
-        {sending ? (
-          <button
-            type="button"
-            className="send-button"
-            onClick={onStop}
-            aria-label="Stop"
-          >
-            ■
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="send-button"
-            onClick={handleSend}
-            disabled={!canSend}
-            aria-label="Send"
-          >
-            ↑
-          </button>
-        )}
-      </div>
-    </div>
-  );
+    .filter((message) => !message.failed && (message.text || message.image))
+    .map(({ role, text, image }) => ({ role, text, image }));
 }
 
 export default function OpenCodeChat() {
@@ -94,11 +35,16 @@ export default function OpenCodeChat() {
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, image?: ChatImage) => {
       const trimmed = text.trim();
-      if (!trimmed || sending) return;
+      if ((!trimmed && !image) || sending) return;
 
-      const userMessage: UiMessage = { id: nextId++, role: "user", text: trimmed };
+      const userMessage: UiMessage = {
+        id: nextId++,
+        role: "user",
+        text: trimmed,
+        image,
+      };
       const modelMessage: UiMessage = {
         id: nextId++,
         role: "model",
@@ -245,7 +191,7 @@ export default function OpenCodeChat() {
       ) : (
         <MessageBubble messages={messages} guest={false} summary={null} />
       )}
-      <TextComposer sending={sending} onSend={send} onStop={stop} />
+      <Composer sending={sending} onSend={send} onStop={stop} />
     </div>
   );
 }

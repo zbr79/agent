@@ -478,3 +478,49 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 
 ### Disproved
 - `GET /zen/v1/usage`, `opencode.ai/api/usage`, `api.opencode.ai/v1/usage` — all 404; the working path is `/zen/go/v1/usage`.
+
+## 2026-08-29 — Vision-exp on /opencode: auto-route images + speed test
+
+### Solved
+- `lib/opencode.ts` now sends images (OpenAI content arrays: text + image_url data-URL) and auto-routes: any image in history → `deepseek-v4-flash-vision-exp`, otherwise `deepseek-v4-pro`. Marker + call log use the actual model. Server logs TTFB + total duration per request.
+- `/opencode` page now uses the real `Composer` (image attach + preview) instead of the inline text-only one; images persist into history for multi-turn vision.
+- Speed test (live): 34 KB screenshot → vision-exp answered in **3.2s total, 2.4s first token** (server-side, incl. upload). Browser E2E on the public site: image preview → send → `2s · deepseek-v4-flash-vision-exp` meta, and the reply correctly described the screenshot content (zh mode answered in Chinese).
+- vision-exp reads text inside images accurately (identified the exact UI + messages in the screenshot).
+
+### Unresolved
+- Auto-routing is by request, not per-message: once an image enters history, subsequent text turns also hit vision-exp (multi-turn context needs the image for earlier messages anyway). Only relevant if mixing long text-only sessions with one photo.
+
+### Disproved
+- n/a (no failed approaches this round).
+
+## 2026-08-29 — Complete switch: Gemini replaced by opencode-go everywhere
+
+### Solved
+- Main chat now streams from opencode-go: text → `deepseek-v4-pro` with `deepseek-v4-flash` fallback; images auto-route to `deepseek-v4-flash-vision-exp`. Verified live: text reply + `2s · deepseek-v4-pro` meta; image reply correctly described the test screenshot in zh.
+- Conclude runs on `deepseek-v4-flash` → `deepseek-v4-pro` with `response_format: json_object` (system prompt = CONCLUDE_PROMPT + language rule via new `systemPrompt` option on `completeOpenCode`). Verified: 血糖 140 mg/dL + 时间 + 早餐 meal extracted exactly like the Gemini version.
+- `/models` rebuilt on the opencode-go catalog (24 chat/completions-capable models, vision flags from vendor-doc research); `/usage` rebuilt (official quota windows from `/zen/go/v1/usage` + per-model 30d call counts + official percent bars). Health probe rewritten (`completeOpenCode` max_tokens 16, 20s timeout; "not supported/ModelError" → retired).
+- Gemini code fully removed: `lib/gemini.ts` + `lib/usage.ts` deleted, `@google/genai` uninstalled; `getSystemPrompt` moved to `lib/prompt.ts`, `ChatValidationError` to `lib/errors.ts`; README/.env.example/PLAN.md updated; CallsPanel text de-Gemini'd. Chains/retries/markers (TRYING/MODEL) behave exactly like the old Gemini engine, so the client needed zero changes.
+
+### Unresolved
+- `/api/models` + `/api/health` remain owner-only (auth) — guest can't pin models or run probes (unchanged behavior).
+- qwen3.8-* / minimax-* (served via `/messages` on Go) and grok/gpt/muse (via `/responses`) are excluded from the catalog — chat/completions-only.
+
+### Disproved
+- n/a (clean swap, verified end-to-end).
+
+## 2026-08-29 — web_fetch tool: the app researches instead of refusing
+
+### Solved
+- User comparison showed the opencode agent (with WebFetch) did real research while the app model replied "我无法实时抓取网页…没有实时联网能力". Root cause: plain chat had no tools; the model honestly refused rather than inventing.
+- Added OpenAI-style function calling to `lib/opencode.ts:streamChat`: `web_fetch` tool + agent loop (up to 6 rounds). Streaming parser accumulates `delta.tool_calls` (index/id/name/arguments fragments) and returns them via the generator return value; tool results appended as `role: "tool"` messages; the model that answered a round stays first in the chain for the next round. Text-only requests get tools; image requests don't (vision-exp tool support unverified).
+- New `lib/webfetch.ts`: dep-free server-side fetcher (browserish UA, 15s timeout, 512 KB cap, HTML→text strip, 8 KB return) used by the tool executor.
+- SYSTEM_PROMPT.md §5 rewritten: use web_fetch instead of refusing; depth matched to question. README feature list updated.
+- Verified live: "DeepSeek V4 Pro price?" → model fetched official pricing pages (retried URLs, incl. zh-cn) and answered with the ¥ table; the user's exact prompt ("real time website pulling price, two years ago") → full researched answer (Yahoo/Stooq/CoinGecko/Alpha Vantage/Twelve Data comparison with live-fetched prices). Browser E2E: zh reply with pricing table, no failure badge.
+- Gotchas fixed along the way: MAX_TOOL_ROUNDS 4→6 (DeepSeek docs is a JS SPA — fetches return thin text, model retries other URLs); exhaustion error now a gentle "research stopped" message instead of a hard failure.
+
+### Unresolved
+- SPA-only pages (JS-rendered) still return little text — no headless browser in the fetcher (could add later if needed).
+- tool rounds don't stream narration during fetches (only between them) — acceptable.
+
+### Disproved
+- n/a

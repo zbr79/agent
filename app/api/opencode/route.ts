@@ -1,6 +1,6 @@
-import { ChatValidationError } from "@/lib/gemini";
+import { ChatValidationError } from "@/lib/errors";
 import { parseChatBody, type ChatRequest } from "@/lib/chatRequest";
-import { streamOpenCodeChat } from "@/lib/opencode";
+import { streamChat } from "@/lib/opencode";
 
 export const runtime = "nodejs";
 
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
         console.log("[opencode] client disconnected mid-stream");
       });
       try {
-        for await (const text of streamOpenCodeChat(messages, timeZone, language)) {
+        for await (const text of streamChat(messages, timeZone, language)) {
           controller.enqueue(encoder.encode(text));
         }
       } catch (error) {
