@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import "highlight.js/styles/github.css";
 import SummaryCard from "./SummaryCard";
 import ImageViewer from "./ImageViewer";
 import type { ConcludeResult } from "@/lib/types";
@@ -70,7 +73,12 @@ export default function MessageBubble({
                 />
               )}
               {message.text && (
-                <ReactMarkdown>{preserveLineBreaks(message.text)}</ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeHighlight]}
+                >
+                  {preserveLineBreaks(message.text)}
+                </ReactMarkdown>
               )}
               {message.streaming && !message.text && (
                 <span className="thinking">

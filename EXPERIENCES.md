@@ -596,3 +596,17 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 
 ### Disproved
 - n/a
+
+## 2026-08-30 — Rich markdown responses (ChatGPT-style)
+
+### Solved
+- Root cause of "plain text" replies: react-markdown v10 without remark-gfm does NOT parse GFM tables — pipe tables rendered as literal text. Added remark-gfm + rehype-highlight + highlight.js (github theme) in MessageBubble.
+- New bubble CSS: styled tables (borders, header bg, zebra rows, horizontal scroll on overflow), code blocks, inline code pills, blockquotes, headings, hr. Syntax highlighting via hljs classes.
+- External images from markdown now render: nginx CSP img-src extended to https: (12 blocks updated, reloaded). Verified a Wikimedia banana image loads inside the bubble.
+- Verified in browser: table with 3 headers renders; python snippet highlighted (hljs); blockquote; image loaded. Mobile-safe via table overflow-x scroll.
+
+### Unresolved
+- Generated charts/mermaid still not supported (would need client-side renderers) — not requested.
+
+### Disproved
+- n/a
