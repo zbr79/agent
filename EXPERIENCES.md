@@ -637,3 +637,45 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 
 ### Disproved
 - Absolute-positioned hover button overflowed the 4px message padding — moved to in-flow inside message-body instead.
+
+## 2026-08-30 — ChatGPT-style message actions: copy, edit, regenerate, share
+
+### Solved
+- Researched ChatGPT's pattern: hover action bar under messages, inline edit of your own messages (save & resubmit regenerates the reply), regenerate on assistant replies, share as public links (chat-level + per-message).
+- MessageBubble now renders a hover-reveal action bar (faint on touch): Copy (✓ feedback 1.6s), Edit (user msgs), Regenerate (model msgs), Share, plus the existing ↩ Revert. Inline edit: textarea replaces the bubble with Save & submit / Cancel.
+- ChatApp refactor: `streamReply(base)` is the single streaming engine; send/edit/regenerate all build a `base` list and truncate persisted state first (`DELETE /api/sessions/:id/messages` or guestStore truncate), then stream — so edit/regenerate behave like ChatGPT (old reply discarded).
+- Share: POST /api/shares stores a snapshot (kind chat|message) in Mongo `shares` with a 9-byte base64url token; public read-only page /share/[token] (client viewer with markdown/highlight/images); link copied to clipboard; chat-level Share button next to Conclude. nginx: new location /api/shares (POST only) — same fall-through-405 gotcha as before.
+- buildTranscript: single first user message now sent directly (no "conversation so far" wrapper) — fixes the agent answering "there's no prior question…" on fresh chats.
+- E2E verified: copy→clipboard+checkmark; edit→resubmit→new reply; regenerate; message share page (1 msg); chat share page (2 msgs).
+
+### Unresolved
+- Shares never expire (Mongo grows); no delete/share-management UI.
+- Regenerate keeps no variant carousel (old reply is discarded, like revert).
+
+### Disproved
+- Test race: waiting on the streaming cursor misses replies that haven't started (thinking phase) — wait on the send button returning to ↑ instead.
+
+## 2026-08-30 — Trim actions: copy + edit + regenerate only
+
+### Solved
+- Revert feature commented out (edit/regenerate cover the same workflow); share feature commented out (UI + handlers; /api/shares backend left dormant).
+- Action bars now: user messages [复制, 编辑]; assistant replies [复制, 重新生成] — and the assistant bar is always visible (opacity 0.7, ChatGPT-style) instead of hover-only.
+- Verified on the public site: correct button sets per role; copy works.
+
+### Unresolved
+- Share API/pages still deployed but unused (commented) — can be revived or deleted later.
+
+### Disproved
+- Python string surgery on ChatApp scrambled comment blocks (stop/persistConclusion got swallowed) — repaired by replacing the whole region with a clean version.
+
+## 2026-08-30 — Real icons (lucide-react) instead of text glyphs
+
+### Solved
+- Replaced hand-rolled glyphs with lucide-react (ChatGPT-style stroke icons): action bar Copy→Copy/Check (copied state), Edit→Pencil, Regenerate→RefreshCw; composer attach→Plus, send→ArrowUp, stop→Square, image remove→X; sidebar mobile hamburger→Menu, session delete→X. CSS: svg display block inside icon buttons.
+- Verified live: both action bars render SVG icons, composer/menu icons present, copy still works.
+
+### Unresolved
+- n/a
+
+### Disproved
+- n/a

@@ -1,4 +1,5 @@
 import { Db, MongoClient, ObjectId } from "mongodb";
+import { randomBytes } from "node:crypto";
 import type {
   ApiCall,
   ChatImage,
@@ -441,4 +442,53 @@ export async function deleteSession(userId: string, id: string): Promise<boolean
     .collection<SessionDoc>("sessions")
     .deleteOne({ _id: new ObjectId(id), userId: new ObjectId(userId) });
   return result.deletedCount > 0;
+}
+
+interface ShareDoc {
+  _id?: ObjectId;
+  token: string;
+  kind: "chat" | "message";
+  title: string;
+  messages: {
+    role: "user" | "model";
+    text: string;
+    image?: ChatImage;
+    model?: string;
+    elapsed?: number;
+  }[];
+  createdAt: Date;
+}
+
+export interface SharedContent {
+  kind: "chat" | "message";
+  title: string;
+  messages: ShareDoc["messages"];
+  createdAt: string;
+}
+
+function toSharedContent(doc: ShareDoc): SharedContent {
+  return {
+    kind: doc.kind,
+    title: doc.title,
+    messages: doc.messages,
+    createdAt: doc.createdAt.toISOString(),
+  };
+}
+
+export async function insertShare(input: {
+  kind: "chat" | "message";
+  title: string;
+  messages: ShareDoc["messages"];
+}): Promise<string> {
+  const db = await getDb();
+  const token = randomBytes(9).toString("base64url");
+  const doc: ShareDoc = { ...input, token, createdAt: new Date() };
+  await db.collection<ShareDoc>("shares").insertOne(doc);
+  return token;
+}
+
+export async function getShare(token: string): Promise<SharedContent | null> {
+  const db = await getDb();
+  const doc = await db.collection<ShareDoc>("shares").findOne({ token });
+  return doc ? toSharedContent(doc) : null;
 }

@@ -17,6 +17,7 @@ interface OpencodeClient {
       body: { system?: string; parts: { type: string; text?: string }[] };
     }) => Promise<{ data: unknown }>;
     delete: (input: { path: { id: string } }) => Promise<unknown>;
+    messages: (input: { path: { id: string } }) => Promise<unknown>;
   };
 }
 
@@ -60,6 +61,13 @@ export async function isAgentUp(): Promise<boolean> {
 }
 
 function buildTranscript(messages: ChatMessage[]): string {
+  if (
+    messages.length === 1 &&
+    messages[0].role === "user" &&
+    !messages[0].image
+  ) {
+    return messages[0].text;
+  }
   const lines = messages.map((message) => {
     const speaker = message.role === "model" ? "Assistant" : "User";
     const content = message.image
@@ -122,12 +130,32 @@ export async function* agentChat(
     let toolHits = new Set<string>();
     let idle = false;
     let failed: Error | null = null;
+    let promptSettled = false;
     const partTypes = new Map<string, string>();
 
     const readEvents = (async function* () {
       try {
         while (true) {
-          const { done, value } = await reader.read();
+          // Stall breaker: once the prompt has settled, stop waiting for the
+          // SSE stream if nothing arrives for 20s — the fallback below pulls
+          // the finished message parts directly.
+          const readPromise = reader.read();
+          let value: Uint8Array | undefined;
+          let done = false;
+          if (promptSettled) {
+            const result = await Promise.race([
+              readPromise,
+              new Promise<"stalled">((resolve) =>
+                setTimeout(() => resolve("stalled"), 20_000)
+              ),
+            ]);
+            if (result === "stalled") {
+              break;
+            }
+            ({ done, value } = result as { done: boolean; value: Uint8Array | undefined });
+          } else {
+            ({ done, value } = await readPromise);
+          }
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
           let idx: number;
@@ -215,8 +243,49 @@ export async function* agentChat(
         failed = error instanceof Error ? error : new Error(String(error));
         return { status: "error" as const, info: undefined };
       });
+    promptSettled = true;
     for await (const text of readEvents) {
       yield text;
+    }
+
+    // Fallback: if the event stream never delivered the answer, pull the
+    // finished message parts directly from the session.
+    if (!produced && promptResult.status === "ok") {
+      try {
+        const list = (await agent.session.messages({
+          path: { id: session.id },
+        })) as {
+          data?: {
+            info?: { role?: string; modelID?: string };
+            parts?: { type?: string; text?: string }[];
+          }[];
+        };
+        const entries = list.data ?? [];
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const entry = entries[i];
+          if (entry.info?.role !== "assistant") continue;
+          const textParts = (entry.parts ?? [])
+            .filter((part) => part.type === "text" && part.text)
+            .map((part) => part.text as string);
+          if (textParts.length === 0) continue;
+          modelName = entry.info?.modelID ?? modelName;
+          produced = true;
+          yield encodeModelMarker(modelName ?? "deepseek-v4-pro");
+          for (const partText of textParts) {
+            yield partText;
+          }
+          console.log(
+            `[agent:${requestId}] stream stalled — pulled ${textParts.length} text parts directly`
+          );
+          break;
+        }
+      } catch (error) {
+        console.log(
+          `[agent:${requestId}] fallback fetch failed → ${String(
+            error instanceof Error ? error.message : error
+          ).slice(0, 120)}`
+        );
+      }
     }
 
     if (promptResult.status === "error" && !produced) {

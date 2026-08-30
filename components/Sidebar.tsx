@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Menu, X } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
 import { deleteGuestSession, listGuestSessions } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
@@ -114,7 +115,7 @@ export default function Sidebar() {
           onClick={() => setMenuOpen(true)}
           aria-label="Open menu"
         >
-          ☰
+          <Menu size={20} />
         </button>
         <Link href="/" className="mobile-brand">
           InsChat
@@ -171,7 +172,7 @@ export default function Sidebar() {
                       disabled={deleting !== null}
                       onClick={() => remove(session._id)}
                     >
-                      ×
+                      <X size={14} />
                     </button>
                   </div>
                 ))}
@@ -197,7 +198,7 @@ export default function Sidebar() {
                       disabled={deleting !== null}
                       onClick={() => remove(session.id)}
                     >
-                      ×
+                      <X size={14} />
                     </button>
                   </div>
                 ))}

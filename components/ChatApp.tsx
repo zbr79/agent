@@ -81,6 +81,9 @@ export default function ChatApp() {
     sourceText: string;
   } | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState("");
+  // const [shareMsg, setShareMsg] = useState<"link" | "error" | null>(null); // share feature removed
   const sessionIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -210,36 +213,10 @@ export default function ChatApp() {
     }
   }, [sessionParam, isAuthed, router]);
 
-  const send = useCallback(
-    async (text: string, image?: ChatImage) => {
-      if (sending || isAuthed === null) return;
-      const authed = isAuthed;
-
-      let sessionId = sessionIdRef.current;
-      if (!sessionId) {
-        if (authed) {
-          try {
-            const response = await fetch("/api/sessions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ title: titleFrom(text) }),
-            });
-            const body = await response.json();
-            if (!response.ok) throw new Error(body?.error ?? "Could not create session.");
-            sessionId = body.session._id;
-          } catch {
-            sessionId = null;
-          }
-        } else {
-          sessionId = createGuestSession(titleFrom(text)).id;
-        }
-        if (sessionId) {
-          sessionIdRef.current = sessionId;
-          router.replace(`/?session=${sessionId}`);
-        }
-      }
-
-      const userMessage: UiMessage = { id: nextId++, role: "user", text, image };
+  // Streams a model reply for the given message list (which already ends
+  // with the user message that triggers it).
+  const streamReply = useCallback(
+    async (base: UiMessage[]) => {
       const modelMessage: UiMessage = {
         id: nextId++,
         role: "model",
@@ -247,12 +224,11 @@ export default function ChatApp() {
         streaming: true,
         elapsed: 0,
       };
-      const history = toApiMessages([...messages, userMessage]);
-      setMessages((prev) => [...prev, userMessage, modelMessage]);
+      setMessages([...base, modelMessage]);
       setSending(true);
 
       let elapsedValue = 0;
-      let elapsedTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
+      const elapsedTimer = setInterval(() => {
         elapsedValue += 1;
         setMessages((prev) =>
           prev.map((message) =>
@@ -263,25 +239,9 @@ export default function ChatApp() {
         );
       }, 1000);
 
-      if (sessionId) {
-        if (authed) {
-          persistMessage(sessionId, { role: "user", text, image });
-        } else if (image) {
-          const key = `${sessionId}:${userMessage.id}`;
-          const stored = await putGuestImage(key, image);
-          appendGuestMessage(sessionId, {
-            role: "user",
-            text,
-            image: stored ? undefined : image,
-            imageKey: stored ? key : undefined,
-          });
-        } else {
-          appendGuestMessage(sessionId, { role: "user", text });
-        }
-      }
-
       const controller = new AbortController();
       abortRef.current = controller;
+      const history = toApiMessages(base);
 
       try {
         const response = await fetch("/api/chat", {
@@ -314,8 +274,8 @@ export default function ChatApp() {
           const { text, model, trying } = parser.push(
             decoder.decode(value, { stream: true })
           );
-          if (model) modelName = model;
           if (model) {
+            modelName = model;
             setMessages((prev) =>
               prev.map((message) =>
                 message.id === modelMessage.id
@@ -359,8 +319,9 @@ export default function ChatApp() {
             message.id === modelMessage.id ? { ...message, streaming: false } : message
           )
         );
+        const sessionId = sessionIdRef.current;
         if (sessionId) {
-          if (authed) {
+          if (isAuthed) {
             persistMessage(sessionId, {
               role: "model",
               text: modelText,
@@ -393,13 +354,190 @@ export default function ChatApp() {
           )
         );
       } finally {
-        if (elapsedTimer) clearInterval(elapsedTimer);
+        clearInterval(elapsedTimer);
         setSending(false);
         abortRef.current = null;
       }
     },
-    [messages, sending, isAuthed, router, lang]
+    [isAuthed, lang]
   );
+
+  const send = useCallback(
+    async (text: string, image?: ChatImage) => {
+      const trimmed = text.trim();
+      if ((!trimmed && !image) || sending || isAuthed === null) return;
+      const authed = isAuthed;
+
+      let sessionId = sessionIdRef.current;
+      if (!sessionId) {
+        if (authed) {
+          try {
+            const response = await fetch("/api/sessions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ title: titleFrom(trimmed) }),
+            });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body?.error ?? "Could not create session.");
+            sessionId = body.session._id;
+          } catch {
+            sessionId = null;
+          }
+        } else {
+          sessionId = createGuestSession(titleFrom(trimmed)).id;
+        }
+        if (sessionId) {
+          sessionIdRef.current = sessionId;
+          router.replace(`/?session=${sessionId}`);
+        }
+      }
+
+      const userMessage: UiMessage = { id: nextId++, role: "user", text: trimmed, image };
+      if (sessionId) {
+        if (authed) {
+          persistMessage(sessionId, { role: "user", text: trimmed, image });
+        } else if (image) {
+          const key = `${sessionId}:${userMessage.id}`;
+          const stored = await putGuestImage(key, image);
+          appendGuestMessage(sessionId, {
+            role: "user",
+            text: trimmed,
+            image: stored ? undefined : image,
+            imageKey: stored ? key : undefined,
+          });
+        } else {
+          appendGuestMessage(sessionId, { role: "user", text: trimmed });
+        }
+      }
+      await streamReply([...messages, userMessage]);
+    },
+    [messages, sending, isAuthed, router, streamReply]
+  );
+
+  // Truncate persisted state up to the given message list (revert-style).
+  const truncatePersisted = useCallback(
+    async (base: UiMessage[]) => {
+      const sessionId = sessionIdRef.current;
+      if (!sessionId) return;
+      const keep = base.filter(
+        (message) => message.role === "user" || !message.failed
+      ).length;
+      if (isAuthed) {
+        await fetch(`/api/sessions/${sessionId}/messages`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keep }),
+        }).catch(() => {});
+        fetch(`/api/sessions/${sessionId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conclusion: null }),
+        }).catch(() => {});
+      } else {
+        truncateGuestSession(sessionId, keep);
+      }
+    },
+    [isAuthed]
+  );
+
+  const startEdit = useCallback(
+    (id: number) => {
+      const message = messages.find((m) => m.id === id);
+      if (!message || message.role !== "user") return;
+      setEditingId(id);
+      setEditingText(message.text);
+    },
+    [messages]
+  );
+
+  const editSave = useCallback(
+    async (id: number) => {
+      const index = messages.findIndex((m) => m.id === id);
+      if (index < 0 || !editingText.trim()) return;
+      const edited: UiMessage = { ...messages[index], text: editingText.trim() };
+      const base = messages.slice(0, index);
+      setEditingId(null);
+      setSummary(null);
+      await truncatePersisted(base);
+      const sessionId = sessionIdRef.current;
+      if (sessionId) {
+        if (isAuthed) {
+          persistMessage(sessionId, { role: "user", text: edited.text, image: edited.image });
+        } else {
+          appendGuestMessage(sessionId, {
+            role: "user",
+            text: edited.text,
+            image: edited.image,
+          });
+        }
+      }
+      await streamReply([...base, edited]);
+    },
+    [messages, editingText, isAuthed, truncatePersisted, streamReply]
+  );
+
+  const regenerate = useCallback(
+    async (id: number) => {
+      const index = messages.findIndex((m) => m.id === id);
+      if (index < 1) return;
+      const previous = messages[index - 1];
+      if (previous.role !== "user") return;
+      const base = messages.slice(0, index);
+      setSummary(null);
+      await truncatePersisted(base);
+      await streamReply(base);
+    },
+    [messages, truncatePersisted, streamReply]
+  );
+
+/* Share feature removed (2026-08-30).
+  const createShare = useCallback(
+    async (kind: "chat" | "message", title: string, list: UiMessage[]) => {
+      const payload = list
+        .filter((m) => (m.role === "user" || !m.failed) && (m.text || m.image))
+        .map((m) => ({
+          role: m.role,
+          text: m.text,
+          image: m.image,
+          model: m.model,
+          elapsed: m.elapsed,
+        }));
+      try {
+        const response = await fetch("/api/shares", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind, title, messages: payload }),
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body?.error ?? "Share failed.");
+        await navigator.clipboard.writeText(`${location.origin}/share/${body.token}`);
+        setShareMsg("link");
+      } catch {
+        setShareMsg("error");
+      }
+      setTimeout(() => setShareMsg(null), 2500);
+    },
+    []
+  );
+
+  const shareMessage = useCallback(
+    (id: number) => {
+      const message = messages.find((m) => m.id === id);
+      if (!message) return;
+      void createShare("message", titleFrom(message.text || "Message"), [message]);
+    },
+    [messages, createShare]
+  );
+
+  const shareChat = useCallback(() => {
+    const list = messages.filter(
+      (m) => (m.role === "user" || !m.failed) && (m.text || m.image)
+    );
+    if (!list.length) return;
+    const firstUser = list.find((m) => m.role === "user");
+    void createShare("chat", titleFrom(firstUser?.text ?? "Chat"), list.slice(-20));
+  }, [messages, createShare]);
+*/
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -422,6 +560,7 @@ export default function ChatApp() {
     [isAuthed]
   );
 
+/* Revert feature commented out (2026-08-30) — edit/regenerate replaced it.
   // Revert: drop everything after the chosen message (locally + persisted).
   const revertTo = useCallback(
     async (id: number) => {
@@ -451,6 +590,7 @@ export default function ChatApp() {
     },
     [messages, sending, isAuthed, persistConclusion]
   );
+*/
 
   const concludeAll = useCallback(async () => {
     if (concluding || sending) return;
@@ -500,8 +640,14 @@ export default function ChatApp() {
           messages={messages}
           guest={isAuthed === false}
           summary={summary}
-          onRevert={revertTo}
-          canRevert={!sending}
+          onEdit={startEdit}
+          onRegenerate={regenerate}
+          canAct={!sending && !concluding}
+          editingId={editingId}
+          editingText={editingText}
+          onEditingText={setEditingText}
+          onEditSave={editSave}
+          onEditCancel={() => setEditingId(null)}
         />
       )}
       <div className="conclude-bar">

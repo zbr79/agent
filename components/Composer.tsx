@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { ArrowUp, Plus, Square, X } from "lucide-react";
 import type { ChatImage } from "@/lib/types";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -78,7 +79,7 @@ export default function Composer({ sending, onSend, onStop }: ComposerProps) {
             onClick={() => setImage(null)}
             aria-label="Remove image"
           >
-            ×
+            <X size={16} />
           </button>
         </div>
       )}
@@ -97,7 +98,7 @@ export default function Composer({ sending, onSend, onStop }: ComposerProps) {
           aria-label="Attach image"
           title="Attach image"
         >
-          ＋
+          <Plus size={18} />
         </button>
         <textarea
           rows={1}
@@ -109,7 +110,7 @@ export default function Composer({ sending, onSend, onStop }: ComposerProps) {
         />
         {sending ? (
           <button type="button" className="send-button" onClick={onStop} aria-label="Stop">
-            ■
+            <Square size={15} fill="currentColor" />
           </button>
         ) : (
           <button
@@ -119,7 +120,7 @@ export default function Composer({ sending, onSend, onStop }: ComposerProps) {
             disabled={!canSend}
             aria-label="Send"
           >
-            ↑
+            <ArrowUp size={18} />
           </button>
         )}
       </div>

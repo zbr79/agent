@@ -1659,3 +1659,210 @@ body {
     font-size: 16px;
   }
 }
+
+/* ---- ChatGPT-style per-message action bar ---- */
+.action-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.message:hover .action-bar {
+  opacity: 1;
+}
+
+/* Assistant replies: keep the bar visible, ChatGPT-style */
+.action-bar.model-bar {
+  opacity: 0.7;
+}
+
+@media (hover: none) {
+  .action-bar {
+    opacity: 0.55;
+  }
+}
+
+.action-button {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.action-button:hover {
+  color: var(--text);
+}
+
+.action-button.copied {
+  color: #1a7f37;
+}
+
+/* ---- inline edit ---- */
+.edit-bubble {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edit-input {
+  width: 100%;
+  min-height: 60px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  resize: vertical;
+  outline: none;
+}
+
+@media (max-width: 640px) {
+  .edit-input {
+    font-size: 16px;
+  }
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.edit-save,
+.edit-cancel {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.edit-save {
+  background: var(--pill);
+  color: var(--pill-text);
+  border-color: var(--pill);
+}
+
+.edit-save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---- share chat button ---- */
+.share-chat-button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.share-chat-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.share-chat-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---- public share page ---- */
+.share-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 16px 80px;
+  min-height: 100dvh;
+}
+
+.share-head {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.share-head h1 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.share-head h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.share-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.share-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.share-missing {
+  text-align: center;
+  margin-top: 15vh;
+  color: var(--text-muted);
+}
+
+.share-missing h1 {
+  font-size: 20px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+/* lucide icons inside icon-ish buttons */
+.action-button svg,
+.icon-button svg,
+.menu-button svg,
+.send-button svg,
+.session-delete svg {
+  display: block;
+}
+
+/* model reply footer: buttons left, model/time right, same row */
+.reply-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+}
+
+.reply-footer .action-bar {
+  opacity: 0.7;
+}
+
+.reply-footer:hover .action-bar {
+  opacity: 1;
+}
+
+.reply-footer .model-meta {
+  align-self: center;
+  margin-top: 0;
+}

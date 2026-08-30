@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ApiCall } from "@/lib/types";
+import { modelLabel } from "@/lib/modelLabels";
 
 interface CallsData {
   calls: ApiCall[];
@@ -69,7 +70,7 @@ export default function CallsPanel() {
           <div key={call._id} className={`call-row${call.ok ? "" : " failed"}`}>
             <div className="call-main">
               <span className="call-kind">{call.kind}</span>
-              <span className="call-model">{call.model}</span>
+              <span className="call-model">{modelLabel(call.model)}</span>
               <span className="call-status">{call.ok ? "ok" : "error"}</span>
             </div>
             <span className="call-time">

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ApiCall } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
+import { modelLabel } from "@/lib/modelLabels";
 
 interface OpenCodeUsageWindow {
   status: string;
@@ -207,7 +208,7 @@ export default function OpenCodeCallsPanel() {
             <div key={call._id} className={`call-row${call.ok ? "" : " failed"}`}>
               <div className="call-main">
                 <span className="call-kind">opencode</span>
-                <span className="call-model">{call.model}</span>
+                <span className="call-model">{modelLabel(call.model)}</span>
                 <span className="call-status">{call.ok ? "ok" : "error"}</span>
                 {typeof call.cost === "number" && (
                   <span className="call-cost">${call.cost.toFixed(4)}</span>
