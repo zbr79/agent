@@ -524,3 +524,61 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 
 ### Disproved
 - n/a
+
+## 2026-08-30 — opencode server integration: the app now uses the full agent
+
+### Solved
+- Path A done: `opencode serve --port 4096` runs under pm2 (`inschat-agent`, script /home/ubuntu/opencode-tmp/agent/start-server.sh, basic auth via OPENCODE_SERVER_PASSWORD, cwd = scratch dir with opencode.jsonc `permission: {"*":"deny","webfetch":"allow","websearch":"allow"}` — web-only tools, no bash/edit/read).
+- `lib/agent.ts`: SDK client (auth via wrapped fetch), per-request flow — create session → prompt (system = InsChat persona, one part = full-history transcript) → parse the raw /event SSE stream (SDK's event.subscribe() silently returns nothing — likely EventSource without auth headers; raw fetch SSE works) → map to markers: text deltas from `text` parts only (`message.part.delta` filtered by part type from `message.part.updated` — this also fixed reasoning narration leaking into the reply), tool parts → TRYING markers, `session.idle` → done; session deleted after.
+- `/api/chat` routing: images → direct vision-exp path; text → agent, with fallback to the direct engine when the server is down (verified: pm2 stop inschat-agent → direct path answers).
+- SDK probe facts: default model = opencode-go/deepseek-v4-pro; event types: server.connected, session.updated, message.updated (info.model.modelID), message.part.updated (part.type text/reasoning/tool + state.status), message.part.delta (partID, field "text", delta), session.status, session.idle.
+- **Key mismatch bug:** app's `.env` OPENCODE_API_KEY had diverged from `~/.local/share/opencode/auth.json` — text requests worked but vision-exp image requests returned 401 CreditsError "Insufficient balance". Synced .env to the auth.json key; images work again. (Two different Go keys/workspaces existed.)
+- E2E (public site): research question → agent used websearch+webfetch, answered with correct pricing table (11s · deepseek-v4-pro); persona (bare "140" → 血糖 140 mg/dL); image chat; agent-down fallback. websearch works without an extra API key.
+
+### Unresolved
+- One persona test returned a wrong current time (凌晨 1:10 vs 上午 9:10) — occasional time-slip in the agent's template replies; consider making the 当前时间 line more prominent in the prompt.
+- Agent answers are slower (10-25s) and burn more tokens (reasoning + tool rounds); the $12/5h window drains faster — keep an eye on /usage.
+
+### Disproved
+- SDK `event.subscribe()` → no events under basic auth; raw `fetch(/event)` + manual SSE parse works.
+
+## 2026-08-30 — Mobile drawer navigation
+
+### Solved
+- Phone UI now collapses the nav into a hamburger drawer: a slim top bar (☰ + InsChat brand) is always visible; the sidebar slides in from the left as an overlay with a dark backdrop, closes on nav click / backdrop tap / route change. Desktop (>640px) unchanged.
+- `Sidebar.tsx` renders mobile-bar + backdrop + aside with `open` state (auto-close on pathname/session change); CSS: sidebar off-canvas via translateX(-105%) + transition, fixed 250px/85vw drawer, backdrop z-order under the drawer.
+- Verified headless at 375×812 and 320×700: no horizontal overflow on /, /usage, /records; drawer open/close geometry correct; chat works on mobile; nav click navigates and closes the drawer.
+
+### Unresolved
+- n/a
+
+### Disproved
+- n/a
+
+## 2026-08-30 — Response rules: user language first, free chat for off-topic
+
+### Solved
+- SYSTEM_PROMPT.md rewritten: new §0 language rule — user's written language wins over the UI mode; UI mode only for no-language-cue inputs (photo alone / bare number); template variant follows the reply language. §5 "Everything else" now instructs normal general-assistant chat for anything not blood-sugar/insulin/food — no health framing, no redirecting (previously off-topic questions got steered/refused).
+- lib/prompt.ts mode line updated to match ("use UI language only when the user's message has no language cues").
+- Verified: UI=en + Chinese text → Chinese reply; UI=en + bare "140" → English glucose template; "how do I make pour-over coffee?" → normal detailed coffee guide; Chinese insulin text with UI=en → Chinese insulin template.
+
+### Unresolved
+- n/a
+
+### Disproved
+- n/a
+
+## 2026-08-30 — Mobile: single top bar, lang toggle in sidebar, Safari zoom fixes
+
+### Solved
+- Removed the redundant page header (h1 InsChat/OpenCode + lang pill) from ChatApp/OpenCodeChat — phone now has exactly one top bar (☰ + brand). Language toggle moved into the sidebar foot (desktop sidebar + mobile drawer; CSS: static variant of .lang-toggle, the old rule was absolute-positioned for the removed header).
+- Safari zoom: textarea was 15px → iOS auto-zooms on focus; now 16px on phones. NOTE: the media block sits before the base textarea rule in the cascade, so the fix must come AFTER it — appended a trailing media block at the end of globals.css.
+- Bottom cut off: .app was height:100dvh while sitting under the 49px mobile bar → composer fell outside the viewport; now height:100% inside the flex .main. Verified composer bottom == viewport bottom (667/667).
+- Viewport meta via Next `export const viewport`: maximum-scale=1, user-scalable=no, viewport-fit=cover; plus -webkit-text-size-adjust:100%.
+- Verified: 375×667 chat page (single bar, composer in view, 16px input), drawer lang toggle works (EN→中文), /usage no overflow, desktop sidebar intact.
+
+### Unresolved
+- n/a
+
+### Disproved
+- Placing the 16px textarea rule inside the existing early media block did nothing — cascade order beat the media query.

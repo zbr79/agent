@@ -5,7 +5,7 @@ import MessageBubble from "./MessageBubble";
 import Composer from "./Composer";
 import type { ChatImage, ChatMessage } from "@/lib/types";
 import { ModelMarkerParser } from "@/lib/markers";
-import { STR, useUiLang, setUiLang } from "@/lib/i18n";
+import { STR, useUiLang } from "@/lib/i18n";
 
 interface UiMessage {
   id: number;
@@ -173,17 +173,6 @@ export default function OpenCodeChat() {
 
   return (
     <div className="app">
-      <header className="header">
-        <h1>OpenCode</h1>
-        <button
-          type="button"
-          className="lang-toggle"
-          onClick={() => setUiLang(lang === "zh" ? "en" : "zh")}
-          aria-label="Switch language"
-        >
-          {t["lang.button"]}
-        </button>
-      </header>
       {messages.length === 0 ? (
         <main className="messages">
           <p className="empty">{t["opencode.empty"]}</p>

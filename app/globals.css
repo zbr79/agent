@@ -30,6 +30,7 @@ body {
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
 }
 
 .app {
@@ -67,6 +68,14 @@ body {
 .lang-toggle:hover {
   color: var(--text);
   border-color: var(--text-muted);
+}
+
+.sidebar-foot .lang-toggle {
+  position: static;
+  transform: none;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
 }
 
 .header h1 {
@@ -398,28 +407,88 @@ body {
   color: var(--text-muted);
 }
 
+.mobile-bar {
+  display: none;
+}
+
+.menu-button {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.mobile-brand {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
 @media (max-width: 640px) {
   .shell {
     flex-direction: column;
   }
 
-  .sidebar {
-    width: 100%;
-    flex-direction: row;
+  .mobile-bar {
+    display: flex;
     align-items: center;
+    gap: 8px;
     padding: 10px 14px;
-    border-right: none;
     border-bottom: 1px solid var(--border);
-    gap: 10px;
+    background: var(--bg-soft);
+    flex-shrink: 0;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100dvh;
+    width: 250px;
+    max-width: 85vw;
+    z-index: 60;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 20px 12px;
+    gap: 16px;
+    border-right: 1px solid var(--border);
+    transform: translateX(-105%);
+    transition: transform 0.22s ease;
+    box-shadow: none;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.35);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 50;
   }
 
   .sidebar-nav {
-    flex-direction: row;
+    flex-direction: column;
   }
 
   .sidebar-foot {
-    margin-top: 0;
-    margin-left: auto;
+    margin-top: auto;
+  }
+
+  .app {
+    height: 100%;
   }
 
   .session-nav {
@@ -1467,4 +1536,12 @@ body {
 
 .auth-toggle:hover {
   color: var(--text);
+}
+
+/* iOS Safari: keep inputs at 16px on phones so focus doesn't auto-zoom.
+   Placed last so it wins the cascade over the base 15px rule. */
+@media (max-width: 640px) {
+  .input-row textarea {
+    font-size: 16px;
+  }
 }

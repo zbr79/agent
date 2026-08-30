@@ -9,5 +9,14 @@ module.exports = {
         NODE_ENV: "production",
       },
     },
+    {
+      name: "inschat-agent",
+      script: "/home/ubuntu/opencode-tmp/agent/start-server.sh",
+      interpreter: "bash",
+      cwd: "/home/ubuntu/opencode-tmp/agent",
+      env: {
+        NODE_ENV: "production",
+      },
+    },
   ],
 };

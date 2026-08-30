@@ -1,11 +1,19 @@
 import { Suspense } from "react";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Sidebar from "@/components/Sidebar";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "InsChat — Insulin & Glucose Tracker",
   description: "Record insulin levels with timestamps and food photos. Get AI-powered analysis for diabetes management.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

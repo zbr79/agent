@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ChatSession } from "@/lib/types";
 import { deleteGuestSession, listGuestSessions } from "@/lib/guestStore";
-import { STR, useUiLang } from "@/lib/i18n";
+import { STR, useUiLang, setUiLang } from "@/lib/i18n";
 
 const ownerItems = [
   { href: "/", label: "nav.chat" },
@@ -37,6 +37,11 @@ export default function Sidebar() {
   const [sessions, setSessions] = useState<ChatSession[] | null>(null);
   const [guestSessions, setGuestSessions] = useState<{ id: string; title: string }[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname, currentSession]);
 
   useEffect(() => {
     let alive = true;
@@ -101,21 +106,43 @@ export default function Sidebar() {
   const items = user ? ownerItems : guestItems;
 
   return (
-    <aside className="sidebar">
-      <Link href="/" className="sidebar-brand">
-        InsChat
-      </Link>
-      <nav className="sidebar-nav">
-        {items.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`sidebar-link ${pathname === item.href ? "active" : ""}`}
-          >
-            {t[item.label]}
-          </Link>
-        ))}
-      </nav>
+    <>
+      <div className="mobile-bar">
+        <button
+          type="button"
+          className="menu-button"
+          onClick={() => setMenuOpen(true)}
+          aria-label="Open menu"
+        >
+          ☰
+        </button>
+        <Link href="/" className="mobile-brand">
+          InsChat
+        </Link>
+      </div>
+      {menuOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <aside className={`sidebar${menuOpen ? " open" : ""}`}>
+        <Link href="/" className="sidebar-brand">
+          InsChat
+        </Link>
+        <nav className="sidebar-nav">
+          {items.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`sidebar-link ${pathname === item.href ? "active" : ""}`}
+              onClick={() => setMenuOpen(false)}
+            >
+              {t[item.label]}
+            </Link>
+          ))}
+        </nav>
       {onHome && authChecked && (
         <div className="session-nav">
           <Link href="/" className="session-new">
@@ -180,6 +207,14 @@ export default function Sidebar() {
         </div>
       )}
       <div className="sidebar-foot">
+        <button
+          type="button"
+          className="lang-toggle"
+          onClick={() => setUiLang(lang === "zh" ? "en" : "zh")}
+          aria-label="Switch language"
+        >
+          {t["lang.button"]}
+        </button>
         {user ? (
           <div className="sidebar-user">
             <span className="user-name">{user.username}</span>
@@ -201,5 +236,6 @@ export default function Sidebar() {
         </a>
       </div>
     </aside>
+    </>
   );
 }

@@ -48,8 +48,8 @@ export function getSystemPrompt(timeZone?: string, language?: "zh" | "en"): stri
     if (prompt) {
       const modeLine =
         language === "en"
-          ? "\n\nUI language mode: English — reply in English, using the English template variants."
-          : "\n\nUI语言模式：中文 — 请用中文回复，并使用中文模板格式。";
+          ? "\n\nUI language mode: English — use English only when the user's message has no language cues (photo alone, bare number)."
+          : "\n\nUI语言模式：中文 — 仅在用户消息没有语言线索（纯图片、纯数字）时使用中文。";
       return `${prompt}${modeLine}\n\n当前时间（${zone}）: ${currentTimeLabel(zone)}`;
     }
   } catch {}

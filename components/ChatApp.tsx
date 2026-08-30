@@ -19,7 +19,7 @@ import {
   setGuestConclusion,
 } from "@/lib/guestStore";
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
-import { STR, useUiLang, setUiLang } from "@/lib/i18n";
+import { STR, useUiLang } from "@/lib/i18n";
 
 interface UiMessage {
   id: number;
@@ -460,17 +460,6 @@ export default function ChatApp() {
 
   return (
     <div className="app">
-      <header className="header">
-        <h1>InsChat</h1>
-        <button
-          type="button"
-          className="lang-toggle"
-          onClick={() => setUiLang(lang === "zh" ? "en" : "zh")}
-          aria-label="Switch language"
-        >
-          {t["lang.button"]}
-        </button>
-      </header>
       {loading ? (
         <main className="messages">
           <p className="empty">{t["records.loading"]}</p>

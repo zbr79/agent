@@ -233,6 +233,9 @@ async function* streamOpenCodeOnce(
   if (!response.ok || !response.body) {
     const text = await response.text().catch(() => "");
     const error = errorFromResponse(response.status, text);
+    console.log(
+      `[opencode:${requestId}] ${model} HTTP ${response.status} → ${text.slice(0, 200)}`
+    );
     insertCall({
       kind: "opencode",
       model,

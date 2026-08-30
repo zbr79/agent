@@ -1,4 +1,5 @@
 import { streamChat } from "@/lib/opencode";
+import { agentChat, isAgentUp } from "@/lib/agent";
 import { ChatValidationError } from "@/lib/errors";
 import { parseChatBody, type ChatRequest } from "@/lib/chatRequest";
 
@@ -16,6 +17,7 @@ export async function POST(req: Request) {
     return Response.json({ error: message }, { status: 400 });
   }
   const { messages, timeZone, language } = parsed;
+  const hasImage = messages.some((message) => message.image);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -23,9 +25,28 @@ export async function POST(req: Request) {
       req.signal.addEventListener("abort", () => {
         console.log("[chat] client disconnected mid-stream");
       });
+      const enqueue = (text: string) => controller.enqueue(encoder.encode(text));
+
       try {
+        if (!hasImage) {
+          const agentReady = await isAgentUp();
+          if (agentReady) {
+            let produced = false;
+            try {
+              for await (const text of agentChat(messages, timeZone, language)) {
+                produced = true;
+                enqueue(text);
+              }
+              return;
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              console.log(`[chat] agent failed${produced ? " mid-stream" : ""} → ${message.slice(0, 160)}`);
+              if (produced) return;
+            }
+          }
+        }
         for await (const text of streamChat(messages, timeZone, language)) {
-          controller.enqueue(encoder.encode(text));
+          enqueue(text);
         }
       } catch (error) {
         const message =
@@ -34,7 +55,7 @@ export async function POST(req: Request) {
             : error instanceof Error && error.message
               ? `Chat request failed: ${error.message}`
               : "Chat request failed. See README.";
-        controller.enqueue(encoder.encode(`\n\n[${message}]`));
+        enqueue(`\n\n[${message}]`);
       } finally {
         controller.close();
       }
