@@ -610,3 +610,16 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 
 ### Disproved
 - n/a
+
+## 2026-08-30 — User bubbles: light background, image/text split
+
+### Solved
+- Sent messages no longer black: `--bubble-user` changed to light gray (#e8e8ed) with dark text; model bubbles stay #f5f5f7 (alignment still distinguishes sides).
+- Image+text user messages now render as TWO bubbles: a transparent image-only bubble (`.bubble.image-only`) above a separate text bubble — no more photo+text in one box. Model messages unchanged; persistence/storage untouched (display-level split in MessageBubble).
+- Verified headless: 2 user bubbles, image first, image bubble bg transparent, text bubble bg rgb(232,232,237).
+
+### Unresolved
+- n/a
+
+### Disproved
+- n/a

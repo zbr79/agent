@@ -61,39 +61,61 @@ export default function MessageBubble({
     <main className="messages">
       {messages.map((message, index) => {
         const imageUrl = message.image ? dataUrl(message.image) : null;
+        const splitImage =
+          message.role === "user" && imageUrl && message.text ? imageUrl : null;
         return (
         <div key={message.id} className={`message ${message.role}`}>
           <div className="message-body">
-            <div className="bubble">
-              {imageUrl && (
-                <img
-                  src={imageUrl}
-                  alt="Uploaded"
-                  onClick={() => setViewer(imageUrl)}
-                />
-              )}
-              {message.text && (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeHighlight]}
-                >
-                  {preserveLineBreaks(message.text)}
-                </ReactMarkdown>
-              )}
-              {message.streaming && !message.text && (
-                <span className="thinking">
+            {splitImage ? (
+              <>
+                <div className="bubble image-only">
+                  <img
+                    src={splitImage}
+                    alt="Uploaded"
+                    onClick={() => setViewer(splitImage)}
+                  />
+                </div>
+                <div className="bubble">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeHighlight]}
+                  >
+                    {preserveLineBreaks(message.text)}
+                  </ReactMarkdown>
+                </div>
+              </>
+            ) : (
+              <div className="bubble">
+                {imageUrl && (
+                  <img
+                    src={imageUrl}
+                    alt="Uploaded"
+                    onClick={() => setViewer(imageUrl)}
+                  />
+                )}
+                {message.text && (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeHighlight]}
+                  >
+                    {preserveLineBreaks(message.text)}
+                  </ReactMarkdown>
+                )}
+                {message.streaming && !message.text && (
+                  <span className="thinking">
                     {!message.trying && message.model && (
                       <span className="thinking-label">{t["thinking"]}</span>
                     )}
-                  <span className="thinking-dots" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
+                    <span className="thinking-dots" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
                   </span>
-                </span>
-              )}
-              {message.streaming && message.text && <span className="cursor" />}
-            </div>
+                )}
+                {message.streaming && message.text && <span className="cursor" />}
+              </div>
+            )}
             {message.role === "model" && !message.failed && message.model && (
               <div className={`model-meta${message.streaming ? " live" : ""}`}>
                 {!message.streaming && message.elapsed !== undefined && (

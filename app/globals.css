@@ -11,8 +11,8 @@
   --text-muted: #6e6e73;
   --pill: #1d1d1f;
   --pill-text: #ffffff;
-  --bubble-user: #1d1d1f;
-  --bubble-user-text: #ffffff;
+  --bubble-user: #e8e8ed;
+  --bubble-user-text: #1d1d1f;
   --bubble-model: #f5f5f7;
   --bubble-model-text: #1d1d1f;
   --border: #d2d2d7;
@@ -555,6 +555,11 @@ body {
 }
 
 .message.user .bubble:has(img) {
+  background: transparent;
+  padding: 0;
+}
+
+.message.user .bubble.image-only {
   background: transparent;
   padding: 0;
 }
