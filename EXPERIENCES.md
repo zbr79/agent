@@ -582,3 +582,17 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 
 ### Disproved
 - Placing the 16px textarea rule inside the existing early media block did nothing — cascade order beat the media query.
+
+## 2026-08-30 — Real per-call cost/token logging
+
+### Solved
+- `insertCall` now stores `cost` + `tokens` (input/output/reasoning/cacheRead/cacheWrite); `ApiCall`/`CallDoc` extended; `getOpenCodeUsage` aggregates cost30d + tokens30d (30d window).
+- Agent path (`lib/agent.ts`) logs the prompt result's `info.cost` + `info.tokens` (from the SDK prompt response) on success and failure; direct streaming path (`lib/opencode.ts`) captures the gateway's trailing `{"choices":[],"cost":...}` chunk + final `usage`.
+- /opencode-calls panel shows cost30d + tokens30d in the totals card and `$0.0015`-style cost per call row (new .call-cost style; i18n zh/en).
+- Real numbers (agent, deepseek-v4-pro): simple health message ≈ $0.0015–0.005; research turn with cache reads ≈ $0.0015 (1,457 in / 156 out / 25 reasoning / 9,984 cached).
+
+### Unresolved
+- Older calls (before this change) have no cost — aggregated cost counts only new calls.
+
+### Disproved
+- n/a

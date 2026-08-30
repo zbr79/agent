@@ -1,6 +1,7 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { getSystemPrompt } from "./prompt";
 import { encodeModelMarker, encodeTryingMarker } from "./markers";
+import { insertCall } from "./db";
 import type { ChatMessage } from "./types";
 
 const AGENT_URL = "http://127.0.0.1:4096";
@@ -189,22 +190,46 @@ export async function* agentChat(
       },
     });
 
+    interface PromptInfo {
+      cost?: number;
+      modelID?: string;
+      tokens?: {
+        input?: number;
+        output?: number;
+        reasoning?: number;
+        total?: number;
+        cache?: { read?: number; write?: number };
+      };
+    }
+
     // Wait for the prompt to settle, reading events concurrently.
     const promptResult = await promptPromise
-      .then(() => "ok" as const)
+      .then(
+        (result) =>
+          ({
+            status: "ok" as const,
+            info: (result as { data?: { info?: PromptInfo } }).data?.info,
+          })
+      )
       .catch((error: unknown) => {
         failed = error instanceof Error ? error : new Error(String(error));
-        return "error" as const;
+        return { status: "error" as const, info: undefined };
       });
     for await (const text of readEvents) {
       yield text;
     }
 
-    if (promptResult === "error" && !produced) {
+    if (promptResult.status === "error" && !produced) {
       const failure = failed ?? new Error("Agent prompt failed.");
       console.log(
         `[agent:${requestId}] prompt failed before first token → ${failure.message.slice(0, 160)}`
       );
+      insertCall({
+        kind: "opencode",
+        model: modelName ?? "deepseek-v4-pro",
+        ok: false,
+        error: failure.message.slice(0, 300),
+      }).catch(() => {});
       throw failure;
     }
     if (!produced && failed) {
@@ -213,7 +238,27 @@ export async function* agentChat(
     if (!produced) {
       throw new Error("Agent finished without producing an answer.");
     }
-    console.log(`[agent:${requestId}] done — answered by agent (${modelName ?? "default"})`);
+    const info = promptResult.info;
+    const tokens = info?.tokens;
+    const normalized = tokens
+      ? {
+          input: tokens.input ?? 0,
+          output: tokens.output ?? 0,
+          reasoning: tokens.reasoning ?? 0,
+          cacheRead: tokens.cache?.read ?? 0,
+          cacheWrite: tokens.cache?.write ?? 0,
+        }
+      : undefined;
+    insertCall({
+      kind: "opencode",
+      model: info?.modelID ?? modelName ?? "deepseek-v4-pro",
+      ok: true,
+      cost: info?.cost,
+      tokens: normalized,
+    }).catch(() => {});
+    console.log(
+      `[agent:${requestId}] done — answered by agent (${info?.modelID ?? modelName ?? "default"}), cost ${info?.cost ?? "n/a"}`
+    );
   } finally {
     agent.session.delete({ path: { id: session.id } }).catch(() => {});
   }

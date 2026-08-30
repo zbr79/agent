@@ -55,6 +55,14 @@ export interface ApiCall {
   ok: boolean;
   error?: string;
   at: string;
+  cost?: number;
+  tokens?: {
+    input: number;
+    output: number;
+    reasoning: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
 }
 
 export interface ChatSession {

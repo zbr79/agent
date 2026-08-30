@@ -169,6 +169,13 @@ interface OpenAiChunk {
     finish_reason?: string | null;
   }[];
   error?: { message?: string };
+  cost?: number | string;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
+  };
 }
 
 interface OpenAiCompletion {
@@ -255,6 +262,8 @@ async function* streamOpenCodeOnce(
   let firstTokenAt: number | null = null;
   let failed: Error | null = null;
   const toolAcc: Record<number, { id: string; name: string; args: string }> = {};
+  let lastCost: number | undefined;
+  let lastUsage: OpenAiChunk["usage"];
 
   try {
     while (true) {
@@ -277,6 +286,8 @@ async function* streamOpenCodeOnce(
         if (chunk.error?.message) {
           throw new Error(chunk.error.message);
         }
+        if (typeof chunk.cost === "number") lastCost = chunk.cost;
+        if (chunk.usage) lastUsage = chunk.usage;
         const delta = chunk.choices?.[0]?.delta;
         for (const tc of delta?.tool_calls ?? []) {
           const tIdx = tc.index ?? 0;
@@ -329,7 +340,22 @@ async function* streamOpenCodeOnce(
     throw error;
   }
   const ttfbMs = firstTokenAt ? firstTokenAt - startedAt : totalMs;
-  insertCall({ kind: "opencode", model, ok: true }).catch(() => {});
+  const usage = lastUsage
+    ? {
+        input: lastUsage.prompt_tokens ?? 0,
+        output: lastUsage.completion_tokens ?? 0,
+        reasoning: lastUsage.completion_tokens_details?.reasoning_tokens ?? 0,
+        cacheRead: lastUsage.prompt_tokens_details?.cached_tokens ?? 0,
+        cacheWrite: 0,
+      }
+    : undefined;
+  insertCall({
+    kind: "opencode",
+    model,
+    ok: true,
+    cost: lastCost,
+    tokens: usage,
+  }).catch(() => {});
   console.log(
     `[opencode:${requestId}] done — ${model}: first token ${ttfbMs}ms, total ${totalMs}ms, ${toolCalls.length} tool calls`
   );

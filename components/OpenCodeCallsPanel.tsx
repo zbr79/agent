@@ -16,6 +16,14 @@ interface OpenCodeUsageData {
   last7d: number;
   last30d: number;
   failed30d: number;
+  cost30d: number;
+  tokens30d: {
+    input: number;
+    output: number;
+    reasoning: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
   models: { model: string; count: number }[];
   recent: ApiCall[];
   official: {
@@ -149,7 +157,18 @@ export default function OpenCodeCallsPanel() {
         </div>
         <div className="usage-meta">
           <span>{data?.failed30d ?? 0} {t["opencodeCalls.failed"]}</span>
+          <span>
+            {t["opencodeCalls.cost30d"]}: ${(data?.cost30d ?? 0).toFixed(4)}
+          </span>
         </div>
+        {data && data.tokens30d && (
+          <div className="usage-meta">
+            <span>
+              {t["opencodeCalls.tokens30d"]}:{" "}
+              {(data.tokens30d.input + data.tokens30d.output + data.tokens30d.reasoning).toLocaleString()}
+            </span>
+          </div>
+        )}
       </section>
 
       <section className="usage-card">
@@ -190,6 +209,9 @@ export default function OpenCodeCallsPanel() {
                 <span className="call-kind">opencode</span>
                 <span className="call-model">{call.model}</span>
                 <span className="call-status">{call.ok ? "ok" : "error"}</span>
+                {typeof call.cost === "number" && (
+                  <span className="call-cost">${call.cost.toFixed(4)}</span>
+                )}
               </div>
               <span className="call-time">
                 {new Date(call.at).toLocaleString([], {

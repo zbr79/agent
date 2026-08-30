@@ -104,6 +104,14 @@ interface CallDoc {
   ok: boolean;
   error?: string;
   at: Date;
+  cost?: number;
+  tokens?: {
+    input: number;
+    output: number;
+    reasoning: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
 }
 
 export function toApiCall(doc: CallDoc): ApiCall {
@@ -114,6 +122,8 @@ export function toApiCall(doc: CallDoc): ApiCall {
     ok: doc.ok,
     error: doc.error,
     at: doc.at.toISOString(),
+    cost: doc.cost,
+    tokens: doc.tokens,
   };
 }
 
@@ -122,6 +132,8 @@ export async function insertCall(input: {
   model: string;
   ok: boolean;
   error?: string;
+  cost?: number;
+  tokens?: CallDoc["tokens"];
 }): Promise<void> {
   const db = await getDb();
   const doc: CallDoc = { ...input, at: new Date() };
@@ -155,6 +167,14 @@ export interface OpenCodeUsage {
   last7d: number;
   last30d: number;
   failed30d: number;
+  cost30d: number;
+  tokens30d: {
+    input: number;
+    output: number;
+    reasoning: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
   models: { model: string; count: number }[];
   recent: ApiCall[];
 }
@@ -166,7 +186,7 @@ export async function getOpenCodeUsage(): Promise<OpenCodeUsage> {
   const since5h = new Date(now.getTime() - 5 * 3600_000);
   const since7d = new Date(now.getTime() - 7 * 86400_000);
   const since30d = new Date(now.getTime() - 30 * 86400_000);
-  const [total, failed30d, last5h, last7d, last30d, byModel, recent] =
+  const [total, failed30d, last5h, last7d, last30d, byModel, recent, costAgg] =
     await Promise.all([
       collection.countDocuments({ kind: "opencode" }),
       collection.countDocuments({
@@ -189,13 +209,52 @@ export async function getOpenCodeUsage(): Promise<OpenCodeUsage> {
         .sort({ at: -1 })
         .limit(50)
         .toArray(),
+      collection
+        .aggregate<{
+          cost: number;
+          input: number;
+          output: number;
+          reasoning: number;
+          cacheRead: number;
+          cacheWrite: number;
+        }>([
+          { $match: { kind: "opencode", at: { $gte: since30d } } },
+          {
+            $group: {
+              _id: null,
+              cost: { $sum: { $ifNull: ["$cost", 0] } },
+              input: { $sum: { $ifNull: ["$tokens.input", 0] } },
+              output: { $sum: { $ifNull: ["$tokens.output", 0] } },
+              reasoning: { $sum: { $ifNull: ["$tokens.reasoning", 0] } },
+              cacheRead: { $sum: { $ifNull: ["$tokens.cacheRead", 0] } },
+              cacheWrite: { $sum: { $ifNull: ["$tokens.cacheWrite", 0] } },
+            },
+          },
+        ])
+        .toArray(),
     ]);
+  const agg = costAgg[0] ?? {
+    cost: 0,
+    input: 0,
+    output: 0,
+    reasoning: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+  };
   return {
     total,
     last5h,
     last7d,
     last30d,
     failed30d,
+    cost30d: Math.round(agg.cost * 10000) / 10000,
+    tokens30d: {
+      input: agg.input,
+      output: agg.output,
+      reasoning: agg.reasoning,
+      cacheRead: agg.cacheRead,
+      cacheWrite: agg.cacheWrite,
+    },
     models: byModel.map((row) => ({
       model: row._id ?? "unknown",
       count: row.count,
