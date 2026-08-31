@@ -1,4 +1,10 @@
-import { deleteSession, getSessionWithMessages, setSessionConclusion } from "@/lib/db";
+import {
+  deleteSession,
+  getSessionWithMessages,
+  setSessionConclusion,
+  setSessionPinned,
+  setSessionTitle,
+} from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import type { SessionConclusion } from "@/lib/types";
 
@@ -95,6 +101,29 @@ export async function PUT(
   const { id } = await params;
   try {
     const body: unknown = await req.json().catch(() => undefined);
+    const rawTitle = body && typeof body === "object"
+      ? (body as { title?: unknown }).title
+      : undefined;
+    if (rawTitle !== undefined) {
+      if (typeof rawTitle !== "string" || !rawTitle.trim() || rawTitle.length > 200) {
+        return Response.json({ error: '"title" is invalid.' }, { status: 400 });
+      }
+      const ok = await setSessionTitle(auth._id, id, rawTitle.trim());
+      if (!ok) {
+        return Response.json({ error: "Session not found." }, { status: 404 });
+      }
+      return Response.json({ ok: true });
+    }
+    const rawPinned = body && typeof body === "object"
+      ? (body as { pinned?: unknown }).pinned
+      : undefined;
+    if (typeof rawPinned === "boolean") {
+      const ok = await setSessionPinned(auth._id, id, rawPinned);
+      if (!ok) {
+        return Response.json({ error: "Session not found." }, { status: 404 });
+      }
+      return Response.json({ ok: true });
+    }
     const conclusion = parseConclusion(body);
     const ok = await setSessionConclusion(auth._id, id, conclusion);
     if (!ok) {

@@ -6,6 +6,7 @@ export interface ChatRequest {
   messages: ChatMessage[];
   timeZone?: string;
   language?: "zh" | "en";
+  mode?: "preset" | "free";
 }
 
 export function parseChatBody(body: unknown): ChatRequest {
@@ -61,5 +62,14 @@ export function parseChatBody(body: unknown): ChatRequest {
     language = rawLanguage;
   }
 
-  return { messages, timeZone, language };
+  const rawMode = (body as { mode?: unknown }).mode;
+  let mode: "preset" | "free" | undefined;
+  if (rawMode !== undefined) {
+    if (rawMode !== "preset" && rawMode !== "free") {
+      throw new ChatValidationError('"mode" must be "preset" or "free".');
+    }
+    mode = rawMode;
+  }
+
+  return { messages, timeZone, language, mode };
 }

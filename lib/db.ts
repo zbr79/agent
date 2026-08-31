@@ -270,6 +270,7 @@ interface SessionDoc {
   title: string;
   createdAt: Date;
   updatedAt: Date;
+  pinned?: boolean;
   conclusion?: SessionConclusion | null;
 }
 
@@ -290,6 +291,7 @@ function toChatSession(doc: SessionDoc): ChatSession {
     title: doc.title,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
+    pinned: doc.pinned,
   };
 }
 
@@ -430,6 +432,38 @@ export async function truncateMessages(
       { $set: { updatedAt: new Date(), conclusion: null } }
     );
   return removed.length;
+}
+
+export async function setSessionTitle(
+  userId: string,
+  id: string,
+  title: string
+): Promise<boolean> {
+  if (!ObjectId.isValid(id)) return false;
+  const db = await getDb();
+  const result = await db
+    .collection<SessionDoc>("sessions")
+    .updateOne(
+      { _id: new ObjectId(id), userId: new ObjectId(userId) },
+      { $set: { title, updatedAt: new Date() } }
+    );
+  return result.matchedCount > 0;
+}
+
+export async function setSessionPinned(
+  userId: string,
+  id: string,
+  pinned: boolean
+): Promise<boolean> {
+  if (!ObjectId.isValid(id)) return false;
+  const db = await getDb();
+  const result = await db
+    .collection<SessionDoc>("sessions")
+    .updateOne(
+      { _id: new ObjectId(id), userId: new ObjectId(userId) },
+      { $set: { pinned } }
+    );
+  return result.matchedCount > 0;
 }
 
 export async function deleteSession(userId: string, id: string): Promise<boolean> {

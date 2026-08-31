@@ -6,6 +6,7 @@ import Composer from "./Composer";
 import type { ChatImage, ChatMessage } from "@/lib/types";
 import { ModelMarkerParser } from "@/lib/markers";
 import { STR, useUiLang } from "@/lib/i18n";
+import { useInsulinMode } from "@/lib/prefs";
 
 interface UiMessage {
   id: number;
@@ -30,6 +31,7 @@ function toApiMessages(messages: UiMessage[]): ChatMessage[] {
 export default function OpenCodeChat() {
   const lang = useUiLang();
   const t = STR[lang];
+  const [insulinMode] = useInsulinMode();
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -79,6 +81,7 @@ export default function OpenCodeChat() {
             messages: history,
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             language: lang,
+            mode: insulinMode ? "preset" : "free",
           }),
           signal: controller.signal,
         });
@@ -164,7 +167,7 @@ export default function OpenCodeChat() {
         abortRef.current = null;
       }
     },
-    [messages, sending, lang]
+    [messages, sending, lang, insulinMode]
   );
 
   const stop = useCallback(() => {

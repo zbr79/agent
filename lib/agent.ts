@@ -106,11 +106,12 @@ interface AgentEvent {
 export async function* agentChat(
   messages: ChatMessage[],
   timeZone?: string,
-  language?: "zh" | "en"
+  language?: "zh" | "en",
+  freeMode = false
 ): AsyncGenerator<string> {
   const agent = getAgentClient();
   const session = (await agent.session.create({ body: { title: "inschat" } })).data;
-  const system = getSystemPrompt(timeZone, language);
+  const system = getSystemPrompt(timeZone, language, freeMode);
   const requestId = Math.random().toString(36).slice(2, 8);
 
   try {

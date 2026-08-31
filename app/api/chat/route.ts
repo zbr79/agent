@@ -16,7 +16,8 @@ export async function POST(req: Request) {
         : "Invalid request body.";
     return Response.json({ error: message }, { status: 400 });
   }
-  const { messages, timeZone, language } = parsed;
+  const { messages, timeZone, language, mode } = parsed;
+  const freeMode = mode === "free";
   const hasImage = messages.some((message) => message.image);
 
   const encoder = new TextEncoder();
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
           if (agentReady) {
             let produced = false;
             try {
-              for await (const text of agentChat(messages, timeZone, language)) {
+              for await (const text of agentChat(messages, timeZone, language, freeMode)) {
                 produced = true;
                 enqueue(text);
               }
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
             }
           }
         }
-        for await (const text of streamChat(messages, timeZone, language)) {
+        for await (const text of streamChat(messages, timeZone, language, freeMode)) {
           enqueue(text);
         }
       } catch (error) {

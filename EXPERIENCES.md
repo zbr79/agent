@@ -679,3 +679,30 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 
 ### Disproved
 - n/a
+
+## 2026-08-31 — Food template v2: markdown table (Template A)
+
+### Solved
+- Food-photo reply format upgraded from dots+lines to a rich markdown table: `## 餐名` heading, bold time line, 食物/升糖 table (🟢低/🟡中/🔴高, red rows fully bold), ⚠️ quote line for red-item reasons, 💡 bold summary. Chinese + English variants in SYSTEM_PROMPT.md §1.
+- Conclude prompt updated: foods may come from markdown table rows — extract names only, drop dots/labels/⚠️.
+- Verified: demo request returned the exact table format (午餐 / time / table with 酱牛肉+米饭+可乐 / ⚠️ line / 💡 总结), rendered as styled markdown by the existing pipeline.
+
+### Unresolved
+- Full end-to-end still needs a real food photo (none available in test assets) — text demo confirmed the format compliance.
+
+### Disproved
+- n/a
+
+## 2026-08-31 — Login circle, insulin-mode default-off, pin on the right
+
+### Solved
+- Login is now a circular bordered icon button (User icon, no text), matching common account-affordance patterns.
+- Mode semantics inverted per request: "胰岛素模式" (insulin/preset templates) is now OFF by default; the settings modal has a switch + hint, persisted to localStorage (`inschat_insulin_mode`), threaded as `mode: "preset"|"free"` through /api/chat + /api/opencode → agent and direct paths. Free chat (generic assistant + web_fetch) is the default.
+- Session rows reordered: title, then pin, then delete — pin now sits on the RIGHT of the row and only appears on hover (opacity 0, revealed on row hover; faint on touch). Verified order + hover opacity.
+- Verified: login circle (50% radius, icon only), switch default off → on persists "1", pin right-of-title.
+
+### Unresolved
+- Account-level persistence of insulin mode (vs localStorage) not wired yet — revisit when the account system grows.
+
+### Disproved
+- n/a

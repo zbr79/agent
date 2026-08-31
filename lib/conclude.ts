@@ -24,7 +24,7 @@ Produce a JSON conclusion with:
   - "unit": the unit if stated or clearly implied (e.g. "mg/dL", "kg", "g"). Only when applicable.
 - "meals": an array with one entry PER MEAL described in the reply. Each entry has:
   - "name": the meal name (早餐/午餐/晚餐/加餐, or breakfast/lunch/dinner/snack).
-  - "foods": the meal's foods as a comma-separated string.
+  - "foods": the meal's foods as a comma-separated string. Foods may appear as plain lines or as rows of a markdown table — extract the food names only, drop the 🟢🟡🔴 dots, "低/中/高" labels, and the ⚠️ lines.
   - "time": the meal's time when stated (e.g. "2026年8月26日 下午 6:17").
   Empty array when the reply describes no meals.
 

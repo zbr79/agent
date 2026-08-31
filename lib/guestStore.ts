@@ -16,6 +16,7 @@ export interface GuestSession {
   title: string;
   updatedAt: number;
   messages: GuestMessage[];
+  pinned?: boolean;
   conclusion?: SessionConclusion | null;
 }
 
@@ -107,6 +108,24 @@ export function setGuestConclusion(
   const target = sessions.find((session) => session.id === sessionId);
   if (!target) return;
   target.conclusion = conclusion ?? null;
+  target.updatedAt = Date.now();
+  writeSessions(sessions);
+}
+
+export function renameGuestSession(sessionId: string, title: string): void {
+  const sessions = readJson<GuestSession[]>(SESSIONS_KEY, []);
+  const target = sessions.find((session) => session.id === sessionId);
+  if (!target) return;
+  target.title = title;
+  target.updatedAt = Date.now();
+  writeSessions(sessions);
+}
+
+export function pinGuestSession(sessionId: string, pinned: boolean): void {
+  const sessions = readJson<GuestSession[]>(SESSIONS_KEY, []);
+  const target = sessions.find((session) => session.id === sessionId);
+  if (!target) return;
+  target.pinned = pinned;
   target.updatedAt = Date.now();
   writeSessions(sessions);
 }

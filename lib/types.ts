@@ -70,6 +70,7 @@ export interface ChatSession {
   title: string;
   createdAt: string;
   updatedAt: string;
+  pinned?: boolean;
 }
 
 export interface StoredMessage {

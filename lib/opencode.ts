@@ -400,13 +400,22 @@ const MAX_TOOL_ROUNDS = 6;
 export async function* streamChat(
   messages: ChatMessage[],
   timeZone?: string,
-  language?: "zh" | "en"
+  language?: "zh" | "en",
+  freeMode = false
 ): AsyncGenerator<string> {
   const hasImage = messages.some((message) => message.image);
   const useTools = !hasImage;
   const requestId = Math.random().toString(36).slice(2, 8);
   let chain = getChatChain(hasImage);
-  let working: OpenAiMessage[] = toOpenAiMessages(messages, timeZone, language);
+  const systemOverride = freeMode
+    ? getSystemPrompt(timeZone, language, true)
+    : undefined;
+  let working: OpenAiMessage[] = toOpenAiMessages(
+    messages,
+    timeZone,
+    language,
+    systemOverride
+  );
   let lastError: unknown = null;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {

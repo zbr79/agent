@@ -21,6 +21,7 @@ import {
 } from "@/lib/guestStore";
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
 import { STR, useUiLang } from "@/lib/i18n";
+import { useInsulinMode } from "@/lib/prefs";
 
 interface UiMessage {
   id: number;
@@ -70,6 +71,7 @@ export default function ChatApp() {
   const sessionParam = searchParams.get("session");
   const lang = useUiLang();
   const t = STR[lang];
+  const [insulinMode] = useInsulinMode();
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -251,6 +253,7 @@ export default function ChatApp() {
             messages: history,
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             language: lang,
+            mode: insulinMode ? "preset" : "free",
           }),
           signal: controller.signal,
         });
@@ -359,7 +362,7 @@ export default function ChatApp() {
         abortRef.current = null;
       }
     },
-    [isAuthed, lang]
+    [isAuthed, lang, insulinMode]
   );
 
   const send = useCallback(
