@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, Sparkles } from "lucide-react";
+import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, Sparkles, ChevronRight, Languages, Activity, Gauge } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
 import {
   deleteGuestSession,
@@ -18,13 +18,11 @@ import { useInsulinMode } from "@/lib/prefs";
 const ownerItems = [
   { href: "/", label: "nav.chat" },
   { href: "/records", label: "nav.records" },
-  { href: "/usage", label: "nav.usage" },
 ];
 
 const guestItems = [
   { href: "/", label: "nav.chat" },
   { href: "/records", label: "nav.records" },
-  { href: "/usage", label: "nav.usage" },
 ];
 
 interface MeUser {
@@ -520,6 +518,9 @@ export default function Sidebar() {
             </button>
           </div>
           <label className="settings-row">
+            <span className="settings-row-icon">
+              <Languages size={16} />
+            </span>
             <span className="settings-label">{t["settings.language"]}</span>
             <select
               className="settings-select"
@@ -531,10 +532,10 @@ export default function Sidebar() {
             </select>
           </label>
           <label className="settings-row">
-            <span className="settings-label">
-              {t["settings.insulinMode"]}
-              <span className="settings-hint">{t["settings.insulinModeHint"]}</span>
+            <span className="settings-row-icon">
+              <Activity size={16} />
             </span>
+            <span className="settings-label">{t["settings.insulinMode"]}</span>
             <button
               type="button"
               role="switch"
@@ -546,6 +547,21 @@ export default function Sidebar() {
               <span className="switch-knob" />
             </button>
           </label>
+          <button
+            type="button"
+            className="settings-row settings-link"
+            onClick={() => {
+              setSettingsOpen(false);
+              setMenuOpen(false);
+              router.push("/usage");
+            }}
+          >
+            <span className="settings-row-icon">
+              <Gauge size={16} />
+            </span>
+            <span className="settings-label">{t["nav.usage"]}</span>
+            <ChevronRight size={16} />
+          </button>
         </div>
       </>
     )}
