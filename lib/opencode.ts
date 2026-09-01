@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { ChatValidationError } from "./errors";
 import { getSystemPrompt } from "./prompt";
 import { encodeModelMarker, encodeTryingMarker } from "./markers";
@@ -10,8 +13,37 @@ export const OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const OPENCODE_MODEL = "deepseek-v4-pro";
 export const OPENCODE_VISION_MODEL = "deepseek-v4-flash-vision-exp";
 
+// The opencode CLI stores the current subscription key here; it changes when
+// the user rotates/reconnects the key in the TUI. Prefer it over .env so the
+// app never runs on a stale (exhausted) key.
+function keyFromAuthFile(): string | null {
+  try {
+    const file = path.join(
+      os.homedir(),
+      ".local",
+      "share",
+      "opencode",
+      "auth.json"
+    );
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as Record<
+      string,
+      { key?: string }
+    >;
+    const key = parsed["opencode-go"]?.key;
+    if (typeof key === "string" && key) return key;
+  } catch {}
+  return null;
+}
+
 export function getOpenCodeKey(): string {
-  const key = process.env.OPENCODE_API_KEY;
+  // OPENCODE_API_KEY_FORCE=1 pins the app to the .env key even when the
+  // opencode CLI has a different (newer) key in auth.json — useful for
+  // deliberately testing the exhausted-key state.
+  const envKey = process.env.OPENCODE_API_KEY;
+  const key =
+    process.env.OPENCODE_API_KEY_FORCE === "1"
+      ? envKey
+      : keyFromAuthFile() ?? envKey;
   if (!key || key === "your_opencode_go_api_key_here" || key === "your_api_key_here") {
     throw new ChatValidationError(
       "OPENCODE_API_KEY is not configured on the server."
@@ -33,6 +65,60 @@ export function isUnavailableError(error: unknown): boolean {
 export function isOverloadedError(error: unknown): boolean {
   const message = String(error instanceof Error ? error.message : error);
   return /503|overloaded|capacity/i.test(message);
+}
+
+// The Go subscription's dollar windows ran out ("Insufficient balance",
+// "Monthly usage limit reached"...).
+export function isBalanceError(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error);
+  return /insufficient balance|CreditsError|billing|usage limit|limit reached/i.test(message);
+}
+
+// Which quota window is actually exhausted, with its reset time.
+export async function quotaResetInfo(): Promise<{
+  window: "rolling" | "monthly";
+  resetAt: string | null;
+}> {
+  const official = await getOpenCodeOfficialUsage();
+  if (official?.monthly?.status === "rate-limited") {
+    return { window: "monthly", resetAt: official.monthly.resetsAt ?? null };
+  }
+  return { window: "rolling", resetAt: official?.rolling?.resetsAt ?? null };
+}
+
+// User-facing error text, localized, with the quota reset time when known.
+export async function chatErrorMessage(
+  error: unknown,
+  language?: "zh" | "en"
+): Promise<string> {
+  const raw = String(error instanceof Error ? error.message : error);
+  if (isBalanceError(error)) {
+    const { window, resetAt } = await quotaResetInfo();
+    const resetsAt = resetAt ? new Date(resetAt).toLocaleString() : null;
+    if (language === "en") {
+      return (
+        `OpenCode subscription ${window === "monthly" ? "monthly" : "5-hour"} usage is exhausted.` +
+        (resetsAt ? ` It resets around ${resetsAt} — please retry later.` : " Please retry later.") +
+        " Usage console: opencode.ai/auth"
+      );
+    }
+    return (
+      `OpenCode 订阅${window === "monthly" ? "月度" : "5 小时窗口"}额度已用完。` +
+      (resetsAt ? `额度预计在 ${resetsAt} 重置，请稍后再试。` : "请稍后再试。") +
+      "用量详情：opencode.ai/auth"
+    );
+  }
+  if (isQuotaError(error)) {
+    return language === "en"
+      ? "The AI service is busy right now — please retry in a moment."
+      : "AI 服务当前繁忙，请稍后再试。";
+  }
+  if (isOverloadedError(error)) {
+    return language === "en"
+      ? "The model is overloaded right now — please retry."
+      : "模型服务繁忙，请稍后重试。";
+  }
+  return raw;
 }
 
 export interface OpenCodeUsageWindow {
@@ -107,27 +193,29 @@ function toOpenAiMessages(
   ];
   for (const message of messages) {
     const role = message.role === "model" ? "assistant" : "user";
-    if (message.image) {
-      const mimeType = message.image.mimeType.toLowerCase();
-      if (!ALLOWED_IMAGE_TYPES.includes(mimeType)) {
-        throw new ChatValidationError(
-          `Unsupported image type: ${mimeType}. Allowed: JPEG, PNG, WebP.`
-        );
-      }
-      const bytes = Math.floor((message.image.data.length * 3) / 4);
-      if (bytes > MAX_IMAGE_BYTES) {
-        throw new ChatValidationError("Image is too large. Max size is 5 MB.");
-      }
+    if (message.images && message.images.length > 0) {
       const parts: OpenAiContentPart[] = [];
       if (message.text.trim()) {
         parts.push({ type: "text", text: message.text });
       }
-      parts.push({
-        type: "image_url",
-        image_url: {
-          url: `data:${message.image.mimeType};base64,${message.image.data}`,
-        },
-      });
+      for (const image of message.images) {
+        const mimeType = image.mimeType.toLowerCase();
+        if (!ALLOWED_IMAGE_TYPES.includes(mimeType)) {
+          throw new ChatValidationError(
+            `Unsupported image type: ${mimeType}. Allowed: JPEG, PNG, WebP.`
+          );
+        }
+        const bytes = Math.floor((image.data.length * 3) / 4);
+        if (bytes > MAX_IMAGE_BYTES) {
+          throw new ChatValidationError("Image is too large. Max size is 5 MB.");
+        }
+        parts.push({
+          type: "image_url",
+          image_url: {
+            url: `data:${image.mimeType};base64,${image.data}`,
+          },
+        });
+      }
       out.push({ role, content: parts });
       continue;
     }
@@ -234,6 +322,12 @@ async function* streamOpenCodeOnce(
   console.log(
     `[opencode:${requestId}] start — model ${model}, ${messages.length} messages${tools ? ", tools on" : ""}`
   );
+
+  if (process.env.OPENCODE_TEST_LIMIT === "1") {
+    throw new Error(
+      "Monthly usage limit reached. Resets in 20 days. (test-limit simulation)"
+    );
+  }
 
   const response = await postCompletion(model, body, 120_000);
 
@@ -403,7 +497,7 @@ export async function* streamChat(
   language?: "zh" | "en",
   freeMode = false
 ): AsyncGenerator<string> {
-  const hasImage = messages.some((message) => message.image);
+  const hasImage = messages.some((message) => (message.images?.length ?? 0) > 0);
   const useTools = !hasImage;
   const requestId = Math.random().toString(36).slice(2, 8);
   let chain = getChatChain(hasImage);
@@ -437,10 +531,10 @@ export async function* streamChat(
         } catch (error) {
           lastError = error;
           if (error instanceof ChatValidationError) throw error;
-          if (isQuotaError(error) || isUnavailableError(error)) {
-            console.log(`[opencode:${requestId}] ${model} unavailable → next model`);
-            break;
-          }
+        if (isQuotaError(error) || isUnavailableError(error) || isBalanceError(error)) {
+          console.log(`[opencode:${requestId}] ${model} unavailable → next model`);
+          break;
+        }
           if (isOverloadedError(error)) {
             const delay = 1500 * (attempt + 1);
             console.log(`[opencode:${requestId}] ${model} overloaded → retry in ${delay}ms`);

@@ -5,8 +5,8 @@ import type { ChatImage, ConcludeItem, ConcludeMeal, SessionConclusion } from ".
 export interface GuestMessage {
   role: "user" | "model";
   text: string;
-  image?: ChatImage;
-  imageKey?: string;
+  images?: ChatImage[];
+  imageKeys?: string[];
   model?: string;
   elapsed?: number;
 }
@@ -64,7 +64,7 @@ function writeSessions(sessions: GuestSession[]): void {
   // Quota exceeded: drop images everywhere, then shrink the list, then give up.
   const withoutImages = sessions.map((session) => ({
     ...session,
-    messages: session.messages.map((message) => ({ ...message, image: undefined })),
+    messages: session.messages.map((message) => ({ ...message, images: undefined })),
   }));
   if (writeJson(SESSIONS_KEY, withoutImages)) return;
   writeJson(SESSIONS_KEY, withoutImages.slice(-10));

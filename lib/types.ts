@@ -6,7 +6,7 @@ export interface ChatImage {
 export interface ChatMessage {
   role: "user" | "model";
   text: string;
-  image?: ChatImage;
+  images?: ChatImage[];
 }
 
 export interface ConcludeItem {
@@ -78,12 +78,13 @@ export interface StoredMessage {
   sessionId: string;
   role: "user" | "model";
   text: string;
-  image?: ChatImage;
+  images?: ChatImage[];
   model?: string;
   elapsed?: number;
   createdAt: string;
 }
 
 export const MAX_MESSAGES = 20;
+export const MAX_IMAGES = 3;
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];

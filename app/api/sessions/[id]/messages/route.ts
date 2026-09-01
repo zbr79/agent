@@ -15,7 +15,7 @@ export async function POST(
 
   let role: "user" | "model";
   let text: string;
-  let image: { mimeType: string; data: string } | undefined;
+  let images: { mimeType: string; data: string }[] | undefined;
   let model: string | undefined;
   let elapsed: number | undefined;
   try {
@@ -23,10 +23,10 @@ export async function POST(
     if (!body || typeof body !== "object") {
       throw new Error("Request body must be a JSON object.");
     }
-    const { role: rawRole, text: rawText, image: rawImage, model: rawModel, elapsed: rawElapsed } = body as {
+    const { role: rawRole, text: rawText, images: rawImages, model: rawModel, elapsed: rawElapsed } = body as {
       role?: unknown;
       text?: unknown;
-      image?: unknown;
+      images?: unknown;
       model?: unknown;
       elapsed?: unknown;
     };
@@ -38,15 +38,21 @@ export async function POST(
       throw new Error('"text" must be a string within size limits.');
     }
     text = rawText;
-    if (rawImage !== undefined && rawImage !== null) {
-      if (
-        typeof rawImage !== "object" ||
-        typeof (rawImage as { mimeType?: unknown }).mimeType !== "string" ||
-        typeof (rawImage as { data?: unknown }).data !== "string"
-      ) {
-        throw new Error('"image" is invalid.');
+    if (rawImages !== undefined && rawImages !== null) {
+      if (!Array.isArray(rawImages) || rawImages.length > 3) {
+        throw new Error('"images" must be an array of at most 3 images.');
       }
-      image = rawImage as { mimeType: string; data: string };
+      images = rawImages.map((rawImage) => {
+        if (
+          typeof rawImage !== "object" ||
+          rawImage === null ||
+          typeof (rawImage as { mimeType?: unknown }).mimeType !== "string" ||
+          typeof (rawImage as { data?: unknown }).data !== "string"
+        ) {
+          throw new Error('"images" contains an invalid image.');
+        }
+        return rawImage as { mimeType: string; data: string };
+      });
     }
     if (rawModel !== undefined && rawModel !== null) {
       if (typeof rawModel !== "string" || rawModel.length > 100) {
@@ -68,7 +74,7 @@ export async function POST(
   }
 
   try {
-    const message = await appendMessage(auth._id, id, { role, text, image, model, elapsed });
+    const message = await appendMessage(auth._id, id, { role, text, images, model, elapsed });
     if (!message) {
       return Response.json({ error: "Session not found." }, { status: 404 });
     }

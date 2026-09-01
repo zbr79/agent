@@ -16,7 +16,7 @@ interface Message {
   id: number;
   role: "user" | "model";
   text: string;
-  image?: { mimeType: string; data: string };
+  images?: { mimeType: string; data: string }[];
   streaming?: boolean;
   failed?: boolean;
   model?: string;
@@ -46,6 +46,7 @@ export default function MessageBubble({
   onRegenerate,
   onShare,
   canAct = true,
+  flashId = null,
   editingId = null,
   editingText = "",
   onEditingText,
@@ -60,6 +61,7 @@ export default function MessageBubble({
   onRegenerate?: (id: number) => void;
   onShare?: (id: number) => void;
   canAct?: boolean;
+  flashId?: number | null;
   editingId?: number | null;
   editingText?: string;
   onEditingText?: (text: string) => void;
@@ -127,12 +129,18 @@ export default function MessageBubble({
   return (
     <main className="messages">
       {messages.map((message, index) => {
-        const imageUrl = message.image ? dataUrl(message.image) : null;
-        const splitImage =
-          message.role === "user" && imageUrl && message.text ? imageUrl : null;
+        const imageUrls = (message.images ?? []).map((image) => dataUrl(image));
+        const splitImages =
+          message.role === "user" && imageUrls.length > 0 && message.text
+            ? imageUrls
+            : null;
         const isEditing = editingId === message.id;
         return (
-        <div key={message.id} className={`message ${message.role}`}>
+        <div
+          key={message.id}
+          id={`msg-${message.id}`}
+          className={`message ${message.role}${flashId === message.id ? " flash" : ""}`}
+        >
           <div className="message-body">
             {isEditing ? (
               <div className="bubble edit-bubble">
@@ -160,15 +168,17 @@ export default function MessageBubble({
                   </button>
                 </div>
               </div>
-            ) : splitImage ? (
+            ) : splitImages ? (
               <>
-                <div className="bubble image-only">
-                  <img
-                    src={splitImage}
-                    alt="Uploaded"
-                    onClick={() => setViewer(splitImage)}
-                  />
-                </div>
+                {splitImages.map((url, imageIndex) => (
+                  <div key={imageIndex} className="bubble image-only">
+                    <img
+                      src={url}
+                      alt="Uploaded"
+                      onClick={() => setViewer(url)}
+                    />
+                  </div>
+                ))}
                 <div className="bubble">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
@@ -180,13 +190,14 @@ export default function MessageBubble({
               </>
             ) : (
               <div className="bubble">
-                {imageUrl && (
+                {imageUrls.map((url, imageIndex) => (
                   <img
-                    src={imageUrl}
+                    key={imageIndex}
+                    src={url}
                     alt="Uploaded"
-                    onClick={() => setViewer(imageUrl)}
+                    onClick={() => setViewer(url)}
                   />
-                )}
+                ))}
                 {message.text && (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}

@@ -1,12 +1,24 @@
 import { ChatValidationError } from "./errors";
 import { isValidTimeZone } from "./prompt";
-import { MAX_MESSAGES, type ChatImage, type ChatMessage } from "./types";
+import { MAX_IMAGES, MAX_MESSAGES, type ChatImage, type ChatMessage } from "./types";
 
 export interface ChatRequest {
   messages: ChatMessage[];
   timeZone?: string;
   language?: "zh" | "en";
   mode?: "preset" | "free";
+}
+
+function parseImage(raw: unknown, index: number): ChatImage {
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    typeof (raw as { mimeType?: unknown }).mimeType !== "string" ||
+    typeof (raw as { data?: unknown }).data !== "string"
+  ) {
+    throw new ChatValidationError(`messages[${index}].images contains an invalid image.`);
+  }
+  return raw as ChatImage;
 }
 
 export function parseChatBody(body: unknown): ChatRequest {
@@ -23,25 +35,27 @@ export function parseChatBody(body: unknown): ChatRequest {
       if (!raw || typeof raw !== "object") {
         throw new ChatValidationError(`messages[${index}] is invalid.`);
       }
-      const { role, text, image } = raw as Partial<ChatMessage>;
+      const { role, text, images } = raw as {
+        role?: unknown;
+        text?: unknown;
+        images?: unknown;
+      };
       if (role !== "user" && role !== "model") {
         throw new ChatValidationError(`messages[${index}].role must be "user" or "model".`);
       }
       if (typeof text !== "string") {
         throw new ChatValidationError(`messages[${index}].text must be a string.`);
       }
-      let parsedImage: ChatMessage["image"];
-      if (image !== undefined && image !== null) {
-        if (
-          typeof image !== "object" ||
-          typeof (image as { mimeType?: unknown }).mimeType !== "string" ||
-          typeof (image as { data?: unknown }).data !== "string"
-        ) {
-          throw new ChatValidationError(`messages[${index}].image is invalid.`);
+      let parsedImages: ChatImage[] | undefined;
+      if (images !== undefined && images !== null) {
+        if (!Array.isArray(images) || images.length > MAX_IMAGES) {
+          throw new ChatValidationError(
+            `messages[${index}].images must be an array of at most ${MAX_IMAGES} images.`
+          );
         }
-        parsedImage = image as ChatImage;
+        parsedImages = images.map((image) => parseImage(image, index));
       }
-      return { role, text, image: parsedImage };
+      return { role, text, images: parsedImages };
     });
 
   const rawZone = (body as { timeZone?: unknown }).timeZone;

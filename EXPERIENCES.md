@@ -706,3 +706,57 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 
 ### Disproved
 - n/a
+
+## 2026-08-31 — Key divergence #2: monthly cap hit on the app key
+
+### Solved
+- User reported 100% usage but app still working. Diagnosis: the Go plan hard-gates on the rolling 5h window (was 0% — freshly reset), while the app's .env key showed monthly 100% "rate-limited" (soft state). Root cause: the app's OPENCODE_API_KEY had diverged AGAIN from ~/.local/share/opencode/auth.json (two different subscriptions). Synced .env to the session key (52/21/62), restarted, verified chat works; /usage now shows the healthy meter.
+
+### Unresolved
+- Why the keys keep diverging — likely the user reconnects/rotates the key in the TUI/console; recommend re-syncing whenever usage looks wrong. A config-time mismatch warning (compare usage of both keys) could be added later.
+
+### Disproved
+- n/a
+
+## 2026-08-31 — Multi-image uploads (max 3) + vision monthly cap error
+
+### Solved
+- ChatMessage/StoredMessage/GuestMessage switched from single `image` to `images: ChatImage[]` (MAX_IMAGES = 3) across: types, chatRequest (array validation), opencode content parts (multiple image_url blocks), chat route hasImage, sessions messages POST, shares POST, db appendMessage, Composer (multi-select file input, preview grid, per-image remove, attach disabled at 3, hint on overflow), ChatApp/OpenCodeChat (send(text, images[]), guest IDB keys per image `${session}:${msgId}:${i}`), MessageBubble (per-image bubbles), ShareViewer.
+- Verified: 3 images attach → 3 previews; 4th rejected with hint "最多只能添加 3 张图片"; sent → 3 user image bubbles; API accepted all images.
+- New error found live: deepseek-v4-flash-vision-exp hit its own monthly usage cap ("Monthly usage limit reached. Resets in 20 days…") — the vision model has a separate $15 monthly allowance on Go. isBalanceError regex extended to catch "usage limit|limit reached" so users get the friendly quota message instead of the raw API text.
+
+### Unresolved
+- vision-exp monthly cap is exhausted (resets ~Sep 20); images will keep failing with the friendly quota message until then — or switch image routing to another vision model (e.g. qwen3.8-flash via chat/completions? it's served via /messages on Go — unverified) once requested.
+
+### Disproved
+- n/a
+
+## 2026-09-01 — Usage-limit reached: on-screen banner + test switch
+
+### Solved
+- Researched platform behavior: Claude = hard stop with on-screen line "You've hit your session limit · resets 3:45pm" (blocks sending until reset); Gemini = "You've reached your limit" banner + Flash-Lite fallback; ChatGPT = silent downgrade / inline "You've reached our limits of messages". Adopted the Claude pattern.
+- New LIMIT stream marker: `encodeLimitMarker(resetAt)` + parser support. On balance/limit errors, /api/chat and /api/opencode emit the marker (with the official rolling reset time) plus the friendly text in the bubble.
+- Client: amber banner above the composer (⚠️ 额度已用完 · 预计 HH:MM 重置), composer disabled + placeholder swap, auto-clears when the reset time passes (10s interval). Wired into both ChatApp and OpenCodeChat.
+- Test switch: `OPENCODE_TEST_LIMIT=1` in .env makes streamOpenCodeOnce/agentChat throw a synthetic "Monthly usage limit reached" error — verified the full flow E2E (marker → banner + disabled send + bubble text), then removed the flag and confirmed normal chat.
+- Also this batch: server now prefers the live key from ~/.local/share/opencode/auth.json (fallback .env) — ends the recurring key-divergence failures; new key deployed (rolling 60/24/12).
+
+### Unresolved
+- Exhausted monthly window blocks ALL chat/completions models (account-level 429) — no free fallback model found on Go.
+
+### Disproved
+- n/a
+
+## 2026-09-01 — Live ran-out test with the real exhausted key + agent-hang fix
+
+### Solved
+- Live-tested the exhausted key (monthly 100% rate-limited, 429 "Monthly usage limit reached. Resets in 18 days."). Full flow verified in the browser: ⚠️ banner "额度已用完 · 预计 04:20 AM 重置", composer disabled, placeholder swap, bubble carries the detailed message.
+- Two real bugs found and fixed:
+  1. The opencode AGENT SERVER hangs (no response, no error) when the subscription is exhausted — agentChat waited forever. Fixes: (a) app-level pre-flight quota check (skip the agent when monthly status is "rate-limited" or rolling ≥ 100%) → direct path fails fast with the 429; (b) 180s hard timeout on the agent prompt as a safety net.
+  2. Error wording blamed the 5h window when the monthly window was the exhausted one. New `quotaResetInfo()` picks the correct window (monthly rate-limited vs rolling) for both the friendly text and the LIMIT marker reset time.
+- Key restoration flow verified afterwards: good key back in auth.json + .env, both processes restarted, chat works.
+
+### Unresolved
+- n/a
+
+### Disproved
+- "Older key" from opencode.log was revoked (401), not exhausted — rotation invalidates previous keys.

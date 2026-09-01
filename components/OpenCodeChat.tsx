@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import MessageBubble from "./MessageBubble";
 import Composer from "./Composer";
 import type { ChatImage, ChatMessage } from "@/lib/types";
 import { ModelMarkerParser } from "@/lib/markers";
+import { formatLimitReset, parseLimitPayload, type LimitWindow } from "@/lib/format";
+import { AlertTriangle } from "lucide-react";
 import { STR, useUiLang } from "@/lib/i18n";
 import { useInsulinMode } from "@/lib/prefs";
 
@@ -12,7 +14,7 @@ interface UiMessage {
   id: number;
   role: "user" | "model";
   text: string;
-  image?: ChatImage;
+  images?: ChatImage[];
   streaming?: boolean;
   failed?: boolean;
   model?: string;
@@ -24,28 +26,33 @@ let nextId = 1;
 
 function toApiMessages(messages: UiMessage[]): ChatMessage[] {
   return messages
-    .filter((message) => !message.failed && (message.text || message.image))
-    .map(({ role, text, image }) => ({ role, text, image }));
+    .filter(
+      (message) =>
+        !message.failed && (message.text || (message.images?.length ?? 0) > 0)
+    )
+    .map(({ role, text, images }) => ({ role, text, images }));
 }
 
 export default function OpenCodeChat() {
   const lang = useUiLang();
   const t = STR[lang];
-  const [insulinMode] = useInsulinMode();
+  const [insulinMode, toggleInsulinMode] = useInsulinMode();
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
+  const [limitReset, setLimitReset] = useState<number | null>(null);
+  const [limitWindow, setLimitWindow] = useState<LimitWindow | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
-    async (text: string, image?: ChatImage) => {
+    async (text: string, images?: ChatImage[]) => {
       const trimmed = text.trim();
-      if ((!trimmed && !image) || sending) return;
+      if ((!trimmed && (images?.length ?? 0) === 0) || sending) return;
 
       const userMessage: UiMessage = {
         id: nextId++,
         role: "user",
         text: trimmed,
-        image,
+        images,
       };
       const modelMessage: UiMessage = {
         id: nextId++,
@@ -99,12 +106,21 @@ export default function OpenCodeChat() {
         const parser = new ModelMarkerParser();
         let modelText = "";
         let modelName: string | undefined;
+        let limitHit = false;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const { text, model } = parser.push(
+          const { text, model, limit } = parser.push(
             decoder.decode(value, { stream: true })
           );
+          if (limit !== undefined) {
+            limitHit = true;
+            const parsed = parseLimitPayload(limit);
+            if (parsed) {
+              setLimitWindow(parsed.window);
+              setLimitReset(parsed.resetAt);
+            }
+          }
           if (model) {
             modelName = model;
             setMessages((prev) =>
@@ -115,7 +131,7 @@ export default function OpenCodeChat() {
               )
             );
           }
-          if (text) {
+          if (text && !limitHit) {
             modelText += text;
             setMessages((prev) =>
               prev.map((message) =>
@@ -125,6 +141,12 @@ export default function OpenCodeChat() {
               )
             );
           }
+        }
+        if (limitHit) {
+          setMessages((prev) =>
+            prev.filter((message) => message.id !== modelMessage.id)
+          );
+          return;
         }
         const tail = parser.flush();
         if (tail) {
@@ -174,16 +196,65 @@ export default function OpenCodeChat() {
     abortRef.current?.abort();
   }, []);
 
+  useEffect(() => {
+    if (limitReset === null) return;
+    const timer = setInterval(() => {
+      if (Date.now() >= limitReset) setLimitReset(null);
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [limitReset]);
+
+  const limitTimeLabel =
+    limitReset !== null ? formatLimitReset(limitReset, lang) : "";
+  const limitWindowLabel = limitWindow ? t[`limit.window.${limitWindow}`] : "";
+
   return (
     <div className="app">
       {messages.length === 0 ? (
-        <main className="messages">
-          <p className="empty">{t["opencode.empty"]}</p>
+        <main className="welcome">
+          <h2>OpenCode</h2>
+          {limitReset !== null && (
+            <p className="limit-banner">
+              <AlertTriangle size={14} />
+              {limitWindowLabel} {t["limit.exhausted"]} ·{" "}
+              {t["limit.banner"].replace("{time}", limitTimeLabel)}
+            </p>
+          )}
+          <div className="composer-toggles">
+            <button
+              type="button"
+              className={`composer-toggle${insulinMode ? " active" : ""}`}
+              onClick={() => toggleInsulinMode(!insulinMode)}
+              aria-pressed={insulinMode}
+            >
+              {t["settings.insulinMode"]}
+            </button>
+          </div>
+          <Composer
+            sending={sending}
+            onSend={send}
+            onStop={stop}
+            disabled={limitReset !== null}
+          />
         </main>
       ) : (
-        <MessageBubble messages={messages} guest={false} summary={null} />
+        <>
+          <MessageBubble messages={messages} guest={false} summary={null} />
+          {limitReset !== null && (
+            <p className="limit-banner">
+              <AlertTriangle size={14} />
+              {limitWindowLabel} {t["limit.exhausted"]} ·{" "}
+              {t["limit.banner"].replace("{time}", limitTimeLabel)}
+            </p>
+          )}
+          <Composer
+            sending={sending}
+            onSend={send}
+            onStop={stop}
+            disabled={limitReset !== null}
+          />
+        </>
       )}
-      <Composer sending={sending} onSend={send} onStop={stop} />
     </div>
   );
 }

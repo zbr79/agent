@@ -1,6 +1,12 @@
 import { ChatValidationError } from "@/lib/errors";
 import { parseChatBody, type ChatRequest } from "@/lib/chatRequest";
-import { streamChat } from "@/lib/opencode";
+import {
+  chatErrorMessage,
+  isBalanceError,
+  quotaResetInfo,
+  streamChat,
+} from "@/lib/opencode";
+import { encodeLimitMarker } from "@/lib/markers";
 
 export const runtime = "nodejs";
 
@@ -32,9 +38,11 @@ export async function POST(req: Request) {
         const message =
           error instanceof ChatValidationError
             ? error.message
-            : error instanceof Error && error.message
-              ? `Chat request failed: ${error.message}`
-              : "Chat request failed.";
+            : await chatErrorMessage(error, language);
+        if (!(error instanceof ChatValidationError) && isBalanceError(error)) {
+          const { window, resetAt } = await quotaResetInfo();
+          if (resetAt) controller.enqueue(encoder.encode(encodeLimitMarker(`${window}|${resetAt}`)));
+        }
         controller.enqueue(encoder.encode(`\n\n[${message}]`));
       } finally {
         controller.close();

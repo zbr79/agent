@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, Sparkles } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
 import {
   deleteGuestSession,
@@ -12,6 +12,7 @@ import {
   renameGuestSession,
 } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
+import SearchModal from "./SearchModal";
 import { useInsulinMode } from "@/lib/prefs";
 
 const ownerItems = [
@@ -70,7 +71,7 @@ export default function Sidebar() {
   const [guestSessions, setGuestSessions] = useState<{ id: string; title: string; pinned?: boolean }[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [insulinMode, toggleInsulinMode] = useInsulinMode();
   const [menuFor, setMenuFor] = useState<{
@@ -102,6 +103,17 @@ export default function Sidebar() {
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname, currentSession]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && (event.key === "O" || event.key === "o")) {
+        event.preventDefault();
+        router.push("/");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [router]);
 
   useEffect(() => {
     let alive = true;
@@ -211,15 +223,13 @@ export default function Sidebar() {
   };
 
   const items = user ? ownerItems : guestItems;
-  const q = query.trim().toLowerCase();
-  const matches = (title: string) => !q || title.toLowerCase().includes(q);
 
-  const ownerList = (sessions ?? [])
-    .filter((session) => matches(session.title))
-    .sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
-  const guestList = guestSessions
-    .filter((session) => matches(session.title))
-    .sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
+  const ownerList = (sessions ?? []).sort(
+    (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false)
+  );
+  const guestList = guestSessions.sort(
+    (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false)
+  );
 
   const renderSessionRow = (
     id: string,
@@ -248,7 +258,7 @@ export default function Sidebar() {
       ) : (
         <Link
           href={`/?session=${id}`}
-          className="session-link"
+          className={`session-link${id === currentSession ? " active" : ""}`}
           title={title}
           onClick={() => setMenuOpen(false)}
         >
@@ -369,11 +379,20 @@ export default function Sidebar() {
       <aside
         className={`sidebar${menuOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}
       >
-        <div className="sidebar-new-row">
-          <Link href="/" className="sidebar-new" onClick={() => setMenuOpen(false)}>
-            <Plus size={16} />
-            {t["nav.newChat"]}
-          </Link>
+        <div className="sidebar-brand-row">
+          <span className="brand-mark">
+            <Sparkles size={16} />
+          </span>
+          <span className="brand-name">InsChat</span>
+          <button
+            type="button"
+            className="sidebar-hide"
+            onClick={() => setSearchOpen(true)}
+            aria-label={t["nav.search"]}
+            title={t["nav.search"]}
+          >
+            <Search size={16} />
+          </button>
           <button
             type="button"
             className="sidebar-hide"
@@ -384,16 +403,15 @@ export default function Sidebar() {
             <PanelLeft size={16} />
           </button>
         </div>
-        <div className="sidebar-search">
-          <Search size={14} />
-          <input
-            type="text"
-            value={query}
-            placeholder={t["nav.search"]}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label={t["nav.search"]}
-          />
-        </div>
+        <Link
+          href="/"
+          className={`sidebar-new${onHome && !currentSession ? " active" : ""}`}
+          onClick={() => setMenuOpen(false)}
+        >
+          <Plus size={16} />
+          {t["nav.newChat"]}
+        </Link>
+        <div className="sidebar-scroll">
         <nav className="sidebar-nav">
           {items.map((item) => (
             <Link
@@ -414,7 +432,7 @@ export default function Sidebar() {
               <>
                 {sessions === null && <p className="session-hint">{t["nav.loading"]}</p>}
                 {sessions !== null && ownerList.length === 0 && (
-                  <p className="session-hint">{q ? t["nav.noResults"] : t["nav.noSessions"]}</p>
+                  <p className="session-hint">{t["nav.noSessions"]}</p>
                 )}
                 {ownerList.map((session) =>
                   renderSessionRow(session._id, session.title, Boolean(session.pinned))
@@ -423,7 +441,7 @@ export default function Sidebar() {
             ) : (
               <>
                 {guestList.length === 0 && (
-                  <p className="session-hint">{q ? t["nav.noResults"] : t["nav.guestHint"]}</p>
+                  <p className="session-hint">{t["nav.guestHint"]}</p>
                 )}
                 {guestList.map((session) =>
                   renderSessionRow(session.id, session.title, Boolean(session.pinned))
@@ -433,6 +451,7 @@ export default function Sidebar() {
           </div>
         </div>
       )}
+        </div>
       <div className="sidebar-foot">
         {user ? (
           <div className="account-row">
@@ -458,7 +477,7 @@ export default function Sidebar() {
             </button>
           </div>
         ) : (
-          <div className="account-row">
+          <div className="account-row guest">
             <Link
               href="/login"
               className="login-circle"
@@ -480,6 +499,7 @@ export default function Sidebar() {
         )}
       </div>
     </aside>
+    <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} authed={!!user} />
     {settingsOpen && (
       <>
         <div

@@ -40,10 +40,10 @@ export async function POST(req: Request) {
       if (!raw || typeof raw !== "object") {
         throw new Error(`messages[${index}] is invalid.`);
       }
-      const { role, text, image, model, elapsed } = raw as {
+      const { role, text, images, model, elapsed } = raw as {
         role?: unknown;
         text?: unknown;
-        image?: unknown;
+        images?: unknown;
         model?: unknown;
         elapsed?: unknown;
       };
@@ -53,21 +53,27 @@ export async function POST(req: Request) {
       if (typeof text !== "string" || text.length > MAX_TEXT) {
         throw new Error(`messages[${index}].text is invalid.`);
       }
-      let parsedImage: { mimeType: string; data: string } | undefined;
-      if (image !== undefined && image !== null) {
-        if (
-          typeof image !== "object" ||
-          typeof (image as { mimeType?: unknown }).mimeType !== "string" ||
-          typeof (image as { data?: unknown }).data !== "string"
-        ) {
-          throw new Error(`messages[${index}].image is invalid.`);
+      let parsedImages: { mimeType: string; data: string }[] | undefined;
+      if (images !== undefined && images !== null) {
+        if (!Array.isArray(images) || images.length > 3) {
+          throw new Error(`messages[${index}].images must be an array of at most 3 images.`);
         }
-        parsedImage = image as { mimeType: string; data: string };
+        parsedImages = images.map((image) => {
+          if (
+            typeof image !== "object" ||
+            image === null ||
+            typeof (image as { mimeType?: unknown }).mimeType !== "string" ||
+            typeof (image as { data?: unknown }).data !== "string"
+          ) {
+            throw new Error(`messages[${index}].images contains an invalid image.`);
+          }
+          return image as { mimeType: string; data: string };
+        });
       }
       return {
         role,
         text,
-        image: parsedImage,
+        images: parsedImages,
         model: typeof model === "string" ? model.slice(0, 100) : undefined,
         elapsed: typeof elapsed === "number" ? elapsed : undefined,
       };

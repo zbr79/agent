@@ -12,6 +12,8 @@ import type {
   SessionConclusion,
 } from "@/lib/types";
 import { ModelMarkerParser } from "@/lib/markers";
+import { formatLimitReset, parseLimitPayload, type LimitWindow } from "@/lib/format";
+import { AlertTriangle } from "lucide-react";
 import {
   appendGuestMessage,
   createGuestSession,
@@ -27,20 +29,25 @@ interface UiMessage {
   id: number;
   role: "user" | "model";
   text: string;
-  image?: ChatImage;
+  images?: ChatImage[];
   streaming?: boolean;
   failed?: boolean;
   model?: string;
   trying?: string;
   elapsed?: number;
+  _id?: string;
+  _index?: string;
 }
 
 let nextId = 1;
 
 function toApiMessages(messages: UiMessage[]): ChatMessage[] {
   return messages
-    .filter((message) => !message.failed && (message.text || message.image))
-    .map(({ role, text, image }) => ({ role, text, image }));
+    .filter(
+      (message) =>
+        !message.failed && (message.text || (message.images?.length ?? 0) > 0)
+    )
+    .map(({ role, text, images }) => ({ role, text, images }));
 }
 
 function persistMessage(
@@ -48,7 +55,7 @@ function persistMessage(
   message: {
     role: "user" | "model";
     text: string;
-    image?: ChatImage;
+    images?: ChatImage[];
     model?: string;
     elapsed?: number;
   }
@@ -71,7 +78,7 @@ export default function ChatApp() {
   const sessionParam = searchParams.get("session");
   const lang = useUiLang();
   const t = STR[lang];
-  const [insulinMode] = useInsulinMode();
+  const [insulinMode, toggleInsulinMode] = useInsulinMode();
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -86,6 +93,10 @@ export default function ChatApp() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
   // const [shareMsg, setShareMsg] = useState<"link" | "error" | null>(null); // share feature removed
+  const [flashId, setFlashId] = useState<number | null>(null);
+  const handledMsgRef = useRef<string | null>(null);
+  const [limitReset, setLimitReset] = useState<number | null>(null);
+  const [limitWindow, setLimitWindow] = useState<LimitWindow | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -137,7 +148,7 @@ export default function ChatApp() {
             messages: {
               role: string;
               text: string;
-              image?: ChatImage;
+              images?: ChatImage[];
               model?: string;
               elapsed?: number;
             }[];
@@ -149,9 +160,10 @@ export default function ChatApp() {
                 id: nextId++,
                 role: message.role === "model" ? "model" : "user",
                 text: message.text,
-                image: message.image,
+                images: message.images,
                 model: message.model,
                 elapsed: message.elapsed,
+                _id: (message as { _id?: string })._id,
               }))
             );
             setSummary(
@@ -181,15 +193,22 @@ export default function ChatApp() {
       if (local) {
         sessionIdRef.current = id;
         Promise.all(
-          local.messages.map(async (message) => ({
+          local.messages.map(async (message, index) => ({
             id: nextId++,
             role: (message.role === "model" ? "model" : "user") as "user" | "model",
             text: message.text,
-            image:
-              message.image ??
-              (message.imageKey ? await getGuestImage(message.imageKey) : undefined),
+            images: message.images?.length
+              ? message.images
+              : message.imageKeys?.length
+                ? (
+                    await Promise.all(
+                      message.imageKeys.map(async (key) => (await getGuestImage(key)) ?? null)
+                    )
+                  ).filter((image): image is ChatImage => image !== null)
+                : undefined,
             model: message.model,
             elapsed: message.elapsed,
+            _index: String(index),
           }))
         ).then((hydrated) => {
           if (sessionIdRef.current === id) setMessages(hydrated);
@@ -214,6 +233,40 @@ export default function ChatApp() {
       setLoading(false);
     }
   }, [sessionParam, isAuthed, router]);
+
+  // Usage-limit banner: clear automatically once the reset time passes.
+  useEffect(() => {
+    if (limitReset === null) return;
+    const timer = setInterval(() => {
+      if (Date.now() >= limitReset) setLimitReset(null);
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [limitReset]);
+
+  const limitTimeLabel =
+    limitReset !== null ? formatLimitReset(limitReset, lang) : "";
+  const limitWindowLabel = limitWindow ? t[`limit.window.${limitWindow}`] : "";
+
+  // Search jump: flash + scroll to the matched message, then clear ?msg.
+  useEffect(() => {
+    const target = searchParams.get("msg");
+    if (!target || handledMsgRef.current === target || messages.length === 0) return;
+    const match = messages.find(
+      (message) => message._id === target || message._index === target
+    );
+    if (!match) return;
+    handledMsgRef.current = target;
+    setFlashId(match.id);
+    setTimeout(() => {
+      document
+        .getElementById(`msg-${match.id}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+    setTimeout(() => setFlashId(null), 2600);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("msg");
+    router.replace(`/?${params.toString()}`);
+  }, [searchParams, messages, router]);
 
   // Streams a model reply for the given message list (which already ends
   // with the user message that triggers it).
@@ -271,12 +324,21 @@ export default function ChatApp() {
         const parser = new ModelMarkerParser();
         let modelText = "";
         let modelName: string | undefined;
+        let limitHit = false;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const { text, model, trying } = parser.push(
+          const { text, model, trying, limit } = parser.push(
             decoder.decode(value, { stream: true })
           );
+          if (limit !== undefined) {
+            limitHit = true;
+            const parsed = parseLimitPayload(limit);
+            if (parsed) {
+              setLimitWindow(parsed.window);
+              setLimitReset(parsed.resetAt);
+            }
+          }
           if (model) {
             modelName = model;
             setMessages((prev) =>
@@ -295,7 +357,7 @@ export default function ChatApp() {
               )
             );
           }
-          if (text) {
+          if (text && !limitHit) {
             modelText += text;
             setMessages((prev) =>
               prev.map((message) =>
@@ -305,6 +367,14 @@ export default function ChatApp() {
               )
             );
           }
+        }
+        // Quota exhausted: no assistant reply — remove the placeholder
+        // bubble; the red banner above the composer carries the message.
+        if (limitHit) {
+          setMessages((prev) =>
+            prev.filter((message) => message.id !== modelMessage.id)
+          );
+          return;
         }
         const tail = parser.flush();
         if (tail) {
@@ -366,9 +436,9 @@ export default function ChatApp() {
   );
 
   const send = useCallback(
-    async (text: string, image?: ChatImage) => {
+    async (text: string, images?: ChatImage[]) => {
       const trimmed = text.trim();
-      if ((!trimmed && !image) || sending || isAuthed === null) return;
+      if ((!trimmed && (images?.length ?? 0) === 0) || sending || isAuthed === null) return;
       const authed = isAuthed;
 
       let sessionId = sessionIdRef.current;
@@ -395,18 +465,21 @@ export default function ChatApp() {
         }
       }
 
-      const userMessage: UiMessage = { id: nextId++, role: "user", text: trimmed, image };
+      const userMessage: UiMessage = { id: nextId++, role: "user", text: trimmed, images };
       if (sessionId) {
         if (authed) {
-          persistMessage(sessionId, { role: "user", text: trimmed, image });
-        } else if (image) {
-          const key = `${sessionId}:${userMessage.id}`;
-          const stored = await putGuestImage(key, image);
+          persistMessage(sessionId, { role: "user", text: trimmed, images });
+        } else if (images && images.length > 0) {
+          const keys = images.map((_, i) => `${sessionId}:${userMessage.id}:${i}`);
+          const stored = await Promise.all(
+            keys.map((key) => putGuestImage(key, images[Number(key.split(":").pop() ?? 0)]))
+          );
+          const keptImages = images.filter((_, i) => stored[i]);
           appendGuestMessage(sessionId, {
             role: "user",
             text: trimmed,
-            image: stored ? undefined : image,
-            imageKey: stored ? key : undefined,
+            images: keptImages.length ? keptImages : images,
+            imageKeys: stored.every(Boolean) ? keys : undefined,
           });
         } else {
           appendGuestMessage(sessionId, { role: "user", text: trimmed });
@@ -465,12 +538,12 @@ export default function ChatApp() {
       const sessionId = sessionIdRef.current;
       if (sessionId) {
         if (isAuthed) {
-          persistMessage(sessionId, { role: "user", text: edited.text, image: edited.image });
+          persistMessage(sessionId, { role: "user", text: edited.text, images: edited.images });
         } else {
           appendGuestMessage(sessionId, {
             role: "user",
             text: edited.text,
-            image: edited.image,
+            images: edited.images,
           });
         }
       }
@@ -638,11 +711,39 @@ export default function ChatApp() {
         <main className="messages">
           <p className="empty">{t["records.loading"]}</p>
         </main>
+      ) : messages.length === 0 ? (
+        <main className="welcome">
+          <h2>{t["welcome.title"]}</h2>
+          <div className="composer-toggles">
+            <button
+              type="button"
+              className={`composer-toggle${insulinMode ? " active" : ""}`}
+              onClick={() => toggleInsulinMode(!insulinMode)}
+              aria-pressed={insulinMode}
+            >
+              {t["settings.insulinMode"]}
+            </button>
+          </div>
+          {limitReset !== null && (
+            <p className="limit-banner">
+              <AlertTriangle size={14} />
+              {limitWindowLabel} {t["limit.exhausted"]} ·{" "}
+              {t["limit.banner"].replace("{time}", limitTimeLabel)}
+            </p>
+          )}
+          <Composer
+            onSend={send}
+            onStop={stop}
+            sending={sending}
+            disabled={limitReset !== null}
+          />
+        </main>
       ) : (
         <MessageBubble
           messages={messages}
           guest={isAuthed === false}
           summary={summary}
+          flashId={flashId}
           onEdit={startEdit}
           onRegenerate={regenerate}
           canAct={!sending && !concluding}
@@ -653,7 +754,7 @@ export default function ChatApp() {
           onEditCancel={() => setEditingId(null)}
         />
       )}
-      <div className="conclude-bar">
+      {messages.length > 0 && <div className="conclude-bar">
         {summaryError && <p className="conclusion-error">{summaryError}</p>}
         <ConcludeButton
           onClick={concludeAll}
@@ -665,8 +766,34 @@ export default function ChatApp() {
             )
           }
         />
-      </div>
-      <Composer onSend={send} onStop={stop} sending={sending} />
+      </div>}
+      {messages.length > 0 && limitReset !== null && (
+        <p className="limit-banner">
+          <AlertTriangle size={14} />
+          {limitWindowLabel} {t["limit.exhausted"]} ·{" "}
+          {t["limit.banner"].replace("{time}", limitTimeLabel)}
+        </p>
+      )}
+      {messages.length > 0 && (
+        <div className="composer-toggles bottom">
+          <button
+            type="button"
+            className={`composer-toggle${insulinMode ? " active" : ""}`}
+            onClick={() => toggleInsulinMode(!insulinMode)}
+            aria-pressed={insulinMode}
+          >
+            {t["settings.insulinMode"]}
+          </button>
+        </div>
+      )}
+      {messages.length > 0 && (
+        <Composer
+          onSend={send}
+          onStop={stop}
+          sending={sending}
+          disabled={limitReset !== null}
+        />
+      )}
     </div>
   );
 }

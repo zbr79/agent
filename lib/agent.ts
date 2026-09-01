@@ -64,15 +64,16 @@ function buildTranscript(messages: ChatMessage[]): string {
   if (
     messages.length === 1 &&
     messages[0].role === "user" &&
-    !messages[0].image
+    (messages[0].images?.length ?? 0) === 0
   ) {
     return messages[0].text;
   }
   const lines = messages.map((message) => {
     const speaker = message.role === "model" ? "Assistant" : "User";
-    const content = message.image
-      ? `${message.text} [photo attached]`
-      : message.text;
+    const content =
+      (message.images?.length ?? 0) > 0
+        ? `${message.text} [photo attached]`
+        : message.text;
     return `${speaker}: ${content}`;
   });
   return `Here is the conversation so far:\n\n${lines.join(
@@ -113,6 +114,13 @@ export async function* agentChat(
   const session = (await agent.session.create({ body: { title: "inschat" } })).data;
   const system = getSystemPrompt(timeZone, language, freeMode);
   const requestId = Math.random().toString(36).slice(2, 8);
+
+  if (process.env.OPENCODE_TEST_LIMIT === "1") {
+    agent.session.delete({ path: { id: session.id } }).catch(() => {});
+    throw new Error(
+      "Monthly usage limit reached. Resets in 20 days. (test-limit simulation)"
+    );
+  }
 
   try {
     const sseResponse = await fetch(`${AGENT_URL}/event`, {
@@ -211,13 +219,24 @@ export async function* agentChat(
       }
     })();
 
-    const promptPromise = agent.session.prompt({
-      path: { id: session.id },
-      body: {
-        system,
-        parts: [{ type: "text", text: buildTranscript(messages) }],
-      },
-    });
+    // Wait for the prompt to settle, reading events concurrently. The
+    // opencode server can hang instead of erroring when the subscription is
+    // exhausted — enforce a hard timeout so callers can fall back.
+    const promptPromise = Promise.race([
+      agent.session.prompt({
+        path: { id: session.id },
+        body: {
+          system,
+          parts: [{ type: "text", text: buildTranscript(messages) }],
+        },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Agent prompt timed out after 180s.")),
+          180_000
+        )
+      ),
+    ]);
 
     interface PromptInfo {
       cost?: number;

@@ -10,7 +10,7 @@ import { modelLabel } from "@/lib/modelLabels";
 interface SharedMessage {
   role: "user" | "model";
   text: string;
-  image?: ChatImage;
+  images?: ChatImage[];
   model?: string;
   elapsed?: number;
 }
@@ -57,14 +57,14 @@ export default function ShareViewer({ share }: ShareViewerProps) {
         {share.messages.map((message, index) => (
           <div key={index} className={`message ${message.role}`}>
             <div className="message-body">
-              {message.image && (
-                <div className="bubble image-only">
+              {(message.images ?? []).map((image, imageIndex) => (
+                <div key={imageIndex} className="bubble image-only">
                   <img
-                    src={`data:${message.image.mimeType};base64,${message.image.data}`}
+                    src={`data:${image.mimeType};base64,${image.data}`}
                     alt="Shared"
                   />
                 </div>
-              )}
+              ))}
               {message.text && (
                 <div className="bubble">
                   <ReactMarkdown

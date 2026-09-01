@@ -14,6 +14,7 @@ module.exports = {
       script: "/home/ubuntu/opencode-tmp/agent/start-server.sh",
       interpreter: "bash",
       cwd: "/home/ubuntu/opencode-tmp/agent",
+      max_memory_restart: "512M",
       env: {
         NODE_ENV: "production",
       },

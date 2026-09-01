@@ -279,7 +279,7 @@ interface MessageDoc {
   sessionId: ObjectId;
   role: "user" | "model";
   text: string;
-  image?: ChatImage;
+  images?: ChatImage[];
   model?: string;
   elapsed?: number;
   createdAt: Date;
@@ -301,7 +301,7 @@ function toStoredMessage(doc: MessageDoc): StoredMessage {
     sessionId: doc.sessionId.toString(),
     role: doc.role,
     text: doc.text,
-    image: doc.image,
+    images: doc.images,
     model: doc.model,
     elapsed: doc.elapsed,
     createdAt: doc.createdAt.toISOString(),
@@ -375,7 +375,7 @@ export async function appendMessage(
   input: {
     role: "user" | "model";
     text: string;
-    image?: ChatImage;
+    images?: ChatImage[];
     model?: string;
     elapsed?: number;
   }
@@ -387,7 +387,7 @@ export async function appendMessage(
     sessionId: new ObjectId(sessionId),
     role: input.role,
     text: input.text,
-    image: input.image,
+    images: input.images,
     model: input.model,
     elapsed: input.elapsed,
     createdAt: now,
@@ -525,4 +525,95 @@ export async function getShare(token: string): Promise<SharedContent | null> {
   const db = await getDb();
   const doc = await db.collection<ShareDoc>("shares").findOne({ token });
   return doc ? toSharedContent(doc) : null;
+}
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export interface SearchHit {
+  sessionId: string;
+  title: string;
+  snippet: string;
+  matches: number;
+  updatedAt: string;
+  messageId?: string;
+}
+
+// Full-history search: match message text, group by session, return a
+// snippet around the first match.
+export async function searchChats(
+  userId: string,
+  q: string,
+  limit = 20
+): Promise<SearchHit[]> {
+  const db = await getDb();
+  const regex = new RegExp(escapeRegex(q), "i");
+  const grouped = await db
+    .collection<MessageDoc>("messages")
+    .aggregate<{ _id: ObjectId; count: number; first: MessageDoc }>([
+      { $match: { text: regex } },
+      { $group: { _id: "$sessionId", count: { $sum: 1 }, first: { $first: "$$ROOT" } } },
+      { $sort: { count: -1 } },
+      { $limit: limit },
+    ])
+    .toArray();
+  const ids = grouped.map((row) => row._id);
+  if (ids.length === 0) return [];
+  const sessions = await db
+    .collection<SessionDoc>("sessions")
+    .find({ _id: { $in: ids }, userId: new ObjectId(userId) })
+    .toArray();
+  const byId = new Map(sessions.map((s) => [s._id!.toString(), s]));
+  return grouped.flatMap((row) => {
+    const sid = row._id.toString();
+    const session = byId.get(sid);
+    if (!session) return [];
+    const text = String(row.first.text ?? "");
+    const idx = text.toLowerCase().indexOf(q.toLowerCase());
+    const start = Math.max(0, idx - 12);
+    const snippet =
+      (start > 0 ? "…" : "") + text.slice(start, start + 100).replace(/\s+/g, " ");
+    return [
+      {
+        sessionId: sid,
+        title: session.title,
+        snippet,
+        matches: row.count,
+        updatedAt: session.updatedAt.toISOString(),
+        messageId: row.first._id?.toString(),
+      },
+    ];
+  });
+}
+
+export interface RecordHit {
+  id: string;
+  title: string;
+  summary: string;
+  savedAt: string;
+}
+
+export async function searchRecords(
+  userId: string,
+  q: string,
+  limit = 10
+): Promise<RecordHit[]> {
+  const db = await getDb();
+  const regex = new RegExp(escapeRegex(q), "i");
+  const docs = await db
+    .collection<RecordDoc>("records")
+    .find({
+      userId: new ObjectId(userId),
+      $or: [{ title: regex }, { summary: regex }, { sourceText: regex }],
+    })
+    .sort({ savedAt: -1 })
+    .limit(limit)
+    .toArray();
+  return docs.map((doc) => ({
+    id: doc._id!.toString(),
+    title: doc.title,
+    summary: doc.summary,
+    savedAt: doc.savedAt.toISOString(),
+  }));
 }
