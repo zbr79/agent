@@ -754,19 +754,6 @@ export default function ChatApp() {
           onEditCancel={() => setEditingId(null)}
         />
       )}
-      {messages.length > 0 && <div className="conclude-bar">
-        {summaryError && <p className="conclusion-error">{summaryError}</p>}
-        <ConcludeButton
-          onClick={concludeAll}
-          loading={concluding}
-          disabled={
-            sending ||
-            !messages.some(
-              (message) => message.role === "model" && !message.failed && message.text
-            )
-          }
-        />
-      </div>}
       {messages.length > 0 && limitReset !== null && (
         <p className="limit-banner">
           <AlertTriangle size={14} />
@@ -784,6 +771,17 @@ export default function ChatApp() {
           >
             {t["settings.insulinMode"]}
           </button>
+          {summaryError && <p className="conclusion-error">{summaryError}</p>}
+          <ConcludeButton
+            onClick={concludeAll}
+            loading={concluding}
+            disabled={
+              sending ||
+              !messages.some(
+                (message) => message.role === "model" && !message.failed && message.text
+              )
+            }
+          />
         </div>
       )}
       {messages.length > 0 && (

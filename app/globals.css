@@ -36,8 +36,8 @@ body {
 .app {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
-  max-width: 760px;
+  min-height: 100%;
+  max-width: 40rem;
   margin: 0 auto;
   padding: 0 16px;
 }
@@ -537,7 +537,7 @@ body {
   }
 
   .app {
-    height: 100%;
+    min-height: 100%;
   }
 
   .session-nav {
@@ -551,7 +551,7 @@ body {
 
 .messages {
   flex: 1;
-  overflow-y: auto;
+  overflow-y: visible;
   padding: 20px 4px;
   display: flex;
   flex-direction: column;
@@ -867,6 +867,10 @@ body {
 
 .composer {
   padding: 0 0 calc(12px + env(safe-area-inset-bottom));
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  z-index: 5;
 }
 
 .preview {
@@ -997,14 +1001,19 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-muted);
   cursor: pointer;
   transition: color 0.15s;
+}
+
+.conclude-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .conclude-button:hover:not(:disabled) {
@@ -2615,12 +2624,14 @@ body {
 
 .composer-toggles.bottom {
   max-width: none;
-  padding-bottom: 2px;
+  padding-bottom: 10px;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .composer-toggle {
   border: 2px solid var(--border);
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--bg);
   color: var(--text-muted);
   font-family: var(--font);
@@ -2686,4 +2697,19 @@ body {
 .composer textarea:disabled {
   cursor: not-allowed;
   opacity: 0.7;
+}
+
+/* active health-mode toggle: soft breathing glow */
+.composer-toggle.active {
+  animation: healthGlow 2.6s ease-in-out infinite;
+}
+
+@keyframes healthGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(77, 124, 255, 0);
+  }
+  50% {
+    box-shadow: 0 0 10px 2px rgba(77, 124, 255, 0.45);
+  }
 }
