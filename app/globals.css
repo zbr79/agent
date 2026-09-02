@@ -114,6 +114,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding-right: 6px;
 }
 
 .sidebar-brand {
@@ -2045,8 +2046,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
-  background: var(--bg);
+  border: none;
+  background: transparent;
   color: var(--text-muted);
   border-radius: 10px;
   cursor: pointer;
@@ -2605,7 +2606,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 6px;
   padding: 0 16px 12vh;
 }
 
@@ -2638,7 +2639,7 @@ body {
 
 .composer-toggles.bottom {
   max-width: none;
-  padding-bottom: 10px;
+  padding-bottom: 2px;
   justify-content: space-between;
   align-items: center;
 }
@@ -2828,6 +2829,33 @@ button.settings-row:hover {
 
 .main::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.3);
+}
+
+/* ---- ChatGPT-style subtle sidebar scrollbar (hidden until hover/scroll) ---- */
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.14);
+  border-radius: 999px;
+}
+
+.sidebar:hover .sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .nav-tabs + .sidebar-new {

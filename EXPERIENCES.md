@@ -812,3 +812,27 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 - Text chats where EVERY model (paid + free) fails still append the generic `\n\n[...]` error into the reply — accepted fallback.
 ### Disproved
 - n/a
+
+## 2026-09-02 — Usage-access summary for multi-account toolbox handoff
+
+Context: user wants a separate private app (proposed: local, 127.0.0.1) to manage 6 opencode-go accounts — view usage per account, copy API keys, optionally switch the active account. This entry documents how the existing app accesses usage so the next agent can reuse it.
+
+### How inschat accesses opencode-go usage (summary for handoff)
+
+1. **Key source** — `getOpenCodeKey()` in `lib/opencode.ts:39`: prefers `~/.local/share/opencode/auth.json` → `opencode-go.key` (what the CLI writes; changes on reconnect), falls back to `OPENCODE_API_KEY` from `.env`. `OPENCODE_API_KEY_FORCE=1` pins to the .env key for testing.
+2. **Official usage** — `getOpenCodeOfficialUsage()` in `lib/opencode.ts:157`: GET `https://opencode.ai/zen/go/v1/usage` with `Authorization: Bearer <key>`; expects `usage.rolling / weekly / monthly`, each `{ status, percent, resetsAt }` (interface `OpenCodeOfficialUsage` at `lib/opencode.ts:149`). 60s in-memory cache (`officialCache`). Returns null on any failure — never throws.
+3. **API route** — `app/api/usage/route.ts`: `GET /api/usage` returns `{ model, total, last5h, last7d, last30d, failed30d, official, models[] }`; combines official usage with local call counters (`getOpenCodeUsage()` from `lib/db.ts:183` — Mongo-backed call log). `Cache-Control: no-store`.
+4. **UI display** — `components/UsagePanel.tsx` polls `/api/usage` every 5s; renders rolling/weekly/monthly percent bars + `resetsAt` relative countdown (`relativeResets`). `components/OpenCodeCallsPanel.tsx` shows local call counts vs hardcoded `LIMITS` (h5/w7/m30) and per-model/`byModel` table. `components/ModelsPanel.tsx` is the model catalog + live health/quota statuses (data from `/api/models`, health probe in `lib/health.ts`).
+5. **Error-side detection** — `lib/opencode.ts:56-76`: `isQuotaError` (429/RESOURCE_EXHAUSTED), `isUnavailableError` (404), `isOverloadedError` (503), `isBalanceError` ("insufficient balance"/"Monthly usage limit reached"). `quotaResetInfo()` (`lib/opencode.ts:79`) picks the exhausted window for the user-facing banner.
+6. **Chat flow** — `streamChat()` (`lib/opencode.ts:521`): paid models → free fallback chain (`getChatChain` in `lib/models.ts:125`), with `encodeFreeMarker()`/`encodeLimitMarker()` markers parsed client-side in `components/OpenCodeChat.tsx:113`.
+
+### Notes for the new app
+- The `/usage` endpoint requires only the Bearer key — a multi-account app is just N calls to the same endpoint with N keys. No session/other endpoint involved.
+- For "switch active account": rewriting `~/.local/share/opencode/auth.json` (`{ "opencode-go": { "key": "..." } }`) is picked up by inschat automatically on next request (no restart).
+- Reusable auth pattern for gating: `lib/auth.ts` (scrypt + 30-day token cookie), `lib/accounts.ts` (Mongo users), `app/api/auth/{register,login,logout,me}`.
+- Decision from 2026-09-02 session: local app is recommended over public domain (no attack surface for 6 API keys, no cert/login needed); domain only if phone access required. Unresolved: user's "123" answer on key-management (UI-managed encrypted vs .env) — still open; ask before building.
+
+### Unresolved
+- Key management choice (encrypted-at-rest store vs .env) not yet confirmed by user.
+- Whether "set active account" (auth.json rewrite) is wanted — inschat integration confirmed feasible.
+- Port/process naming for the new app (must not touch inschat PM2 app on :3001).
