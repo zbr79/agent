@@ -3,6 +3,13 @@
 const LABELS: Record<string, string> = {
   "deepseek-v4-pro": "DeepSeek V4 Pro",
   "deepseek-v4-flash": "DeepSeek V4 Flash",
+  "deepseek-v4-flash-free": "DeepSeek V4 Flash (Free)",
+  "mimo-v2.5-free": "MiMo-V2.5 (Free)",
+  "big-pickle": "Big Pickle (Free)",
+  "nemotron-3-ultra-free": "Nemotron 3 Ultra (Free)",
+  "nemotron-3.5-lightning-free": "Nemotron 3.5 Lightning (Free)",
+  "ling-3.0-flash-fin-free": "Ling 3.0 Flash (Free)",
+  "laguna-s-2.1-free": "Laguna S 2.1 (Free)",
   "deepseek-v4-flash-vision-exp": "DeepSeek V4 Flash Vision Exp",
   "glm-5.3": "GLM-5.3",
   "glm-5.3-flash": "GLM-5.3 Flash",

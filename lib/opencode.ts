@@ -3,13 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { ChatValidationError } from "./errors";
 import { getSystemPrompt } from "./prompt";
-import { encodeModelMarker, encodeTryingMarker } from "./markers";
+import { encodeFreeMarker, encodeModelMarker, encodeTryingMarker } from "./markers";
 import { getChatChain } from "./models";
 import { insertCall } from "./db";
 import { fetchPageText } from "./webfetch";
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, type ChatMessage } from "./types";
 
 export const OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1";
+export const OPENCODE_FREE_BASE_URL = "https://opencode.ai/zen/v1";
 export const OPENCODE_MODEL = "deepseek-v4-pro";
 export const OPENCODE_VISION_MODEL = "deepseek-v4-flash-vision-exp";
 
@@ -54,12 +55,12 @@ export function getOpenCodeKey(): string {
 
 export function isQuotaError(error: unknown): boolean {
   const message = String(error instanceof Error ? error.message : error);
-  return /429|RESOURCE_EXHAUSTED|rate limit|quota/i.test(message);
+  return /429|RESOURCE_EXHAUSTED|rate limit|quota|FreeUsageLimitError/i.test(message);
 }
 
 export function isUnavailableError(error: unknown): boolean {
   const message = String(error instanceof Error ? error.message : error);
-  return /404|not found|not supported|does not exist|ModelError|retired/i.test(message);
+  return /404|not found|not supported|does not exist|ModelError|retired|unavailable|upstream request failed/i.test(message);
 }
 
 export function isOverloadedError(error: unknown): boolean {
@@ -119,6 +120,24 @@ export async function chatErrorMessage(
       : "模型服务繁忙，请稍后重试。";
   }
   return raw;
+}
+
+// Reply text when an image message hits an exhausted subscription: the
+// vision model is paid-only (no free vision model exists), so the response
+// itself explains the situation instead of showing a banner.
+export function imageExhaustedText(
+  language: "zh" | "en" | undefined,
+  resetAt: string | null
+): string {
+  const zh = language === "zh";
+  if (zh) {
+    return resetAt
+      ? `暂无可用图像模型额度，预计 ${new Date(resetAt).toLocaleString()} 重置。`
+      : "暂无可用图像模型额度，请稍后再试。";
+  }
+  return resetAt
+    ? `No image model usage available. It will reset around ${new Date(resetAt).toLocaleString()}.`
+    : "No image model usage available. Please retry later.";
 }
 
 export interface OpenCodeUsageWindow {
@@ -277,12 +296,20 @@ interface ToolCall {
   arguments: string;
 }
 
+function isFreeModel(model: string): boolean {
+  return model.endsWith("-free") || model === "big-pickle";
+}
+
+function baseUrlForModel(model: string): string {
+  return isFreeModel(model) ? OPENCODE_FREE_BASE_URL : OPENCODE_BASE_URL;
+}
+
 async function postCompletion(
   model: string,
   body: Record<string, unknown>,
   timeoutMs: number
 ): Promise<Response> {
-  return fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
+  return fetch(`${baseUrlForModel(model)}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -511,6 +538,9 @@ export async function* streamChat(
     systemOverride
   );
   let lastError: unknown = null;
+  // True when a paid model in this request failed with quota/balance errors
+  // (exhausted subscription) and a free model answered as a result.
+  let paidExhausted = false;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     let roundDone = false;
@@ -532,6 +562,9 @@ export async function* streamChat(
           lastError = error;
           if (error instanceof ChatValidationError) throw error;
         if (isQuotaError(error) || isUnavailableError(error) || isBalanceError(error)) {
+          if (!isFreeModel(model) && (isQuotaError(error) || isBalanceError(error))) {
+            paidExhausted = true;
+          }
           console.log(`[opencode:${requestId}] ${model} unavailable → next model`);
           break;
         }
@@ -545,6 +578,9 @@ export async function* streamChat(
         }
 
         if (toolCalls.length === 0) {
+          if (paidExhausted && isFreeModel(model)) {
+            yield encodeFreeMarker();
+          }
           return; // final answer already streamed
         }
 

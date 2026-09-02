@@ -19,6 +19,13 @@ export interface ModelInfo {
 export const CHAT_MODELS: ModelInfo[] = [
   { name: "deepseek-v4-pro", label: "DeepSeek V4 Pro", tier: "pro", vision: false },
   { name: "deepseek-v4-flash", label: "DeepSeek V4 Flash", tier: "flash", vision: false },
+  { name: "deepseek-v4-flash-free", label: "DeepSeek V4 Flash (Free)", tier: "flash", vision: false },
+  { name: "mimo-v2.5-free", label: "MiMo-V2.5 (Free)", tier: "flash", vision: false },
+  { name: "big-pickle", label: "Big Pickle (Free)", tier: "flash", vision: false },
+  { name: "nemotron-3-ultra-free", label: "Nemotron 3 Ultra (Free)", tier: "flash", vision: false },
+  { name: "nemotron-3.5-lightning-free", label: "Nemotron 3.5 Lightning (Free)", tier: "flash", vision: false },
+  { name: "ling-3.0-flash-fin-free", label: "Ling 3.0 Flash (Free)", tier: "flash", vision: false },
+  { name: "laguna-s-2.1-free", label: "Laguna S 2.1 (Free)", tier: "flash", vision: false },
   { name: "deepseek-v4-flash-vision-exp", label: "DeepSeek V4 Flash Vision Exp", tier: "flash", vision: true },
   { name: "glm-5.3", label: "GLM-5.3", tier: "pro", vision: false },
   { name: "glm-5.3-flash", label: "GLM-5.3 Flash", tier: "flash", vision: true },
@@ -55,11 +62,31 @@ export const AUTO_MODEL = "auto";
 // Chat chains (opencode-go): text goes pro first with flash as the cheap
 // same-family fallback; images always go to the Go gateway's only officially
 // image-billed model.
-export const TEXT_CHAIN: string[] = ["deepseek-v4-pro", "deepseek-v4-flash"];
+export const TEXT_CHAIN: string[] = [
+  "deepseek-v4-pro",
+  "deepseek-v4-flash",
+  "deepseek-v4-flash-free",
+  "mimo-v2.5-free",
+  "nemotron-3-ultra-free",
+  "nemotron-3.5-lightning-free",
+  "ling-3.0-flash-fin-free",
+  "laguna-s-2.1-free",
+  "big-pickle",
+];
 export const IMAGE_CHAIN: string[] = ["deepseek-v4-flash-vision-exp"];
 
 // Conclude chain: cheapest reliable text model first, then the stronger one.
-const CONCLUDE_CHAIN: string[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
+const CONCLUDE_CHAIN: string[] = [
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  "deepseek-v4-flash-free",
+  "mimo-v2.5-free",
+  "nemotron-3-ultra-free",
+  "nemotron-3.5-lightning-free",
+  "ling-3.0-flash-fin-free",
+  "laguna-s-2.1-free",
+  "big-pickle",
+];
 
 function filterChain(chain: string[]): string[] {
   return chain.filter((name) => findModel(name) && !findModel(name)?.retired);

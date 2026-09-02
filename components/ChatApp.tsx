@@ -12,8 +12,6 @@ import type {
   SessionConclusion,
 } from "@/lib/types";
 import { ModelMarkerParser } from "@/lib/markers";
-import { formatLimitReset, parseLimitPayload, type LimitWindow } from "@/lib/format";
-import { AlertTriangle } from "lucide-react";
 import {
   appendGuestMessage,
   createGuestSession,
@@ -35,6 +33,7 @@ interface UiMessage {
   model?: string;
   trying?: string;
   elapsed?: number;
+  freeFallback?: boolean;
   _id?: string;
   _index?: string;
 }
@@ -95,8 +94,6 @@ export default function ChatApp() {
   // const [shareMsg, setShareMsg] = useState<"link" | "error" | null>(null); // share feature removed
   const [flashId, setFlashId] = useState<number | null>(null);
   const handledMsgRef = useRef<string | null>(null);
-  const [limitReset, setLimitReset] = useState<number | null>(null);
-  const [limitWindow, setLimitWindow] = useState<LimitWindow | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -234,18 +231,8 @@ export default function ChatApp() {
     }
   }, [sessionParam, isAuthed, router]);
 
-  // Usage-limit banner: clear automatically once the reset time passes.
-  useEffect(() => {
-    if (limitReset === null) return;
-    const timer = setInterval(() => {
-      if (Date.now() >= limitReset) setLimitReset(null);
-    }, 10_000);
-    return () => clearInterval(timer);
-  }, [limitReset]);
-
-  const limitTimeLabel =
-    limitReset !== null ? formatLimitReset(limitReset, lang) : "";
-  const limitWindowLabel = limitWindow ? t[`limit.window.${limitWindow}`] : "";
+  // Usage-limit banner removed (2026-09-02): exhaustion now falls back to
+// free models for text, and image sends get the reply-text explanation.
 
   // Search jump: flash + scroll to the matched message, then clear ?msg.
   useEffect(() => {
@@ -324,20 +311,20 @@ export default function ChatApp() {
         const parser = new ModelMarkerParser();
         let modelText = "";
         let modelName: string | undefined;
-        let limitHit = false;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const { text, model, trying, limit } = parser.push(
+          const { text, model, trying, free } = parser.push(
             decoder.decode(value, { stream: true })
           );
-          if (limit !== undefined) {
-            limitHit = true;
-            const parsed = parseLimitPayload(limit);
-            if (parsed) {
-              setLimitWindow(parsed.window);
-              setLimitReset(parsed.resetAt);
-            }
+          if (free) {
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === modelMessage.id
+                  ? { ...message, freeFallback: true }
+                  : message
+              )
+            );
           }
           if (model) {
             modelName = model;
@@ -357,7 +344,7 @@ export default function ChatApp() {
               )
             );
           }
-          if (text && !limitHit) {
+          if (text) {
             modelText += text;
             setMessages((prev) =>
               prev.map((message) =>
@@ -367,14 +354,6 @@ export default function ChatApp() {
               )
             );
           }
-        }
-        // Quota exhausted: no assistant reply — remove the placeholder
-        // bubble; the red banner above the composer carries the message.
-        if (limitHit) {
-          setMessages((prev) =>
-            prev.filter((message) => message.id !== modelMessage.id)
-          );
-          return;
         }
         const tail = parser.flush();
         if (tail) {
@@ -724,18 +703,10 @@ export default function ChatApp() {
               {t["settings.insulinMode"]}
             </button>
           </div>
-          {limitReset !== null && (
-            <p className="limit-banner">
-              <AlertTriangle size={14} />
-              {limitWindowLabel} {t["limit.exhausted"]} ·{" "}
-              {t["limit.banner"].replace("{time}", limitTimeLabel)}
-            </p>
-          )}
           <Composer
             onSend={send}
             onStop={stop}
             sending={sending}
-            disabled={limitReset !== null}
           />
         </main>
       ) : (
@@ -753,13 +724,6 @@ export default function ChatApp() {
           onEditSave={editSave}
           onEditCancel={() => setEditingId(null)}
         />
-      )}
-      {messages.length > 0 && limitReset !== null && (
-        <p className="limit-banner">
-          <AlertTriangle size={14} />
-          {limitWindowLabel} {t["limit.exhausted"]} ·{" "}
-          {t["limit.banner"].replace("{time}", limitTimeLabel)}
-        </p>
       )}
       {messages.length > 0 && (
         <div className="composer-toggles bottom">
@@ -789,7 +753,6 @@ export default function ChatApp() {
           onSend={send}
           onStop={stop}
           sending={sending}
-          disabled={limitReset !== null}
         />
       )}
     </div>

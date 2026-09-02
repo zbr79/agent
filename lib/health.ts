@@ -30,8 +30,8 @@ let cache: { at: number; results: HealthResult[] } | null = null;
 let inflight: Promise<HealthResult[]> | null = null;
 
 function classify(message: string, ms: number, model: string): HealthResult {
-  if (/not supported|does not exist|ModelError/i.test(message)) {
-    return { model, status: "retired", ms, detail: "not on the Go plan" };
+  if (isUnavailableError({ message })) {
+    return { model, status: "retired", ms, detail: "unavailable or retired" };
   }
   if (isQuotaError({ message })) {
     return { model, status: "quota", ms, detail: "subscription limit reached" };

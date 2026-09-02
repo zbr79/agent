@@ -115,9 +115,12 @@ export default function ModelsPanel() {
       <h2>Models</h2>
       <p className="usage-sub">
         <strong>Auto</strong> (default): text chat uses DeepSeek V4 Pro with
-        DeepSeek V4 Flash as fallback. Picking a specific model pins it for
-        text chats. Images always route to DeepSeek V4 Flash Vision Exp (the
-        Go plan&apos;s vision model). Live status only updates when you click{" "}
+        DeepSeek V4 Flash as fallback, then every free model (DeepSeek V4
+        Flash Free, Nemotron 3 Ultra, Nemotron 3.5 Lightning, Ling 3.0 Flash,
+        MiMo-V2.5, Big Pickle, Laguna S 2.1) when a paid model is exhausted or
+        fails. Picking a specific model pins it for text chats. Images always
+        route to DeepSeek V4 Flash Vision Exp (the Go plan&apos;s vision
+        model). Live status only updates when you click{" "}
         <strong>Re-check</strong> (each probe costs a tiny request on models
         that answer).
         {data?.concludeModel && (
@@ -164,11 +167,11 @@ export default function ModelsPanel() {
       </section>
 
       <section className="usage-card">
-        <span className="usage-title">Catalog (opencode-go)</span>
+        <span className="usage-title">Catalog (opencode-go + free)</span>
         <ul className="models-capacity">
           <li>
-            <strong>{visible.length}</strong> models on the Go plan via the
-            chat/completions endpoint
+            <strong>{visible.length}</strong> models on the Go plan plus the
+            free gateway via the chat/completions endpoint
           </li>
           <li>
             <strong>{visionModels.length}</strong> with image input support
@@ -184,7 +187,7 @@ export default function ModelsPanel() {
         <div className={`model-row${autoMode ? " current" : ""}`}>
           <div className="model-info">
             <span className="model-label">Auto — best available</span>
-            <span className="model-name">text: deepseek-v4-pro → deepseek-v4-flash; images: vision-exp</span>
+            <span className="model-name">text: deepseek-v4-pro → deepseek-v4-flash → 7 free models; images: vision-exp</span>
             <span className="model-tags">
               <span className="model-tag tier-flash">auto</span>
               {autoMode && <span className="model-tag state">Active</span>}

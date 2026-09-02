@@ -1,13 +1,13 @@
 import {
   chatErrorMessage,
   getOpenCodeOfficialUsage,
+  imageExhaustedText,
   isBalanceError,
   quotaResetInfo,
   streamChat,
 } from "@/lib/opencode";
 import { agentChat, isAgentUp } from "@/lib/agent";
 import { ChatValidationError } from "@/lib/errors";
-import { encodeLimitMarker } from "@/lib/markers";
 import { parseChatBody, type ChatRequest } from "@/lib/chatRequest";
 
 export const runtime = "nodejs";
@@ -69,11 +69,14 @@ export async function POST(req: Request) {
           error instanceof ChatValidationError
             ? error.message
             : await chatErrorMessage(error, language);
-        if (!(error instanceof ChatValidationError) && isBalanceError(error)) {
-          const { window, resetAt } = await quotaResetInfo();
-          if (resetAt) enqueue(encodeLimitMarker(`${window}|${resetAt}`));
+        if (!(error instanceof ChatValidationError) && isBalanceError(error) && hasImage) {
+          // Vision model is paid-only: the reply itself says the image
+          // quota is gone and when it resets (no red banner anymore).
+          const { resetAt } = await quotaResetInfo();
+          enqueue(imageExhaustedText(language, resetAt));
+        } else {
+          enqueue(`\n\n[${message}]`);
         }
-        enqueue(`\n\n[${message}]`);
       } finally {
         controller.close();
       }

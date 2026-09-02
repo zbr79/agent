@@ -22,6 +22,7 @@ interface Message {
   model?: string;
   trying?: string;
   elapsed?: number;
+  freeFallback?: boolean;
 }
 
 function dataUrl(image: { mimeType: string; data: string }): string {
@@ -241,6 +242,9 @@ export default function MessageBubble({
               canAct && !isEditing && !message.streaming && (
                 <div className="action-bar">{renderButtons(false, message)}</div>
               )
+            )}
+            {message.role === "model" && message.freeFallback && (
+              <p className="free-note">{t["free.notice"]}</p>
             )}
           </div>
         </div>

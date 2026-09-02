@@ -760,3 +760,55 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 
 ### Disproved
 - "Older key" from opencode.log was revoked (401), not exhausted — rotation invalidates previous keys.
+
+## 2026-09-02 — Free-model gateway expansion
+### Solved
+- Enumerated `GET /models` on both gateways: the free gateway (`https://opencode.ai/zen/v1`) exposes 9 free models, not the 4 the catalog knew.
+- Added working free models to catalog + chains: `nemotron-3.5-lightning-free`, `ling-3.0-flash-fin-free`, `laguna-s-2.1-free` (all respond in <3s).
+- `isFreeModel` suffix rule (`-free`) covers every new model; `big-pickle` needs its own case.
+### Unresolved
+- `muse-spark-1.3-contributor-free` and `muse-spark-1.2-contributor-free` return HTTP 500 "Internal server error" on the free gateway (both stream and non-stream, minimal body) — excluded from the catalog until they work.
+- Free models all report `vision: false`; no free vision model exists, images stay on paid `deepseek-v4-flash-vision-exp`.
+### Disproved
+- n/a
+
+## 2026-09-02 — Free model 400 error killed the whole chat chain
+### Solved
+- Free gateway returns HTTP 400 `Error from provider (Console): Upstream request failed: Model is unavailable.` for `deepseek-v4-flash-free` (provider-side down).
+- `isUnavailableError` (lib/opencode.ts) did NOT match that message → the chain loop rethrew it and the entire chat failed instead of moving to the next free model. Added `unavailable|upstream request failed` patterns.
+- health.ts `classify` now uses `isUnavailableError` first with detail "unavailable or retired", so down models are auto-hidden in the Models panel (same path as 404s).
+### Unresolved
+- `deepseek-v4-flash-free` still 400s provider-side (as of 2026-09-02); kept in chain — failure is fast (~300ms) and now non-fatal.
+- `mimo-v2.5-free` / `big-pickle` intermittently 429 `FreeUsageLimitError` (shared free-tier rate limit) — classified as quota, chain moves on.
+### Disproved
+- n/a
+
+## 2026-09-02 — Free-model notice after exhausted fallback
+### Solved
+- New `FREE` stream marker (`␀FREE:␀`, value-less) emitted by `streamChat` only when a paid model failed with quota/balance errors in the same request AND a free model delivered the final answer (lib/opencode.ts `paidExhausted` flag).
+- `ModelMarkerParser` extended for the FREE marker (both split branches); verified with 4 standalone parser scenarios (one-chunk, split mid-marker, marker-then-text, model+free combined) — all pass.
+- Client (ChatApp.tsx) shows a gray centered pill "当前正在使用免费模型 / Now using a free model" after the reply finishes; auto-hides after 6s, click to dismiss, resets on next send. i18n keys `free.notice` added (zh/en); CSS `.free-notice` in globals.css.
+### Unresolved
+- The agent path (lib/agent.ts) answers when the Go plan is NOT exhausted, so no notice appears there — correct by design.
+### Disproved
+- n/a
+
+## 2026-09-02 — Free-model notice moved under the reply (UX fix)
+### Solved
+- The floating pill was wrong placement — the notice is now a gray text line (`free-note`) rendered directly below the model reply that was answered by a free model (MessageBubble.tsx).
+- `freeFallback` flag lives on the UiMessage (set when the FREE marker is parsed, ChatApp.tsx); the transient popup state/timer/CSS were removed.
+- In-session only: the flag is not persisted, so reloads don't re-show it (the model chip still identifies the free model).
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-02 — Banner removed; notice centered; image-exhaustion reply text
+### Solved
+- Red usage-limit banner removed entirely (type-1 "usage done" warning): LIMIT marker emission deleted from app/api/chat/route.ts; ChatApp no longer parses it, disables the composer, or renders the banner. Text chats just fall back to free models; the composer stays enabled.
+- Free-model notice text changed to "Usage exhausted, now using free model" / "额度已用完，正在使用免费模型" (i18n `free.notice`) and is now horizontally centered below the reply (`.free-note` width:100% + `.message.model:has(.free-note) .message-body` max-width 100%; :has already used in this codebase for img bubbles).
+- Image sends with exhausted usage: `imageExhaustedText()` (lib/opencode.ts) — the reply itself becomes "No image model usage available. It will reset around <time>." (zh/en), no banner, bubble not removed.
+### Unresolved
+- Text chats where EVERY model (paid + free) fails still append the generic `\n\n[...]` error into the reply — accepted fallback.
+### Disproved
+- n/a
