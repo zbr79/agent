@@ -135,7 +135,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 12px;
+  padding: 7px 10px;
   border-radius: 10px;
   border: none;
   background: transparent;
@@ -155,11 +155,11 @@ body {
 
 .sidebar-label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  color: var(--text-muted);
-  padding: 10px 12px 4px;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  padding: 12px 12px 4px;
 }
 
 .sidebar-nav {
@@ -2156,8 +2156,8 @@ body {
 }
 
 .avatar {
-  width: 28px;
-  height: 28px;
+  width: 31px;
+  height: 31px;
   border-radius: 50%;
   background: var(--pill);
   color: var(--pill-text);
@@ -2214,8 +2214,8 @@ body {
 }
 
 .settings-button {
-  width: 28px;
-  height: 28px;
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2331,8 +2331,8 @@ body {
 
 /* ---- login link with icon, settings switch ---- */
 .login-circle {
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2436,7 +2436,7 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* guest footer row: one control left, one right — no shared hover box */
+/* guest footer row: one control left, one right */
 .account-row.guest {
   justify-content: space-between;
 }
@@ -2605,7 +2605,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 12px;
   padding: 0 16px 12vh;
 }
 
@@ -2749,3 +2749,72 @@ button.settings-row:hover {
   cursor: pointer;
 }
 
+
+/* ---- guest footer identity ---- */
+.guest-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.guest-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ---- nav tabs (segmented control) ---- */
+.nav-tabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.nav-tab {
+  flex: 1;
+  text-align: center;
+  padding: 7px 0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.nav-tab:hover {
+  color: var(--text);
+}
+
+.nav-tab.active {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* ---- slim, subtle scrollbars for the chat column ---- */
+.main {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+.main::-webkit-scrollbar {
+  width: 6px;
+}
+
+.main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.main::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+}
+
+.main::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.nav-tabs + .sidebar-new {
+  margin-top: 8px;
+}

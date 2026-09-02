@@ -401,27 +401,29 @@ export default function Sidebar() {
             <PanelLeft size={16} />
           </button>
         </div>
-        <Link
-          href="/"
-          className={`sidebar-new${onHome && !currentSession ? " active" : ""}`}
-          onClick={() => setMenuOpen(false)}
-        >
-          <Plus size={16} />
-          {t["nav.newChat"]}
-        </Link>
         <div className="sidebar-scroll">
-        <nav className="sidebar-nav">
+        <div className="nav-tabs">
           {items.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className={`sidebar-link ${pathname === item.href ? "active" : ""}`}
+              className={`nav-tab ${pathname === item.href ? "active" : ""}`}
               onClick={() => setMenuOpen(false)}
             >
               {t[item.label]}
             </Link>
           ))}
-        </nav>
+        </div>
+        {onHome && (
+          <Link
+            href="/"
+            className={`sidebar-new${!currentSession ? " active" : ""}`}
+            onClick={() => setMenuOpen(false)}
+          >
+            <Plus size={17} />
+            {t["nav.newChat"]}
+          </Link>
+        )}
       {onHome && authChecked && (
         <div className="session-nav">
           <span className="sidebar-label">{t["nav.chats"]}</span>
@@ -471,19 +473,22 @@ export default function Sidebar() {
               aria-label={t["nav.settings"]}
               title={t["nav.settings"]}
             >
-              <Settings size={16} />
+              <Settings size={20} />
             </button>
           </div>
         ) : (
           <div className="account-row guest">
-            <Link
-              href="/login"
-              className="login-circle"
-              aria-label={t["nav.signIn"]}
-              title={t["nav.signIn"]}
-            >
-              <User size={16} />
-            </Link>
+            <div className="guest-identity">
+              <Link
+                href="/login"
+                className="login-circle"
+                aria-label={t["nav.signIn"]}
+                title={t["nav.signIn"]}
+              >
+                <User size={20} />
+              </Link>
+              <span className="guest-name">{t["nav.guest"]}</span>
+            </div>
             <button
               type="button"
               className="settings-button"
@@ -491,7 +496,7 @@ export default function Sidebar() {
               aria-label={t["nav.settings"]}
               title={t["nav.settings"]}
             >
-              <Settings size={16} />
+              <Settings size={20} />
             </button>
           </div>
         )}
