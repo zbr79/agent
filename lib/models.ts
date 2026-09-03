@@ -17,7 +17,7 @@ export interface ModelInfo {
 // muse-spark-1.2-contributor) or /messages (minimax-*, qwen3.8-*)
 // are excluded from this catalog.
 export const CHAT_MODELS: ModelInfo[] = [
-  { name: "deepseek-v4-pro", label: "DeepSeek V4 Pro", tier: "pro", vision: false },
+  { name: "deepseek-v4-pro", label: "DeepSeek V4 Pro", tier: "pro", vision: false, retired: true },
   { name: "deepseek-v4-flash", label: "DeepSeek V4 Flash", tier: "flash", vision: false },
   { name: "deepseek-v4-flash-free", label: "DeepSeek V4 Flash (Free)", tier: "flash", vision: false },
   { name: "mimo-v2.5-free", label: "MiMo-V2.5 (Free)", tier: "flash", vision: false },
@@ -59,11 +59,10 @@ const MODEL_FILE = path.join(DATA_DIR, "model.json");
 
 export const AUTO_MODEL = "auto";
 
-// Chat chains (opencode-go): text goes pro first with flash as the cheap
-// same-family fallback; images always go to the Go gateway's only officially
+// Chat chains (opencode-go): text goes flash first (pro temporarily
+// disabled); images always go to the Go gateway's only officially
 // image-billed model.
 export const TEXT_CHAIN: string[] = [
-  "deepseek-v4-pro",
   "deepseek-v4-flash",
   "deepseek-v4-flash-free",
   "mimo-v2.5-free",
@@ -75,10 +74,9 @@ export const TEXT_CHAIN: string[] = [
 ];
 export const IMAGE_CHAIN: string[] = ["deepseek-v4-flash-vision-exp"];
 
-// Conclude chain: cheapest reliable text model first, then the stronger one.
+// Conclude chain: cheapest reliable text model first, then the free models.
 const CONCLUDE_CHAIN: string[] = [
   "deepseek-v4-flash",
-  "deepseek-v4-pro",
   "deepseek-v4-flash-free",
   "mimo-v2.5-free",
   "nemotron-3-ultra-free",
