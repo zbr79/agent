@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, Sparkles, ChevronRight, Languages, Activity, Gauge } from "lucide-react";
+import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, Sparkles, ChevronRight, Languages, Activity, Gauge, LogOut } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
 import {
   deleteGuestSession,
@@ -420,13 +420,27 @@ export default function Sidebar() {
             className={`sidebar-new${!currentSession ? " active" : ""}`}
             onClick={() => setMenuOpen(false)}
           >
-            <Plus size={17} />
+            <SquarePen size={16} />
             {t["nav.newChat"]}
           </Link>
         )}
       {onHome && authChecked && (
         <div className="session-nav">
-          <span className="sidebar-label">{t["nav.chats"]}</span>
+          <div className="session-label-row">
+            <span className="sidebar-label">{t["nav.chats"]}</span>
+            <button
+              type="button"
+              className="session-new-btn"
+              onClick={() => {
+                setMenuOpen(false);
+                router.push("/");
+              }}
+              aria-label={t["nav.newChat"]}
+              title={t["nav.newChat"]}
+            >
+              <SquarePen size={13} />
+            </button>
+          </div>
           <div className="session-list">
             {user ? (
               <>

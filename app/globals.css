@@ -156,11 +156,50 @@ body {
 
 .sidebar-label {
   display: block;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
   padding: 12px 12px 4px;
+}
+
+/* ---- ChatGPT-style chat-section header: label + hover pen ---- */
+.session-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 4px;
+}
+
+.session-new-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.session-label-row:hover .session-new-btn,
+.session-new-btn:focus-visible {
+  opacity: 1;
+}
+
+.session-new-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text);
+}
+
+@media (hover: none) {
+  .session-new-btn {
+    opacity: 1;
+  }
 }
 
 .sidebar-nav {
