@@ -51,10 +51,9 @@ export default function ModelRoutingTree() {
           <span className="routing-node">{t["routing.textChat"]}</span>
           <ul>
             <li>
-              <span className="routing-when">{t["routing.peak"]}</span>
-              <Chain models={["qwen3.8-flash"]} />
-              <span className="routing-tag">{t["routing.peakSkip"]}</span>
-            </li>
+            <span className="routing-when">{t["routing.peak"]}</span>
+            <Chain models={["qwen3.8-flash"]} />
+          </li>
             <li>
               <span className="routing-when">{t["routing.offpeak"]}</span>
               <Chain models={["qwen3.8-flash", "deepseek-v4-flash"]} />
@@ -66,12 +65,6 @@ export default function ModelRoutingTree() {
           <span className="routing-node">{t["routing.images"]}</span>
           <Chain models={["deepseek-v4-flash-vision-exp", "qwen3.5-plus"]} />
           <span className="routing-tag">{t["routing.imagesTag"]}</span>
-        </li>
-
-        <li>
-          <span className="routing-node">{t["routing.conclude"]}</span>
-          <Chain models={["qwen3.8-flash", "deepseek-v4-flash"]} />
-          <span className="routing-tag">{t["routing.concludeNote"]}</span>
         </li>
 
         <li>

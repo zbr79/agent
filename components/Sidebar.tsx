@@ -10,16 +10,8 @@ import { STR, useUiLang, setUiLang } from "@/lib/i18n";
 import SearchModal from "./SearchModal";
 import AuthModal from "./AuthModal";
 import { useInsulinMode, useCompressImages } from "@/lib/prefs";
-
-const ownerItems = [
-  { href: "/", label: "nav.chat" },
-  { href: "/records", label: "nav.records" },
-];
-
-const guestItems = [
-  { href: "/", label: "nav.chat" },
-  { href: "/records", label: "nav.records" },
-];
+import { listGuestRecords } from "@/lib/guestStore";
+import type { SavedRecord } from "@/lib/types";
 
 interface MeUser {
   _id: string;
@@ -55,7 +47,6 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const onHome = pathname === "/";
   const currentSession = searchParams.get("session");
   const lang = useUiLang();
   const t = STR[lang];
@@ -70,6 +61,7 @@ export default function Sidebar() {
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authNonce, setAuthNonce] = useState(0);
+  const [records, setRecords] = useState<SavedRecord[] | null>(null);
   const [insulinMode, toggleInsulinMode] = useInsulinMode();
   const [compressImages, setCompressImages] = useCompressImages();
   const [menuFor, setMenuFor] = useState<{
@@ -154,16 +146,32 @@ export default function Sidebar() {
   }, [searchParams, router]);
 
   const load = useCallback(() => {
-    if (!onHome || !authChecked) return;
+    if (!authChecked) return;
     if (user) {
       fetch("/api/sessions")
         .then((response) => response.json())
         .then((body: { sessions: ChatSession[] }) => setSessions(body.sessions))
         .catch(() => {});
+      fetch("/api/records")
+        .then((response) => response.json())
+        .then((body: { records: SavedRecord[] }) => setRecords(body.records))
+        .catch(() => {});
     } else {
       setGuestSessions(listGuestSessions());
+      setRecords(
+        listGuestRecords().map((record) => ({
+          _id: record.id,
+          title: record.title,
+          summary: record.summary,
+          items: record.items,
+          meals: record.meals,
+          sourceText: record.sourceText,
+          savedAt: record.savedAt,
+          datetime: null,
+        }))
+      );
     }
-  }, [onHome, authChecked, user]);
+  }, [authChecked, user]);
 
   useEffect(() => {
     load();
@@ -242,8 +250,6 @@ export default function Sidebar() {
       router.replace("/");
     }
   };
-
-  const items = user ? ownerItems : guestItems;
 
   const ownerList = (sessions ?? []).sort(
     (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false)
@@ -409,6 +415,15 @@ export default function Sidebar() {
           <button
             type="button"
             className="sidebar-hide"
+            onClick={() => setSearchOpen(true)}
+            aria-label={t["nav.search"]}
+            title={t["nav.search"]}
+          >
+            <Search size={16} />
+          </button>
+          <button
+            type="button"
+            className="sidebar-hide"
             onClick={toggleCollapsed}
             aria-label={t["nav.hideSidebar"]}
             title={t["nav.hideSidebar"]}
@@ -417,39 +432,15 @@ export default function Sidebar() {
           </button>
         </div>
         <div className="sidebar-scroll">
-        <button
-          type="button"
-          className="sidebar-search"
-          onClick={() => setSearchOpen(true)}
-          aria-label={t["nav.search"]}
-          title={t["nav.search"]}
-        >
-          <Search size={16} />
-          {t["nav.search"]}
-        </button>
-        <div className="nav-tabs">
-          {items.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`nav-tab ${pathname === item.href ? "active" : ""}`}
-              onClick={() => setMenuOpen(false)}
-            >
-              {t[item.label]}
-            </Link>
-          ))}
-        </div>
-        {onHome && (
-          <Link
+        <Link
             href="/"
-            className={`sidebar-new${!currentSession ? " active" : ""}`}
+            className={`sidebar-new${pathname === "/" && !currentSession ? " active" : ""}`}
             onClick={() => setMenuOpen(false)}
           >
             <SquarePen size={16} />
             {t["nav.newChat"]}
           </Link>
-        )}
-      {onHome && authChecked && (
+      {authChecked && (
         <div className="session-nav">
           <div className="session-label-row">
             <span className="sidebar-label">{t["nav.chats"]}</span>
@@ -487,6 +478,27 @@ export default function Sidebar() {
                 )}
               </>
             )}
+          </div>
+        </div>
+      )}
+      {authChecked && (
+        <div className="session-nav">
+          <span className="sidebar-label">{t["nav.records"]}</span>
+          <div className="session-list">
+            {records === null && <p className="session-hint">{t["nav.loading"]}</p>}
+            {records !== null && records.length === 0 && (
+              <p className="session-hint">{t["records.empty"]}</p>
+            )}
+            {records?.map((record) => (
+              <Link
+                key={record._id}
+                href="/records"
+                className="session-link"
+                onClick={() => setMenuOpen(false)}
+              >
+                <FitTitle title={record.title} />
+              </Link>
+            ))}
           </div>
         </div>
       )}
