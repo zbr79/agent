@@ -1,4 +1,4 @@
-import { completeOpenCode, isOverloadedError, isQuotaError, isUnavailableError } from "./opencode";
+import { completeOpenCode, isOverloadedError, isQuotaError, isServerError, isUnavailableError } from "./opencode";
 import { CHAT_MODELS } from "./models";
 import { insertCall } from "./db";
 
@@ -30,6 +30,11 @@ let cache: { at: number; results: HealthResult[] } | null = null;
 let inflight: Promise<HealthResult[]> | null = null;
 
 function classify(message: string, ms: number, model: string): HealthResult {
+  if (isServerError({ message })) {
+    // Gateway 500 "Internal server error" is transient on working models —
+    // treat as busy (selectable), not retired (hidden).
+    return { model, status: "busy", ms, detail: "server error" };
+  }
   if (isUnavailableError({ message })) {
     return { model, status: "retired", ms, detail: "unavailable or retired" };
   }

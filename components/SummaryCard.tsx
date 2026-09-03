@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ConcludeResult } from "@/lib/types";
 import { addGuestRecord } from "@/lib/guestStore";
 import { groupMeals, isMealRelatedItem } from "@/lib/groupMeals";
+import { STR, useUiLang } from "@/lib/i18n";
 
 export default function SummaryCard({
   result,
@@ -14,15 +15,18 @@ export default function SummaryCard({
   sourceText: string;
   guest?: boolean;
 }) {
+  const lang = useUiLang();
+  const t = STR[lang];
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const isChinese = /[\u4e00-\u9fff]/.test(`${result.title} ${result.summary}`);
-  const reportTitle = isChinese ? "报告" : "Report";
-  const saveLabels = isChinese
-    ? { idle: "保存", busy: "保存中…", done: "已保存" }
-    : { idle: "Save", busy: "Saving…", done: "Saved" };
+  const reportTitle = t["summary.report"];
+  const saveLabels = {
+    idle: t["summary.save"],
+    busy: t["summary.saving"],
+    done: t["summary.saved"],
+  };
 
   const save = async () => {
     if (saving || saved) return;
@@ -52,12 +56,12 @@ export default function SummaryCard({
         });
         const body = await response.json();
         if (!response.ok) {
-          throw new Error(body?.error ?? "Save failed.");
+          throw new Error(t["summary.saveFailed"]);
         }
         setSaved(true);
       }
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Save failed.");
+      setSaveError(err instanceof Error ? err.message : t["summary.saveFailed"]);
     } finally {
       setSaving(false);
     }

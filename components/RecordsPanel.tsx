@@ -66,12 +66,16 @@ function entryFor(record: SavedRecord): TimelineEntry {
   };
 }
 
-function dayLabel(dateKey: string, lang: "zh" | "en"): string {
+function dayLabel(
+  dateKey: string,
+  lang: "zh" | "en",
+  t: Record<string, string>
+): string {
   const now = new Date();
   const today = dayKeyOf(now.toISOString());
   const yesterday = dayKeyOf(new Date(now.getTime() - 86400000).toISOString());
-  if (dateKey === today) return lang === "zh" ? "今天" : "Today";
-  if (dateKey === yesterday) return lang === "zh" ? "昨天" : "Yesterday";
+  if (dateKey === today) return t["records.today"];
+  if (dateKey === yesterday) return t["records.yesterday"];
   const [year, month, day] = dateKey.split("-").map(Number);
   return new Date(year, month - 1, day).toLocaleDateString(lang === "zh" ? "zh-CN" : [], {
     month: "short",
@@ -97,13 +101,13 @@ export default function RecordsPanel() {
     try {
       const response = await fetch("/api/records");
       const body = await response.json();
-      if (!response.ok) throw new Error(body?.error ?? "Could not load records.");
+       if (!response.ok) throw new Error(t["common.requestFailed"]);
       setRecords(body.records);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load records.");
+      setError(err instanceof Error ? err.message : t["common.requestFailed"]);
     }
-  }, [guest]);
+  }, [guest, lang]);
 
   useEffect(() => {
     let alive = true;
@@ -135,11 +139,11 @@ export default function RecordsPanel() {
           method: "DELETE",
         });
         const body = await response.json();
-        if (!response.ok) throw new Error(body?.error ?? "Delete failed.");
+         if (!response.ok) throw new Error(t["common.requestFailed"]);
         setRecords((prev) => prev?.filter((record) => record._id !== id) ?? null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed.");
+      setError(err instanceof Error ? err.message : t["common.requestFailed"]);
     } finally {
       setDeleting(null);
     }
@@ -155,7 +159,7 @@ export default function RecordsPanel() {
       } else {
         groups.push({
           key: entry.dateKey,
-          label: dayLabel(entry.dateKey, lang),
+           label: dayLabel(entry.dateKey, lang, t),
           entries: [entry],
         });
       }

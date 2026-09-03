@@ -6,6 +6,7 @@ import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github.css";
 import type { ChatImage } from "@/lib/types";
 import { modelLabel } from "@/lib/modelLabels";
+import { STR, useUiLang } from "@/lib/i18n";
 
 interface SharedMessage {
   role: "user" | "model";
@@ -32,12 +33,14 @@ function preserveLineBreaks(text: string): string {
 }
 
 export default function ShareViewer({ share }: ShareViewerProps) {
+  const lang = useUiLang();
+  const t = STR[lang];
   if (!share) {
     return (
       <div className="share-page">
         <div className="share-missing">
           <h1>InsChat</h1>
-          <p>This shared conversation is not available.</p>
+          <p>{t["share.unavailable"]}</p>
         </div>
       </div>
     );
@@ -49,8 +52,8 @@ export default function ShareViewer({ share }: ShareViewerProps) {
         <h1>InsChat</h1>
         <h2>{share.title}</h2>
         <p className="share-meta">
-          Shared {share.kind === "chat" ? "conversation" : "message"} ·{" "}
-          {new Date(share.createdAt).toLocaleString()}
+          {t["share.shared"]} {share.kind === "chat" ? t["share.conversation"] : t["share.message"]} ·{" "}
+          {new Date(share.createdAt).toLocaleString(lang === "zh" ? "zh-CN" : "en-US")}
         </p>
       </header>
       <main className="share-messages">
@@ -61,7 +64,7 @@ export default function ShareViewer({ share }: ShareViewerProps) {
                 <div key={imageIndex} className="bubble image-only">
                   <img
                     src={`data:${image.mimeType};base64,${image.data}`}
-                    alt="Shared"
+                    alt={t["share.imageAlt"]}
                   />
                 </div>
               ))}

@@ -25,7 +25,11 @@ export async function POST(req: Request) {
   }
   const { messages, timeZone, language, mode } = parsed;
   const freeMode = mode === "free";
-  const hasImage = messages.some((message) => (message.images?.length ?? 0) > 0);
+  // Only the latest message decides whether this send is an image request;
+  // earlier photos in the history must not re-route text sends to the
+  // paid-only vision chain.
+  const lastMessage = messages[messages.length - 1];
+  const hasImage = (lastMessage?.images?.length ?? 0) > 0;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({

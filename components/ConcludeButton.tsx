@@ -1,5 +1,7 @@
 "use client";
 
+import { STR, useUiLang } from "@/lib/i18n";
+
 export default function ConcludeButton({
   onClick,
   loading,
@@ -9,14 +11,16 @@ export default function ConcludeButton({
   loading: boolean;
   disabled: boolean;
 }) {
+  const lang = useUiLang();
+  const t = STR[lang];
   return (
     <button
       type="button"
       className={`conclude-button${loading ? " concluding" : ""}`}
       onClick={onClick}
       disabled={disabled || loading}
-      aria-label="Summarize this conversation"
-      title="Summarize conversation"
+      aria-label={t["actions.summarize"]}
+      title={t["actions.summarizeTitle"]}
     >
       <svg
         width="20"

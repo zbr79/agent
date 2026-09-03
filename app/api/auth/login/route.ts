@@ -2,34 +2,39 @@ import { authCookie, issueToken, verifyLogin } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
+function errorResponse(error: string, errorCode: string, status: number) {
+  return Response.json({ error, errorCode }, { status });
+}
+
 export async function POST(req: Request) {
   let username: string;
   let password: string;
   try {
     const body: unknown = await req.json();
     if (!body || typeof body !== "object") {
-      throw new Error("Request body must be a JSON object.");
+      return errorResponse("Request body must be a JSON object.", "invalidBody", 400);
     }
     const { username: rawUser, password: rawPass } = body as Record<string, unknown>;
     if (typeof rawUser !== "string" || !rawUser.trim()) {
-      throw new Error('"username" must be a non-empty string.');
+      return errorResponse('"username" must be a non-empty string.', "usernameRequired", 400);
     }
     if (typeof rawPass !== "string" || !rawPass) {
-      throw new Error('"password" must be a non-empty string.');
+      return errorResponse('"password" must be a non-empty string.', "passwordRequired", 400);
     }
     username = rawUser;
     password = rawPass;
   } catch (error) {
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Invalid request body." },
-      { status: 400 }
+    return errorResponse(
+      error instanceof Error ? error.message : "Invalid request body.",
+      "invalidBody",
+      400
     );
   }
 
   try {
     const user = await verifyLogin(username, password);
     if (!user || !user._id) {
-      return Response.json({ error: "Wrong username or password." }, { status: 401 });
+      return errorResponse("Wrong username or password.", "invalidCredentials", 401);
     }
     const token = await issueToken(user._id.toString());
     return Response.json(
@@ -37,8 +42,7 @@ export async function POST(req: Request) {
       { headers: { "Set-Cookie": authCookie(token) } }
     );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Could not sign in.";
-    return Response.json({ error: message }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Could not sign in.";
+    return errorResponse(message, "server", 500);
   }
 }

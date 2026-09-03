@@ -149,7 +149,7 @@ export default function MessageBubble({
                   className="edit-input"
                   value={editingText}
                   onChange={(event) => onEditingText?.(event.target.value)}
-                  aria-label="Edit message"
+                   aria-label={t["actions.edit"]}
                 />
                 <div className="edit-actions">
                   <button
@@ -175,7 +175,7 @@ export default function MessageBubble({
                   <div key={imageIndex} className="bubble image-only">
                     <img
                       src={url}
-                      alt="Uploaded"
+                       alt={t["composer.uploadedAlt"]}
                       onClick={() => setViewer(url)}
                     />
                   </div>
@@ -195,7 +195,7 @@ export default function MessageBubble({
                   <img
                     key={imageIndex}
                     src={url}
-                    alt="Uploaded"
+                     alt={t["composer.uploadedAlt"]}
                     onClick={() => setViewer(url)}
                   />
                 ))}
@@ -259,7 +259,7 @@ export default function MessageBubble({
       )}
       <div ref={endRef} />
       {viewer && (
-        <ImageViewer src={viewer} alt="Uploaded" onClose={() => setViewer(null)} />
+         <ImageViewer src={viewer} alt={t["composer.uploadedAlt"]} onClose={() => setViewer(null)} />
       )}
     </main>
   );

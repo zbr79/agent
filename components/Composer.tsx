@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { ArrowUp, Plus, Square, X } from "lucide-react";
 import type { ChatImage } from "@/lib/types";
 import { MAX_IMAGES } from "@/lib/types";
+import { STR, useUiLang } from "@/lib/i18n";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -15,10 +16,13 @@ interface ComposerProps {
   placeholder?: string;
 }
 
-function readImage(file: File): Promise<ChatImage> {
+function readImage(
+  file: File,
+  errors: { tooLarge: string; read: string }
+): Promise<ChatImage> {
   return new Promise((resolve, reject) => {
     if (file.size > MAX_FILE_BYTES) {
-      reject(new Error("Image is too large. Max size is 5 MB."));
+      reject(new Error(errors.tooLarge));
       return;
     }
     const reader = new FileReader();
@@ -28,12 +32,14 @@ function readImage(file: File): Promise<ChatImage> {
       const mimeType = head.match(/data:(.*?);/)?.[1] ?? file.type;
       resolve({ mimeType, data });
     };
-    reader.onerror = () => reject(new Error("Could not read the image."));
+    reader.onerror = () => reject(new Error(errors.read));
     reader.readAsDataURL(file);
   });
 }
 
 export default function Composer({ sending, onSend, onStop, disabled = false, placeholder }: ComposerProps) {
+  const lang = useUiLang();
+  const t = STR[lang];
   const [text, setText] = useState("");
   const [images, setImages] = useState<ChatImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -63,21 +69,26 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
     const room = MAX_IMAGES - images.length;
     const selected = files.slice(0, room);
     if (files.length > room) {
-      setImageError(`最多只能添加 ${MAX_IMAGES} 张图片。`);
+      setImageError(t["composer.maxImages"].replace("{count}", String(MAX_IMAGES)));
     }
     try {
       const loaded: ChatImage[] = [];
       for (const file of selected) {
         if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-          setImageError("Only JPEG, PNG, and WebP images are supported.");
+          setImageError(t["composer.unsupportedImage"]);
           continue;
         }
-        loaded.push(await readImage(file));
+        loaded.push(
+          await readImage(file, {
+            tooLarge: t["composer.imageTooLarge"],
+            read: t["composer.readError"],
+          })
+        );
       }
       setImages((prev) => [...prev, ...loaded].slice(0, MAX_IMAGES));
       if (loaded.length > 0) setImageError(null);
     } catch (error) {
-      setImageError(error instanceof Error ? error.message : "Could not read the image.");
+      setImageError(error instanceof Error ? error.message : t["composer.readError"]);
     }
   };
 
@@ -91,11 +102,11 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
         <div className="preview-grid">
           {images.map((image, index) => (
             <div key={index} className="preview">
-              <img src={`data:${image.mimeType};base64,${image.data}`} alt="Preview" />
+               <img src={`data:${image.mimeType};base64,${image.data}`} alt={t["composer.previewAlt"]} />
               <button
                 type="button"
                 onClick={() => removeImage(index)}
-                aria-label="Remove image"
+                 aria-label={t["composer.removeImage"]}
               >
                 <X size={16} />
               </button>
@@ -116,8 +127,8 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
           type="button"
           className="icon-button"
           onClick={() => fileRef.current?.click()}
-          aria-label="Attach image"
-          title="Attach image"
+           aria-label={t["composer.attachImage"]}
+           title={t["composer.attachImage"]}
           disabled={images.length >= MAX_IMAGES || disabled}
         >
           <Plus size={18} />
@@ -125,14 +136,14 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
         <textarea
           rows={1}
           value={text}
-          placeholder={placeholder ?? ""}
+           placeholder={placeholder ?? t["composer.placeholder"]}
           disabled={disabled}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
-          aria-label="Message"
+           aria-label={t["composer.message"]}
         />
         {sending ? (
-          <button type="button" className="send-button" onClick={onStop} aria-label="Stop">
+           <button type="button" className="send-button" onClick={onStop} aria-label={t["composer.stop"]}>
             <Square size={15} fill="currentColor" />
           </button>
         ) : (
@@ -141,7 +152,7 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
             className="send-button"
             onClick={handleSend}
             disabled={!canSend}
-            aria-label="Send"
+             aria-label={t["composer.send"]}
           >
             <ArrowUp size={18} />
           </button>

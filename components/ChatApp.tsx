@@ -66,9 +66,9 @@ function persistMessage(
   }).catch(() => {});
 }
 
-function titleFrom(text: string): string {
+function titleFrom(text: string, fallback: string): string {
   const clean = text.trim().replace(/\s+/g, " ");
-  return clean.length > 60 ? `${clean.slice(0, 60)}…` : clean || "New chat";
+  return clean.length > 60 ? `${clean.slice(0, 60)}…` : clean || fallback;
 }
 
 export default function ChatApp() {
@@ -298,12 +298,8 @@ export default function ChatApp() {
           signal: controller.signal,
         });
         if (!response.ok || !response.body) {
-          const body = await response.text();
-          let error = "Chat request failed.";
-          try {
-            error = JSON.parse(body).error ?? error;
-          } catch {}
-          throw new Error(error);
+          await response.text();
+          throw new Error(t["chat.requestFailed"]);
         }
 
         const reader = response.body.getReader();
@@ -400,7 +396,7 @@ export default function ChatApp() {
                   failed: !aborted,
                   text: aborted
                     ? message.text
-                    : message.text || (error instanceof Error ? error.message : "Chat request failed."),
+                     : message.text || (error instanceof Error ? error.message : t["chat.requestFailed"]),
                 }
               : message
           )
@@ -427,16 +423,16 @@ export default function ChatApp() {
             const response = await fetch("/api/sessions", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ title: titleFrom(trimmed) }),
+              body: JSON.stringify({ title: titleFrom(trimmed, t["nav.newChat"]) }),
             });
             const body = await response.json();
-            if (!response.ok) throw new Error(body?.error ?? "Could not create session.");
+            if (!response.ok) throw new Error(t["common.requestFailed"]);
             sessionId = body.session._id;
           } catch {
             sessionId = null;
           }
         } else {
-          sessionId = createGuestSession(titleFrom(trimmed)).id;
+          sessionId = createGuestSession(titleFrom(trimmed, t["nav.newChat"])).id;
         }
         if (sessionId) {
           sessionIdRef.current = sessionId;
@@ -666,7 +662,7 @@ export default function ChatApp() {
       });
       const body = await response.json();
       if (!response.ok) {
-        throw new Error(body?.error ?? "Conclude failed.");
+        throw new Error(t["chat.concludeFailed"]);
       }
       const result = body as ConcludeResult;
       setSummary({ result, sourceText });
@@ -678,7 +674,7 @@ export default function ChatApp() {
         sourceText,
       });
     } catch (error) {
-      setSummaryError(error instanceof Error ? error.message : "Conclude failed.");
+      setSummaryError(error instanceof Error ? error.message : t["chat.concludeFailed"]);
       } finally {
       setConcluding(false);
     }
@@ -707,6 +703,7 @@ export default function ChatApp() {
             onSend={send}
             onStop={stop}
             sending={sending}
+            placeholder={t["composer.placeholder"]}
           />
         </main>
       ) : (
@@ -753,6 +750,7 @@ export default function ChatApp() {
           onSend={send}
           onStop={stop}
           sending={sending}
+          placeholder={t["composer.placeholder"]}
         />
       )}
     </div>

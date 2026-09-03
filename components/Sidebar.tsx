@@ -266,8 +266,8 @@ export default function Sidebar() {
       <button
         type="button"
         className="session-more"
-        aria-label="More options"
-        title="More options"
+        aria-label={t["nav.more"]}
+        title={t["nav.more"]}
         onClick={(event) => {
           if (menuFor?.id === id) {
             setMenuFor(null);
@@ -348,7 +348,8 @@ export default function Sidebar() {
           type="button"
           className="menu-button"
           onClick={() => setMenuOpen(true)}
-          aria-label="Open menu"
+          aria-label={t["nav.openMenu"]}
+          title={t["nav.openMenu"]}
         >
           <Menu size={20} />
         </button>

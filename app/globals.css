@@ -1690,11 +1690,39 @@ body {
   padding: 28px 24px;
 }
 
+.auth-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .auth-card h2 {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.02em;
   margin-bottom: 4px;
+}
+
+.auth-card-head h2 {
+  margin-bottom: 0;
+}
+
+.auth-lang-toggle {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.auth-lang-toggle:hover {
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .auth-form {
@@ -2662,6 +2690,7 @@ body {
 .welcome .composer {
   width: 100%;
   max-width: 640px;
+  margin-top: -2px;
 }
 
 
@@ -2680,7 +2709,7 @@ body {
 
 .composer-toggles.bottom {
   max-width: none;
-  padding-bottom: 2px;
+  padding-bottom: 4px;
   justify-content: space-between;
   align-items: center;
 }

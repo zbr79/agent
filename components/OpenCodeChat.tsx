@@ -93,12 +93,8 @@ export default function OpenCodeChat() {
           signal: controller.signal,
         });
         if (!response.ok || !response.body) {
-          const body = await response.text();
-          let error = "Chat request failed.";
-          try {
-            error = JSON.parse(body).error ?? error;
-          } catch {}
-          throw new Error(error);
+          await response.text();
+          throw new Error(t["chat.requestFailed"]);
         }
 
         const reader = response.body.getReader();
@@ -178,7 +174,7 @@ export default function OpenCodeChat() {
                   text: aborted
                     ? message.text
                     : message.text ||
-                      (error instanceof Error ? error.message : "Chat request failed."),
+                      (error instanceof Error ? error.message : t["chat.requestFailed"]),
                 }
               : message
           )
@@ -235,6 +231,7 @@ export default function OpenCodeChat() {
             onSend={send}
             onStop={stop}
             disabled={limitReset !== null}
+            placeholder={t["composer.placeholder"]}
           />
         </main>
       ) : (
@@ -252,6 +249,7 @@ export default function OpenCodeChat() {
             onSend={send}
             onStop={stop}
             disabled={limitReset !== null}
+            placeholder={t["composer.placeholder"]}
           />
         </>
       )}

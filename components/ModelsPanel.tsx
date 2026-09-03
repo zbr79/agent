@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { formatUiText, STR, useUiLang } from "@/lib/i18n";
+import { modelLabel } from "@/lib/modelLabels";
 
 interface ModelRow {
   name: string;
@@ -29,7 +31,21 @@ interface HealthData {
   stale?: boolean;
 }
 
+function detailLabel(
+  status: HealthResult["status"],
+  t: Record<string, string>
+): string {
+  if (status === "retired") return t["models.detailUnavailable"];
+  if (status === "quota") return t["models.detailQuota"];
+  if (status === "busy") return t["models.detailBusy"];
+  return status === "error" || status === "empty"
+    ? t["common.requestFailed"]
+    : t["models.detailUnavailable"];
+}
+
 export default function ModelsPanel() {
+  const lang = useUiLang();
+  const t = STR[lang];
   const [data, setData] = useState<ModelsData | null>(null);
   const [health, setHealth] = useState<HealthData | null>(null);
   const [checking, setChecking] = useState(true);
@@ -39,26 +55,26 @@ export default function ModelsPanel() {
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/models");
-      if (!response.ok) throw new Error("Could not load models.");
+      if (!response.ok) throw new Error(t["common.requestFailed"]);
       setData(await response.json());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load models.");
+      setError(err instanceof Error ? err.message : t["common.requestFailed"]);
     }
-  }, []);
+  }, [lang]);
 
   const loadHealth = useCallback(async (force: boolean) => {
     if (force) setChecking(true);
     try {
       const response = await fetch(force ? "/api/health?force=1" : "/api/health");
-      if (!response.ok) throw new Error("Could not run health check.");
+      if (!response.ok) throw new Error(t["common.requestFailed"]);
       const body = (await response.json()) as HealthData;
       setHealth(body);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not run health check.");
+      setError(err instanceof Error ? err.message : t["common.requestFailed"]);
     } finally {
       setChecking(false);
     }
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     load();
@@ -76,10 +92,10 @@ export default function ModelsPanel() {
         body: JSON.stringify({ model: name }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body?.error ?? "Switch failed.");
+      if (!response.ok) throw new Error(t["common.requestFailed"]);
       setData(body);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Switch failed.");
+      setError(err instanceof Error ? err.message : t["common.requestFailed"]);
     } finally {
       setSwitching(null);
     }
@@ -103,7 +119,7 @@ export default function ModelsPanel() {
   }
 
   const checkedLabel = health?.cachedAt
-    ? new Date(health.cachedAt).toLocaleTimeString([], {
+    ? new Date(health.cachedAt).toLocaleTimeString(lang === "zh" ? "zh-CN" : "en-US", {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
@@ -112,21 +128,15 @@ export default function ModelsPanel() {
 
   return (
     <div className="usage-page">
-      <h2>Models</h2>
+      <h2>{t["nav.models"]}</h2>
       <p className="usage-sub">
-        <strong>Auto</strong> (default): text chat uses DeepSeek V4 Pro with
-        DeepSeek V4 Flash as fallback, then every free model (DeepSeek V4
-        Flash Free, Nemotron 3 Ultra, Nemotron 3.5 Lightning, Ling 3.0 Flash,
-        MiMo-V2.5, Big Pickle, Laguna S 2.1) when a paid model is exhausted or
-        fails. Picking a specific model pins it for text chats. Images always
-        route to DeepSeek V4 Flash Vision Exp (the Go plan&apos;s vision
-        model). Live status only updates when you click{" "}
-        <strong>Re-check</strong> (each probe costs a tiny request on models
-        that answer).
+        {t["models.description"]}
         {data?.concludeModel && (
           <>
-            {" "}Conclude uses <strong>{data.concludeModel}</strong> first, then
-            the next model in its chain.
+            {" "}
+            {formatUiText(t["models.concludeDescription"], {
+              model: modelLabel(data.concludeModel),
+            })}
           </>
         )}
       </p>
@@ -137,8 +147,8 @@ export default function ModelsPanel() {
         <div className="usage-head">
           <span className="usage-title">
             {health && health.results.length > 0
-              ? `Live check (checked ${checkedLabel})`
-              : "Live check: not run yet"}
+              ? formatUiText(t["models.liveChecked"], { time: checkedLabel })
+              : t["models.liveNotRun"]}
           </span>
           <button
             type="button"
@@ -146,39 +156,44 @@ export default function ModelsPanel() {
             disabled={checking}
             onClick={() => loadHealth(true)}
           >
-            {checking ? "Checking…" : "Re-check"}
+            {checking ? t["models.checking"] : t["models.recheck"]}
           </button>
         </div>
         {health && health.results.length > 0 ? (
           <p className="health-counts">
-            <span className="health-count ok">{counts.ok} available</span>
-            <span className="health-count quota">{counts.quota} limit hit</span>
-            <span className="health-count busy">{counts.busy} busy</span>
+            <span className="health-count ok">
+              {formatUiText(t["models.availableCount"], { count: counts.ok })}
+            </span>
+            <span className="health-count quota">
+              {formatUiText(t["models.limitCount"], { count: counts.quota })}
+            </span>
+            <span className="health-count busy">
+              {formatUiText(t["models.busyCount"], { count: counts.busy })}
+            </span>
             {counts.other > 0 && (
-              <span className="health-count other">{counts.other} unchecked</span>
+              <span className="health-count other">
+                {formatUiText(t["models.uncheckedCount"], { count: counts.other })}
+              </span>
             )}
           </p>
         ) : (
           <p className="usage-sub" style={{ marginTop: 8 }}>
-            Click Re-check to probe every model now (~30s, costs one tiny
-            request per answering model).
+            {t["models.clickRecheck"]}
           </p>
         )}
       </section>
 
       <section className="usage-card">
-        <span className="usage-title">Catalog (opencode-go + free)</span>
+        <span className="usage-title">{t["models.catalogTitle"]}</span>
         <ul className="models-capacity">
           <li>
-            <strong>{visible.length}</strong> models on the Go plan plus the
-            free gateway via the chat/completions endpoint
+            {formatUiText(t["models.catalogCount"], { count: visible.length })}
           </li>
           <li>
-            <strong>{visionModels.length}</strong> with image input support
-            (vision flags from vendor docs)
+            {formatUiText(t["models.visionCount"], { count: visionModels.length })}
           </li>
           <li>
-            Images in chat always use <strong>deepseek-v4-flash-vision-exp</strong>
+            {t["models.imagesAlways"]}
           </li>
         </ul>
       </section>
@@ -186,15 +201,15 @@ export default function ModelsPanel() {
       <div className="models-list">
         <div className={`model-row${autoMode ? " current" : ""}`}>
           <div className="model-info">
-            <span className="model-label">Auto — best available</span>
-            <span className="model-name">text: deepseek-v4-pro → deepseek-v4-flash → 7 free models; images: vision-exp</span>
+            <span className="model-label">{t["models.autoLabel"]}</span>
+            <span className="model-name">{t["models.autoName"]}</span>
             <span className="model-tags">
-              <span className="model-tag tier-flash">auto</span>
-              {autoMode && <span className="model-tag state">Active</span>}
+              <span className="model-tag tier-flash">{t["models.autoTag"]}</span>
+              {autoMode && <span className="model-tag state">{t["models.active"]}</span>}
             </span>
           </div>
           <div className="model-meter">
-            <span className="model-used">fallback chain</span>
+            <span className="model-used">{t["models.fallbackChain"]}</span>
           </div>
           <button
             type="button"
@@ -202,25 +217,29 @@ export default function ModelsPanel() {
             disabled={autoMode || switching !== null}
             onClick={() => switchTo("auto")}
           >
-            {autoMode ? "Active" : switching === "auto" ? "Switching…" : "Use"}
+            {autoMode
+              ? t["models.active"]
+              : switching === "auto"
+                ? t["models.switching"]
+                : t["models.use"]}
           </button>
         </div>
         {visible.map((model) => {
           const live = healthByModel.get(model.name);
           const current = model.name === data?.current;
           const state = current
-            ? "Active"
+            ? t["models.active"]
             : live?.status === "ok"
-              ? "Available"
+              ? t["models.available"]
               : live?.status === "quota"
-                ? "Limit hit"
+                ? t["models.limitHit"]
                 : live?.status === "busy"
-                  ? "Busy"
+                  ? t["models.busy"]
                   : live
                     ? live.status === "empty" || live.status === "error"
-                      ? "Error"
-                      : "Unchecked"
-                    : "Unchecked";
+                      ? t["models.error"]
+                      : t["models.unchecked"]
+                    : t["models.unchecked"];
           const disabled = current || live?.status === "quota";
           return (
             <div
@@ -231,23 +250,29 @@ export default function ModelsPanel() {
                 <span className="model-label">{model.label}</span>
                 <span className="model-name">{model.name}</span>
                 <span className="model-tags">
-                  <span className={`model-tag tier-${model.tier}`}>{model.tier}</span>
+                  <span className={`model-tag tier-${model.tier}`}>
+                    {t[model.tier === "pro" ? "models.tierPro" : "models.tierFlash"]}
+                  </span>
                   {model.vision && (
-                    <span className="model-tag" title="Image input supported">
-                      vision ✓
+                      <span className="model-tag" title={t["models.vision"]}>
+                        {t["models.vision"]}
                     </span>
                   )}
-                  <span className={`model-tag state state-${live?.status ?? "none"}${state === "Available" ? " ok" : ""}`}>
-                    {state}
-                  </span>
-                  {live && live.status !== "ok" && live.detail && (
-                    <span className="model-tag detail">{live.detail}</span>
+                   <span className={`model-tag state state-${live?.status ?? "none"}${live?.status === "ok" ? " ok" : ""}`}>
+                     {state}
+                   </span>
+                   {live && live.status !== "ok" && live.detail && (
+                     <span className="model-tag detail">
+                       {detailLabel(live.status, t)}
+                     </span>
                   )}
                 </span>
               </div>
               <div className="model-meter">
                 <span className="model-used">
-                  {live ? `${live.ms}ms probe` : "—"}
+                  {live
+                    ? formatUiText(t["models.probe"], { ms: live.ms })
+                    : t["models.notChecked"]}
                 </span>
               </div>
               <button
@@ -256,7 +281,11 @@ export default function ModelsPanel() {
                 disabled={disabled || switching !== null}
                 onClick={() => switchTo(model.name)}
               >
-                {current ? "Active" : switching === model.name ? "Switching…" : "Use"}
+                 {current
+                   ? t["models.active"]
+                   : switching === model.name
+                     ? t["models.switching"]
+                     : t["models.use"]}
               </button>
             </div>
           );

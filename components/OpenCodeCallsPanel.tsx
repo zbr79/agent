@@ -57,16 +57,16 @@ export default function OpenCodeCallsPanel() {
       const response = await fetch("/api/opencode-calls");
       const body = await response.json();
       if (!response.ok) {
-        throw new Error(body?.error ?? "Could not load OpenCode usage.");
+        throw new Error(t["common.requestFailed"]);
       }
       setData(body);
       setError(null);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not load OpenCode usage."
+        err instanceof Error ? err.message : t["common.requestFailed"]
       );
     }
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     load();
@@ -207,15 +207,17 @@ export default function OpenCodeCallsPanel() {
           {data?.recent.map((call) => (
             <div key={call._id} className={`call-row${call.ok ? "" : " failed"}`}>
               <div className="call-main">
-                <span className="call-kind">opencode</span>
+                <span className="call-kind">{t["calls.kind.opencode"]}</span>
                 <span className="call-model">{modelLabel(call.model)}</span>
-                <span className="call-status">{call.ok ? "ok" : "error"}</span>
+                <span className="call-status">
+                  {call.ok ? t["calls.statusOk"] : t["calls.statusError"]}
+                </span>
                 {typeof call.cost === "number" && (
                   <span className="call-cost">${call.cost.toFixed(4)}</span>
                 )}
               </div>
               <span className="call-time">
-                {new Date(call.at).toLocaleString([], {
+                 {new Date(call.at).toLocaleString(lang === "zh" ? "zh-CN" : "en-US", {
                   month: "short",
                   day: "numeric",
                   hour: "2-digit",

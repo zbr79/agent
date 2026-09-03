@@ -68,6 +68,15 @@ export function isOverloadedError(error: unknown): boolean {
   return /503|overloaded|capacity/i.test(message);
 }
 
+// The free gateway wraps upstream provider failures as a generic HTTP 500
+// "Internal server error" (the same shape muse-spark-* free models always
+// return). It is transient for working models, so the chain must skip it
+// instead of failing the whole chat.
+export function isServerError(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error);
+  return /500|internal server error/i.test(message);
+}
+
 // The Go subscription's dollar windows ran out ("Insufficient balance",
 // "Monthly usage limit reached"...).
 export function isBalanceError(error: unknown): boolean {
@@ -524,15 +533,32 @@ export async function* streamChat(
   language?: "zh" | "en",
   freeMode = false
 ): AsyncGenerator<string> {
-  const hasImage = messages.some((message) => (message.images?.length ?? 0) > 0);
+  const lastMessage = messages[messages.length - 1];
+  const hasImage = (lastMessage?.images?.length ?? 0) > 0;
   const useTools = !hasImage;
   const requestId = Math.random().toString(36).slice(2, 8);
   let chain = getChatChain(hasImage);
   const systemOverride = freeMode
     ? getSystemPrompt(timeZone, language, true)
     : undefined;
+  // Text-only sends must not pass earlier photo parts to text models — the
+  // free gateway rejects image content (404 "No endpoints for image").
+  // Mirror the agent transcript's "[photo attached]" marker so the model
+  // still knows a photo was part of the conversation.
+  const sourceMessages = hasImage
+    ? messages
+    : messages.map((message) =>
+        (message.images?.length ?? 0) > 0
+          ? {
+              role: message.role,
+              text: message.text.trim()
+                ? `${message.text} [photo attached]`
+                : "[photo attached]",
+            }
+          : message
+      );
   let working: OpenAiMessage[] = toOpenAiMessages(
-    messages,
+    sourceMessages,
     timeZone,
     language,
     systemOverride
@@ -561,7 +587,7 @@ export async function* streamChat(
         } catch (error) {
           lastError = error;
           if (error instanceof ChatValidationError) throw error;
-        if (isQuotaError(error) || isUnavailableError(error) || isBalanceError(error)) {
+        if (isQuotaError(error) || isUnavailableError(error) || isBalanceError(error) || isServerError(error)) {
           if (!isFreeModel(model) && (isQuotaError(error) || isBalanceError(error))) {
             paidExhausted = true;
           }

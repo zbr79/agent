@@ -836,3 +836,44 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 - Key management choice (encrypted-at-rest store vs .env) not yet confirmed by user.
 - Whether "set active account" (auth.json rewrite) is wanted — inschat integration confirmed feasible.
 - Port/process naming for the new app (must not touch inschat PM2 app on :3001).
+
+## 2026-09-02 — Full i18n audit & fix (zh/en mixed-language pass)
+### Solved
+- New `lib/i18nExtra.ts` (104 keys per language) merged into `STR`; `formatUiText()` helper for `{key}` interpolation; `useUiLang()` now syncs `<html lang>` (zh-CN/en); root layout defaults to zh-CN.
+- zh dict fixed: `opencodeCalls.rolling/weekly/monthly/resets` were English ("5 hour usage"/"Resets in"); also `tokens30d` → 令牌数, `records.empty` → 总结.
+- Login/register page fully localized with a lang toggle button (CSS `.auth-card-head`/`.auth-lang-toggle`); auth routes now return `errorCode` (invalidCredentials/usernameTaken/usernameInvalid/passwordLength/usernameRequired/passwordRequired/invalidBody/server) and the page maps codes to localized text; `language` sent to API (unused by server, fine).
+- Composer: placeholder, aria/title labels, image errors (max images/type/size/read) localized; ChatApp/OpenCodeChat pass placeholders and use `chat.requestFailed`.
+- SummaryCard uses UI language instead of content heuristic (报告/保存/已保存).
+- ModelsPanel fully localized (description, health counts, catalog, auto row, states, tier labels 专业/快速, detail labels, probe ms); CallsPanel + OpenCodeCallsPanel localized (titles, counts, statuses, kinds, dates via locale); RecordsPanel/SearchModal fallback errors localized; Sidebar aria "More options"/"Open menu" localized; ShareViewer localized (missing page, meta, image alt); ConcludeButton aria/title localized; UsagePanel countdown uses localized units (天/小时/分钟).
+- All visible fallback strings ("Could not...", "Search failed.", "Conclude failed.", "Save failed.", "Chat request failed.") replaced with localized `t[...]`; session title fallback uses `nav.newChat` per language.
+- Verified with headless smoke tests in zh+en: login toggle + localized wrong-password error, html lang sync, composer placeholder, page headings, no English leaks in zh usage/models/calls/records (raw provider error strings inside `.call-error` are diagnostic data and stay English).
+### Unresolved
+- Raw provider/API error strings (e.g. "Upstream request failed: Model is unavailable.") shown as call details stay in English — they are upstream diagnostics, not UI copy.
+### Disproved
+- The assumption that all three major apps AI-generate chat titles (they truncate the first user message).
+
+## 2026-09-03 — Debug: free models "Internal server error" (500)
+### Root cause
+- The free gateway (`opencode.ai/zen/v1`) wraps upstream provider failures as HTTP 500 `{"type":"error","error":{"type":"error","message":"Internal server error"}}` — the exact shape `muse-spark-*-free` models return 100% of the time (verified 5/5 + 5/5). They are not served upstream at all.
+- For otherwise-working models the 500 is intermittent and quota-correlated: `mimo-v2.5-free`/`big-pickle` now return a clean 429 `FreeUsageLimitError` (free-tier shared quota exhausted) but earlier returned 500 — a race in the free-tier gate: requests slip past the quota check and the provider call then fails server-side, wrapped as a generic 500 instead of a clean 429.
+- Request params are NOT the cause: tested minimal / +reasoning_effort / +tools / full body on all 6 free models — no 500 triggered by params (laguna-s-2.1-free does 503 when `reasoning_effort` is sent — 5/5 vs 0/5 without).
+- Other failure modes: `deepseek-v4-flash-free` consistent 400 "Model is unavailable" (provider down); `nemotron-3-ultra-free`/`nemotron-3.5-lightning-free` slow (sometimes >20–25s, timeouts).
+### Fix
+- `isServerError()` (lib/opencode.ts) matches `500|internal server error`; the chat chain now treats it as "unavailable → next model" instead of rethrowing and killing the whole chat.
+- health.ts `classify` checks it BEFORE `isUnavailableError` so a transient 500 shows as "busy" (selectable), not "retired" (hidden).
+### Disproved
+- The 500 is not caused by our body/tools/reasoning params, not by concurrency (28-parallel test), not a rate-limit mislabel on our side.
+
+## 2026-09-03 — Insulin-mode text sends wrongly returned image-exhausted reply
+### Root cause
+- `hasImage` was computed as `messages.some(m => m.images...)` over the ENTIRE history (app/api/chat/route.ts + lib/opencode.ts streamChat). In insulin mode a chat that once had a food/glucose photo made every later text-only send route to the paid-only vision chain → "暂无可用图像模型额度" reply.
+- Second layer: text models reject image parts in history — reproduced 400 `[404] No endpoints for image` on all free models when the payload contained an image_url from earlier messages.
+### Fix
+- `hasImage` now uses only the LAST message in both route.ts and streamChat.
+- For text-only sends, streamChat strips images from history and replaces them with the same `[photo attached]` marker the agent transcript uses, so free text models never receive image parts.
+### Verified
+- Headless test, insulin mode ON: "120" text → runs text chain (pro 429 → flash 429 → flash-free 400 → mimo 429 → nemotron connected), NO image-exhausted reply.
+- Image send → still routes to deepseek-v4-flash-vision-exp → image-exhausted reply (unchanged).
+- Free models are currently slow/overloaded (Nvidia 502, 20-40s first token) — replies may take a while.
+### Disproved
+- n/a

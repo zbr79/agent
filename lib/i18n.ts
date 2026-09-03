@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { EXTRA_STR } from "./i18nExtra";
 
 export type UiLang = "zh" | "en";
 
@@ -27,6 +28,9 @@ export function setUiLang(lang: UiLang): void {
 export function useUiLang(): UiLang {
   const [lang, setLang] = useState<UiLang>(() => getUiLang());
   useEffect(() => {
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  }, [lang]);
+  useEffect(() => {
     const onLang = (event: Event) => {
       setLang((event as CustomEvent<UiLang>).detail);
     };
@@ -34,6 +38,17 @@ export function useUiLang(): UiLang {
     return () => window.removeEventListener(EVENT, onLang);
   }, []);
   return lang;
+}
+
+export function formatUiText(
+  template: string,
+  values: Record<string, string | number>
+): string {
+  let result = template;
+  for (const [key, value] of Object.entries(values)) {
+    result = result.split(`{${key}}`).join(String(value));
+  }
+  return result;
 }
 
 export const STR: Record<UiLang, Record<string, string>> = {
@@ -88,10 +103,10 @@ export const STR: Record<UiLang, Record<string, string>> = {
     "opencodeCalls.sub": "本应用通过 opencode-go 订阅对 DeepSeek V4 Pro 发出的调用，记录在 MongoDB。",
     "opencodeCalls.official": "",
     "opencodeCalls.officialSub": "",
-    "opencodeCalls.rolling": "5 hour usage",
-    "opencodeCalls.weekly": "weekly usage",
-    "opencodeCalls.monthly": "monthly usage",
-    "opencodeCalls.resets": "Resets in",
+    "opencodeCalls.rolling": "5 小时用量",
+    "opencodeCalls.weekly": "每周用量",
+    "opencodeCalls.monthly": "每月用量",
+    "opencodeCalls.resets": "重置剩余",
     "opencodeCalls.officialUnavailable": "暂时无法读取官方配额。",
     "opencodeCalls.h5": "最近 5 小时",
     "opencodeCalls.w7": "最近 7 天",
@@ -99,7 +114,7 @@ export const STR: Record<UiLang, Record<string, string>> = {
     "opencodeCalls.total": "累计调用",
     "opencodeCalls.failed": "失败（30 天）",
     "opencodeCalls.cost30d": "30 天花费",
-    "opencodeCalls.tokens30d": "30 天 tokens",
+    "opencodeCalls.tokens30d": "30 天令牌数",
     "opencodeCalls.byModel": "按模型统计（30 天）",
     "opencodeCalls.recent": "最近调用",
     "opencodeCalls.empty": "还没有 OpenCode 调用 — 去 OpenCode 页面发一条消息。",
@@ -121,7 +136,7 @@ export const STR: Record<UiLang, Record<string, string>> = {
     "records.title": "记录",
     "records.subGuest": "已保存的报告（访客模式 — 仅保存在本设备）。",
     "records.subOwner": "时间线上的已保存报告，最新在前。",
-    "records.empty": "还没有保存内容 — 聊天后点击 Conclude 并保存。",
+    "records.empty": "还没有保存内容 — 聊天后点击“总结”并保存。",
     "records.loading": "加载中…",
     "records.delete": "删除",
     "records.deleting": "删除中…",
@@ -136,6 +151,7 @@ export const STR: Record<UiLang, Record<string, string>> = {
     "usage.available": "可用",
     "usage.usedPct": "已用",
     "lang.button": "EN",
+    ...EXTRA_STR.zh,
   },
   en: {
     "nav.chat": "Chat",
@@ -236,5 +252,6 @@ export const STR: Record<UiLang, Record<string, string>> = {
     "usage.available": "available",
     "usage.usedPct": "used",
     "lang.button": "中文",
+    ...EXTRA_STR.en,
   },
 };

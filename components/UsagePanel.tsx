@@ -28,22 +28,38 @@ interface UsageData {
   models: UsageModel[];
 }
 
-function relativeResets(at: string): string {
+function relativeResets(
+  at: string,
+  lang: "zh" | "en",
+  t: Record<string, string>
+): string {
   const ms = Date.parse(at) - Date.now();
-  if (ms <= 0) return "0 minutes";
+  const duration = (value: number, singular: string, plural: string) => {
+    const unit = t[value === 1 ? singular : plural];
+    return lang === "zh" ? `${value}${unit}` : `${value} ${unit}`;
+  };
+  if (ms <= 0) return duration(0, "time.minute", "time.minutes");
   const mins = Math.floor(ms / 60000);
   const hours = Math.floor(mins / 60);
   const days = Math.floor(hours / 24);
   if (days > 0) {
     const restHours = hours % 24;
-    return `${days} day${days === 1 ? "" : "s"} ${restHours} hour${restHours === 1 ? "" : "s"}`;
+    return `${duration(days, "time.day", "time.days")} ${duration(
+      restHours,
+      "time.hour",
+      "time.hours"
+    )}`;
   }
   if (hours > 0) {
     const restMins = mins % 60;
-    return `${hours} hour${hours === 1 ? "" : "s"} ${restMins} minute${restMins === 1 ? "" : "s"}`;
+    return `${duration(hours, "time.hour", "time.hours")} ${duration(
+      restMins,
+      "time.minute",
+      "time.minutes"
+    )}`;
   }
-  if (mins > 0) return `${mins} minute${mins === 1 ? "" : "s"}`;
-  return "0 minutes";
+  if (mins > 0) return duration(mins, "time.minute", "time.minutes");
+  return duration(0, "time.minute", "time.minutes");
 }
 
 export default function UsagePanel() {
@@ -56,13 +72,13 @@ export default function UsagePanel() {
     try {
       const response = await fetch("/api/usage");
       const body = await response.json();
-      if (!response.ok) throw new Error(body?.error ?? "Could not load usage.");
+      if (!response.ok) throw new Error(t["common.requestFailed"]);
       setUsage(body);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load usage.");
+      setError(err instanceof Error ? err.message : t["common.requestFailed"]);
     }
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     load();
@@ -100,7 +116,7 @@ export default function UsagePanel() {
                 </div>
                 <div className="usage-meta">
                   <span>
-                    {t["opencodeCalls.resets"]} {relativeResets(w.resetsAt)}
+                    {t["opencodeCalls.resets"]} {relativeResets(w.resetsAt, lang, t)}
                   </span>
                 </div>
               </div>

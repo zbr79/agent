@@ -193,13 +193,13 @@ export default function SearchModal({
         fetch(`/api/search?q=${encodeURIComponent(trimmed)}&scope=${searchScope}`)
           .then((response) => response.json())
           .then((body: { chats?: ChatHit[]; records?: RecordHit[]; error?: string }) => {
-            if (body.error) throw new Error(body.error);
+            if (body.error) throw new Error(t["common.requestFailed"]);
             setChats(body.chats ?? []);
             setRecords(body.records ?? []);
             setError(null);
           })
           .catch((err) => {
-            setError(err instanceof Error ? err.message : "Search failed.");
+            setError(err instanceof Error ? err.message : t["common.requestFailed"]);
             setChats([]);
             setRecords([]);
           });
@@ -210,7 +210,7 @@ export default function SearchModal({
         setError(null);
       }
     },
-    [authed]
+    [authed, lang]
   );
 
   useEffect(() => {
