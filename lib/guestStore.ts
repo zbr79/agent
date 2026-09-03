@@ -146,6 +146,13 @@ export function deleteGuestSession(id: string): void {
   );
 }
 
+export function clearGuestSessions(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(SESSIONS_KEY);
+  } catch {}
+}
+
 export function listGuestRecords(): GuestRecord[] {
   return readJson<GuestRecord[]>(RECORDS_KEY, []).sort((a, b) =>
     b.savedAt.localeCompare(a.savedAt)

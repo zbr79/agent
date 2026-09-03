@@ -338,6 +338,10 @@ function errorFromResponse(status: number, text: string): Error {
   return new Error(message);
 }
 
+// Qwen models on the Go gateway 400 when reasoning_effort is sent together
+// with image content — skip it for those image requests.
+const NO_REASONING_WITH_IMAGES = new Set(["qwen3.5-plus"]);
+
 // One streaming round: yields content tokens and returns accumulated tool
 // calls (via the generator return value).
 async function* streamOpenCodeOnce(
@@ -346,13 +350,19 @@ async function* streamOpenCodeOnce(
   tools: boolean
 ): AsyncGenerator<string, { toolCalls: ToolCall[] }, void> {
   const requestId = Math.random().toString(36).slice(2, 8);
+  const hasImageParts = messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some((part) => part.type === "image_url")
+  );
+  const skipReasoning = hasImageParts && NO_REASONING_WITH_IMAGES.has(model);
   const body: Record<string, unknown> = {
     model,
     messages,
     stream: true,
     temperature: 0.7,
-    reasoning_effort: "max",
   };
+  if (!skipReasoning) body.reasoning_effort = "max";
   if (tools) body.tools = [WEB_FETCH_TOOL];
   const startedAt = Date.now();
   console.log(

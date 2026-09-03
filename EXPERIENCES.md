@@ -877,3 +877,96 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 - Free models are currently slow/overloaded (Nvidia 502, 20-40s first token) — replies may take a while.
 ### Disproved
 - n/a
+
+## 2026-09-03 — Mobile UI audit (phone pass)
+### Fixed
+- Full-width search bar (ChatGPT-style, added earlier) had been LOST from Sidebar.tsx — only the brand-row search icon remained. Restored: `.sidebar-search` button with icon + "搜索/Search" text above the nav tabs (components/Sidebar.tsx).
+- Escape key did not close the mobile drawer — the backdrop stayed and blocked all pointer events. Added a window Escape handler that closes the drawer, row menu, and rename input (components/Sidebar.tsx).
+### Verified (headless, 375px + 320px)
+- No horizontal overflow on /, /models, /calls, /usage, /records, /opencode, /opencode-calls, /login at both widths.
+- Drawer: 250px, closes/opens via transform (matrix x -262 → 0), search bar + new chat 219px inside, content scrolls.
+- Search modal 294px and settings modal 294px fit in 320px viewport.
+- Login card 272px at 320px.
+- Chat: toggles row (血糖模式 84px + Conclude 30px) fits; user bubble 230px; composer 343px at 375 / 311px at 320.
+- Models rows fit with Use buttons (327px at 375); usage table 291px < 375.
+- Image preview grid: 3 previews (56px each), no overflow.
+### Unresolved
+- Free models still slow/overloaded upstream (Nvidia 502s) — model replies take 20-40s, unrelated to UI.
+### Disproved
+- n/a
+
+## 2026-09-03 — Free-model notice moved to centered chat overlay
+### Solved
+- The notice was rendered below the responding message (`.free-note`); user wants a middle warning instead. It is now a fixed, horizontally+vertically centered gray text overlay in the chat column (`.free-note-overlay`, top/left 50%, translate(-50%,-50%), 14px, no background).
+- MessageBubble no longer renders it; ChatApp holds `freeNotice` state (set on FREE marker), clears on next send, auto-dismisses after 6s, click to dismiss.
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-03 — Login reworked from page into AuthModal
+### Solved
+- New `components/AuthModal.tsx`: login/register dialog (localized, lang toggle, error-code mapping, backdrop click + X close) rendered over the app instead of navigating to /login.
+- Sidebar guest footer's sign-in circle is now a button that opens the modal (desktop + mobile drawer); on success it refetches the user (authNonce), closes, and stays on the chat.
+- `app/login/page.tsx` is now a server redirect to `/?auth=1`; Sidebar watches the param and auto-opens the modal (old deep links keep working).
+- CSS: `.auth-backdrop`/`.auth-modal` overlay reusing `.auth-card`; close button.
+### Verified (headless, 1440 + 375)
+- Modal opens from guest footer (and drawer), 380px desktop / 343px mobile, no overflow; localized wrong-password error shown inline; backdrop closes it; login success closes modal, shows username + owner tabs; /login redirects and auto-opens the modal.
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-03 — Text chain swapped to qwen3.8-flash with peak-hour routing
+### Why
+- DeepSeek peak pricing (Mon-Fri 01:00-04:00 & 06:00-10:00 UTC = 09:00-12:00 / 14:00-18:00 Beijing) doubles deepseek-v4-flash ($1.32 vs $0.66 output). Qwen3.8 Flash is flat $0.15/$0.47, wins 9/11 benchmarks vs DS V4 Flash (incl. CoWorkBench 73.9 vs 45.1, Toolathlon 73.5 vs 70.3), and is 4-6x faster on the gateway (1-1.8s vs 6.9s).
+- MiMo-V2.5 rejected: hard 500 on `reasoning_effort` (app always sends it) and 7-16s latency.
+### Change
+- `qwen3.8-flash` added to CHAT_MODELS + modelLabels (vision:false — gateway 400s images via chat/completions).
+- TEXT/CONCLUDE chains: `qwen3.8-flash` → `deepseek-v4-flash` (only OFF-PEAK) → free models. `isDeepSeekPeak()` (lib/models.ts) drops deepseek-v4-flash during peak hours; verified against window boundaries (Mon 02:00/08:00 UTC peak, 05:00/12:00 off, Sat off).
+- UI copy (zh/en): models description + auto row name mention Qwen primary + off-peak DS fallback.
+### Verified
+- Models page lists qwen3.8-flash (32 models); auto row "文字：qwen3.8-flash → deepseek-v4-flash（非高峰）→ 免费模型".
+### Unresolved
+- Vision chain still on deepseek-v4-flash-vision-exp (peak-priced); replacement candidates (qwen3.7-plus, kimi-k2.6) not yet probed with the app body.
+### Disproved
+- MiMo-V2.5 as a drop-in text replacement (reasoning_effort 500).
+
+## 2026-09-03 — Model routing tree on the usage page
+### Solved
+- New `components/ModelRoutingTree.tsx` rendered at the bottom of /usage: a tree-format visualisation of the auto-model logic — text chat (peak: qwen3.8-flash only, DeepSeek skipped; off-peak: qwen3.8-flash → deepseek-v4-flash; free models nested under both), images (vision-exp), conclude chain, pinned override, free fallback with notice.
+- i18n keys `routing.*` (zh/en); parens are language-aware（/） vs (/); `.routing-tree` CSS with branch borders, model chips, arrows.
+### Verified
+- Both languages render, all model codes present, no horizontal overflow at 1440/375.
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-03 — Vision chain: qwen3.5-plus peak-aware fallback
+### Findings
+- Vision candidates tested with real images + app body (reasoning_effort max + stream): deepseek-v4-flash-vision-exp OK, kimi-k3/k2.6 OK (3-23x more expensive), mimo-v2.5/v2.5-pro 500 upstream, qwen3.7/3.6/3.5-plus only work WITHOUT reasoning_effort (gateway 400s reasoning+image combos on Qwen; the 1x1 test-image 400 was "must be larger than 10px", a red herring).
+- qwen3.5-plus is flat $0.20/$1.20 — slightly cheaper than vision-exp's PEAK $1.32 output — verified OK with images (1.7-2.7s).
+### Change
+- IMAGE_CHAIN now time-aware (lib/models.ts `visionChain()`): peak → [qwen3.5-plus, vision-exp]; off-peak → [vision-exp, qwen3.5-plus].
+- `streamOpenCodeOnce` skips `reasoning_effort` when the request has image parts and the model is in `NO_REASONING_WITH_IMAGES` (qwen3.5-plus) — Qwen 400s otherwise.
+- Routing tree + i18n show the vision fallback ("高峰优先 Qwen3.5（平价）").
+### Verified
+- Live image send: vision-exp 429 → qwen3.5-plus tried next (both 429 on exhausted Go quota, correct fallback order).
+### Unresolved
+- Real end-to-end qwen3.5-plus image answer untestable while the Go plan is quota-exhausted; the earlier direct probe proved the request shape works.
+### Disproved
+- "Qwen models reject images" (was my corrupt/too-small test PNG); mimo-v2.5-pro is genuinely broken upstream (500).
+
+## 2026-09-03 — Image compression setting (default ON)
+### Solved
+- New `useCompressImages()` pref (lib/prefs.ts, localStorage `inschat_compress_images`, default ON).
+- `lib/imageCompress.ts`: canvas downscale to max 1600px + JPEG q85; skips images already small enough.
+- Composer compresses attached photos when the pref is on (before preview/send/storage).
+- Settings modal row "图片压缩 / Image compression" with hint + switch (ImageDown icon, `.settings-row-text` CSS); i18n keys added.
+### Verified
+- E2E: 3000x3000 PNG → 1600x1600 JPEG when ON; untouched PNG when OFF; switch default on, toggles + persists.
+### Unresolved
+- User will compare reading accuracy with compression on/off on real meter/food photos.
+### Disproved
+- n/a

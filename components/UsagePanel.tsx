@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { STR, useUiLang } from "@/lib/i18n";
+import ModelRoutingTree from "./ModelRoutingTree";
 
 interface UsageModel {
   name: string;
@@ -157,6 +158,8 @@ export default function UsagePanel() {
           </table>
         )}
       </section>
+
+      <ModelRoutingTree />
     </div>
   );
 }

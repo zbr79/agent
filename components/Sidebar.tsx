@@ -3,17 +3,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, Sparkles, ChevronRight, Languages, Activity, Gauge, LogOut } from "lucide-react";
+import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, Sparkles, ChevronRight, Languages, Activity, Gauge, LogOut, ImageDown } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
-import {
-  deleteGuestSession,
-  listGuestSessions,
-  pinGuestSession,
-  renameGuestSession,
-} from "@/lib/guestStore";
+import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
 import SearchModal from "./SearchModal";
-import { useInsulinMode } from "@/lib/prefs";
+import AuthModal from "./AuthModal";
+import { useInsulinMode, useCompressImages } from "@/lib/prefs";
 
 const ownerItems = [
   { href: "/", label: "nav.chat" },
@@ -71,7 +67,11 @@ export default function Sidebar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authNonce, setAuthNonce] = useState(0);
   const [insulinMode, toggleInsulinMode] = useInsulinMode();
+  const [compressImages, setCompressImages] = useCompressImages();
   const [menuFor, setMenuFor] = useState<{
     id: string;
     top: number;
@@ -102,6 +102,18 @@ export default function Sidebar() {
     setMenuOpen(false);
   }, [pathname, currentSession]);
 
+  // Escape closes the mobile drawer (and any open row menu).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      setMenuFor(null);
+      setRenamingId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && (event.key === "O" || event.key === "o")) {
@@ -128,7 +140,18 @@ export default function Sidebar() {
     return () => {
       alive = false;
     };
-  }, [pathname]);
+  }, [pathname, authNonce]);
+
+  // Deep link /?auth=1 (redirect target of the old /login page) opens the
+  // auth modal automatically.
+  useEffect(() => {
+    if (searchParams.get("auth") === "1") {
+      setAuthOpen(true);
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("auth");
+      router.replace(`/?${params.toString()}`);
+    }
+  }, [searchParams, router]);
 
   const load = useCallback(() => {
     if (!onHome || !authChecked) return;
@@ -386,15 +409,6 @@ export default function Sidebar() {
           <button
             type="button"
             className="sidebar-hide"
-            onClick={() => setSearchOpen(true)}
-            aria-label={t["nav.search"]}
-            title={t["nav.search"]}
-          >
-            <Search size={16} />
-          </button>
-          <button
-            type="button"
-            className="sidebar-hide"
             onClick={toggleCollapsed}
             aria-label={t["nav.hideSidebar"]}
             title={t["nav.hideSidebar"]}
@@ -403,6 +417,16 @@ export default function Sidebar() {
           </button>
         </div>
         <div className="sidebar-scroll">
+        <button
+          type="button"
+          className="sidebar-search"
+          onClick={() => setSearchOpen(true)}
+          aria-label={t["nav.search"]}
+          title={t["nav.search"]}
+        >
+          <Search size={16} />
+          {t["nav.search"]}
+        </button>
         <div className="nav-tabs">
           {items.map((item) => (
             <Link
@@ -494,14 +518,15 @@ export default function Sidebar() {
         ) : (
           <div className="account-row guest">
             <div className="guest-identity">
-              <Link
-                href="/login"
+              <button
+                type="button"
                 className="login-circle"
+                onClick={() => setAuthOpen(true)}
                 aria-label={t["nav.signIn"]}
                 title={t["nav.signIn"]}
               >
                 <User size={20} />
-              </Link>
+              </button>
               <span className="guest-name">{t["nav.guest"]}</span>
             </div>
             <button
@@ -518,6 +543,15 @@ export default function Sidebar() {
       </div>
     </aside>
     <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} authed={!!user} />
+    <AuthModal
+      open={authOpen}
+      onClose={() => setAuthOpen(false)}
+      onAuthed={() => {
+        setAuthNonce((value) => value + 1);
+        setMenuOpen(false);
+        router.replace("/");
+      }}
+    />
     {settingsOpen && (
       <>
         <div
@@ -567,6 +601,22 @@ export default function Sidebar() {
               <span className="switch-knob" />
             </button>
           </label>
+          <label className="settings-row">
+            <span className="settings-row-icon">
+              <ImageDown size={16} />
+            </span>
+            <span className="settings-label">{t["settings.compressImages"]}</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={compressImages}
+              className={`switch${compressImages ? " on" : ""}`}
+              onClick={() => setCompressImages(!compressImages)}
+              aria-label={t["settings.compressImages"]}
+            >
+              <span className="switch-knob" />
+            </button>
+          </label>
           <button
             type="button"
             className="settings-row settings-link"
@@ -582,6 +632,35 @@ export default function Sidebar() {
             <span className="settings-label">{t["nav.usage"]}</span>
             <ChevronRight size={16} />
           </button>
+          {!user && (
+            <div className="settings-row settings-danger">
+              <span className="settings-row-icon settings-danger-icon">
+                <Trash2 size={16} />
+              </span>
+              <span className="settings-danger-text">
+                <span className="settings-label">{t["settings.deleteHistory"]}</span>
+                <span className="settings-hint">{t["settings.deleteHistoryHint"]}</span>
+              </span>
+              <button
+                type="button"
+                className={`settings-danger-button${deleteArmed ? " armed" : ""}`}
+                onClick={() => {
+                  if (!deleteArmed) {
+                    setDeleteArmed(true);
+                    window.setTimeout(() => setDeleteArmed(false), 3000);
+                    return;
+                  }
+                  clearGuestSessions();
+                  setGuestSessions([]);
+                  setDeleteArmed(false);
+                  setSettingsOpen(false);
+                  if (currentSession) router.replace("/");
+                }}
+              >
+                {deleteArmed ? t["settings.deleteConfirm"] : t["settings.delete"]}
+              </button>
+            </div>
+          )}
         </div>
       </>
     )}

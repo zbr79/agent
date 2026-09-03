@@ -5,6 +5,8 @@ import { ArrowUp, Plus, Square, X } from "lucide-react";
 import type { ChatImage } from "@/lib/types";
 import { MAX_IMAGES } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
+import { useCompressImages } from "@/lib/prefs";
+import { compressImage } from "@/lib/imageCompress";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -40,6 +42,7 @@ function readImage(
 export default function Composer({ sending, onSend, onStop, disabled = false, placeholder }: ComposerProps) {
   const lang = useUiLang();
   const t = STR[lang];
+  const [compressOn] = useCompressImages();
   const [text, setText] = useState("");
   const [images, setImages] = useState<ChatImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -84,6 +87,13 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
             read: t["composer.readError"],
           })
         );
+      }
+      if (compressOn) {
+        for (let i = 0; i < loaded.length; i++) {
+          try {
+            loaded[i] = await compressImage(loaded[i]);
+          } catch {}
+        }
       }
       setImages((prev) => [...prev, ...loaded].slice(0, MAX_IMAGES));
       if (loaded.length > 0) setImageError(null);

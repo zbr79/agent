@@ -191,7 +191,7 @@ export async function* agentChat(
               if (props.delta && partType === "text") {
                 if (!produced) {
                   produced = true;
-                  yield encodeModelMarker(modelName ?? "deepseek-v4-flash");
+                  yield encodeModelMarker(modelName ?? "qwen3.8-flash");
                   console.log(`[agent:${requestId}] first token (model ${modelName})`);
                 }
                 yield props.delta;
@@ -290,7 +290,7 @@ export async function* agentChat(
           if (textParts.length === 0) continue;
           modelName = entry.info?.modelID ?? modelName;
           produced = true;
-          yield encodeModelMarker(modelName ?? "deepseek-v4-flash");
+          yield encodeModelMarker(modelName ?? "qwen3.8-flash");
           for (const partText of textParts) {
             yield partText;
           }
@@ -315,7 +315,7 @@ export async function* agentChat(
       );
       insertCall({
         kind: "opencode",
-        model: modelName ?? "deepseek-v4-flash",
+        model: modelName ?? "qwen3.8-flash",
         ok: false,
         error: failure.message.slice(0, 300),
       }).catch(() => {});
@@ -340,7 +340,7 @@ export async function* agentChat(
       : undefined;
     insertCall({
       kind: "opencode",
-      model: info?.modelID ?? modelName ?? "deepseek-v4-flash",
+      model: info?.modelID ?? modelName ?? "qwen3.8-flash",
       ok: true,
       cost: info?.cost,
       tokens: normalized,

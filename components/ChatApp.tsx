@@ -33,7 +33,6 @@ interface UiMessage {
   model?: string;
   trying?: string;
   elapsed?: number;
-  freeFallback?: boolean;
   _id?: string;
   _index?: string;
 }
@@ -96,6 +95,14 @@ export default function ChatApp() {
   const handledMsgRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [freeNotice, setFreeNotice] = useState(false);
+
+  // Free-model notice: centered gray text, auto-dismisses after a few seconds.
+  useEffect(() => {
+    if (!freeNotice) return;
+    const timer = setTimeout(() => setFreeNotice(false), 6000);
+    return () => clearTimeout(timer);
+  }, [freeNotice]);
 
   useEffect(() => {
     let alive = true;
@@ -268,6 +275,7 @@ export default function ChatApp() {
       };
       setMessages([...base, modelMessage]);
       setSending(true);
+      setFreeNotice(false);
 
       let elapsedValue = 0;
       const elapsedTimer = setInterval(() => {
@@ -314,13 +322,7 @@ export default function ChatApp() {
             decoder.decode(value, { stream: true })
           );
           if (free) {
-            setMessages((prev) =>
-              prev.map((message) =>
-                message.id === modelMessage.id
-                  ? { ...message, freeFallback: true }
-                  : message
-              )
-            );
+            setFreeNotice(true);
           }
           if (model) {
             modelName = model;
@@ -752,6 +754,11 @@ export default function ChatApp() {
           sending={sending}
           placeholder={t["composer.placeholder"]}
         />
+      )}
+      {freeNotice && (
+        <p className="free-note-overlay" onClick={() => setFreeNotice(false)}>
+          {t["free.notice"]}
+        </p>
       )}
     </div>
   );

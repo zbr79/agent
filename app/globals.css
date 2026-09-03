@@ -426,6 +426,90 @@ body {
   line-height: 1.6;
 }
 
+/* ---- model routing tree (usage page) ---- */
+.routing-tree {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.routing-tree ul {
+  list-style: none;
+  margin: 2px 0 6px 14px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.routing-tree > li {
+  padding: 4px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.routing-tree > li > .routing-node {
+  min-width: 0;
+}
+
+.routing-tree ul li {
+  padding: 3px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.routing-node {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.routing-when {
+  font-weight: 500;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.routing-tag {
+  color: var(--text-muted);
+  font-size: 11px;
+  background: var(--bg-soft);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
+.routing-chain {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 0;
+  font-size: 12px;
+}
+
+.routing-model {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 6px;
+}
+
+.routing-model code {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.routing-arrow {
+  color: var(--text-muted);
+  margin: 0 2px;
+}
+
 .usage-models {
   width: 100%;
   border-collapse: collapse;
@@ -1697,6 +1781,51 @@ body {
   gap: 12px;
 }
 
+/* ---- auth modal (login/register as a dialog instead of a page) ---- */
+.auth-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 70;
+}
+
+.auth-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 71;
+  width: calc(100vw - 32px);
+  max-width: 380px;
+}
+
+.auth-modal .auth-card {
+  width: 100%;
+  max-width: none;
+  position: relative;
+}
+
+.auth-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.auth-modal-close:hover {
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.05);
+}
+
 .auth-card h2 {
   font-size: 20px;
   font-weight: 700;
@@ -2668,6 +2797,55 @@ body {
   font-weight: 600;
 }
 
+/* ---- delete chat history (guest settings) ---- */
+.settings-danger {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.settings-danger-icon {
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  color: #ef4444;
+}
+
+.settings-danger-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.settings-danger-button {
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, #ef4444 55%, transparent);
+  border-radius: 9px;
+  background: transparent;
+  color: #ef4444;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.settings-danger-button:hover {
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+}
+
+.settings-danger-button.armed {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+}
+
 /* ---- ChatGPT-style centered welcome composer ---- */
 .welcome {
   flex: 1;
@@ -2691,6 +2869,23 @@ body {
   width: 100%;
   max-width: 640px;
   margin-top: -2px;
+}
+
+/* ---- phone: welcome input sits at the bottom like a started chat ---- */
+@media (max-width: 640px) {
+  .welcome {
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 0 12px calc(14px + env(safe-area-inset-bottom));
+  }
+
+  .welcome h2 {
+    font-size: 18px;
+  }
+
+  .welcome .composer-toggles {
+    max-width: none;
+  }
 }
 
 
@@ -2779,19 +2974,30 @@ body {
   flex-shrink: 0;
 }
 
-/* ---- free-model notice (gray text, horizontally centered below reply) ---- */
-.message.model:has(.free-note) .message-body {
-  max-width: 100%;
-}
-
-.free-note {
-  width: 100%;
+/* ---- free-model notice (gray text, centered in the chat column) ---- */
+.free-note-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 40;
   color: #9aa0a6;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
-  margin: 6px 0 0;
+  margin: 0;
   padding: 0;
   text-align: center;
+  cursor: pointer;
+  animation: free-note-fade 0.25s ease-out;
+}
+
+@keyframes free-note-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .composer textarea:disabled {
