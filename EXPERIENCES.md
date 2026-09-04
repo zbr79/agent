@@ -970,3 +970,127 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 - User will compare reading accuracy with compression on/off on real meter/food photos.
 ### Disproved
 - n/a
+
+## 2026-09-03 — Conclude records its own time (not photo/meal time)
+### Problem
+- `translateRecord` derived the record's `datetime` from the concluded content — the "时间" item (which the model may infer from the photo/chat context) or the first meal's time. The records timeline then grouped entries by THAT time, not by when the user actually concluded/saved.
+### Fix
+- translate.ts: datetime derivation removed (dead time helpers deleted; parseLeadingNumber kept).
+- db.ts insertRecord: `datetime = new Date()` at insert — the record always carries its own conclusion/save time.
+- RecordsPanel entryFor: timeline position always uses `datetime ?? savedAt` (own time); meal-time-based grouping and the timeLabel display removed (meal times still visible inside entry content).
+### Unresolved
+- Old records stored before the fix keep their content-derived datetime — they still appear at their old timeline position.
+### Disproved
+- n/a
+
+## 2026-09-03 — Conclude confirm/edit modal
+### Solved
+- After clicking Conclude, `components/ConcludeModal.tsx` pops up with the results for confirmation and editing:
+  - Title editable; every item editable (name + value + unit); values matching 低/中/高 (or low/medium/high) render as a ranking select (升糖等级); meals editable (name/foods/time) — so the insulin number and its time can be changed freely.
+- Save writes the EDITED record (POST /api/records or addGuestRecord for guests) with the edited title (instead of the generic "报告"); the summary card then shows the edited result in saved state (`summarySaved` prop threaded ChatApp → MessageBubble → SummaryCard).
+- i18n `concludeModal.*` keys (zh/en); `.conclude-modal` CSS (scrollable card, input rows).
+### Verified
+- E2E: reply → Conclude → modal opens (确认总结), no overflow; edit + save paths reuse the proven records API.
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-03 — Record redesign: dish boxes, date+time anchor, no title
+### Solved
+- ConcludeMeal gains `dishes: {name, rank}[]`; the conclude prompt now extracts per-dish blood-sugar ranks (低/中/高) from the chat's food table instead of discarding them; sanitize/API validation/translate pass dishes through.
+- ConcludeModal: title field REMOVED (records are anchored by date+time); each meal edits as name + time + dish boxes (dish name input + rank select 低/中/高/—, add/remove dish). Save auto-titles the record with the first meal name (or 报告/Report).
+- SummaryCard + RecordsPanel render dishes as colored rank boxes (green/yellow/red via rankClass: 低/low, 中/medium, 高/high); foods string kept as fallback for legacy records.
+### Verified
+- Build passes; flow wired through modal → records API → timeline.
+### Unresolved
+- Old records without dishes still render foods-string fallback.
+### Disproved
+- n/a
+
+## 2026-09-03 — Conclude modal: native date/time pickers, better view
+### Solved
+- `lib/mealTime.ts` gains `parseFlexibleDateTime` (handles "2026年9月3日 下午 6:17", "2026-08-26 18:17", "8/26/2026 6:17 PM", time-only → today; date stripped before time regex so date digits never leak into the time) and `formatDateTimeDisplay` (zh "2026年9月3日 下午 6:17" / en "2026-09-03 6:17 PM").
+- ConcludeModal reworked: no free-text date editing — meals get native `<input type="date">` + `<input type="time">` pickers (parsed from the model's text, formatted back on change); 时间/time items use the same pickers; dish boxes keep name + rank select; meal name on top.
+### Verified
+- Parser unit-checked across 8 formats (all correct, incl. 3:17 AM, 9:30, 下午 6:17); build passes; app restarted.
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-03 — Chat now stores replies + model (two real bugs)
+### Bug 1: login via AuthModal left ChatApp in guest mode
+- ChatApp checked /api/auth/me only on mount; login via the sidebar modal navigates without remounting, so `isAuthed` stayed false — every chat silently went to the localStorage guest store and never reached the DB.
+- Fix: `inschat-auth` CustomEvent dispatched by Sidebar on login/logout; ChatApp listens (plus re-checks on URL changes) and refreshes isAuthed.
+### Bug 2: model name never persisted
+- The agent path emitted the MODEL marker with the fallback label at first token, but `modelName` often stayed null (message.updated arrives late), so the persisted message had `model: null`.
+- Fix: lib/agent.ts emits a corrected MODEL marker with the real model id once `promptResult.info.modelID` is known — the client keeps the last marker (chip + persistence).
+### Verified
+- Net trace: login → POST /api/sessions (real Mongo id) → POST messages → reply persisted with `model: "qwen3.8-flash"`.
+### Unresolved
+- n/a
+### Disproved
+- The messages API was fine; the loss happened client-side.
+
+## 2026-09-03 — Health mode: auto-conclude per reply + ready-glow button
+### Solved
+- In 血糖模式 (health mode), when a model reply finishes streaming, conclude runs AUTOMATICALLY (no Conclude click): streamReply's finally triggers `autoConcludeRef` (guarded by insulinMode, not aborted, no existing 查看总结 bubble). The thinking bubble → 查看总结 flow still applies.
+- The Conclude button now takes `ready`: when a conclusion is ready it gets the SAME gradient border + breathing glow as the active health toggle (`.conclude-button.ready` reuses healthGlow), signalling "ready to view". Clicking it then OPENS the confirm modal instead of running conclude again; without a ready result it runs conclude normally (free mode unchanged).
+### Verified
+- E2E: health mode → "血糖 130" → reply → auto-conclude → button glows ready → click opens the modal.
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-03 — Old conclude process deleted (bubble flow removed)
+### Removed
+- 思考中 thinking bubble + 查看总结 bubble entirely: `concluding`/`concludeReady` message flags (ChatApp + MessageBubble), the clickable bubble render + `onOpenConclude` prop, `concludeBubbleIdRef` machinery, the `.conclude-ready` CSS, i18n keys `conclude.inProgress/view/viewHint`.
+- Health-mode /api/conclude fallback (`autoConcludeRef`) — health mode now relies 100% on the reply tail; if the tail is missing the button stays unlit and the user can trigger one manual /api/conclude via the button.
+- `concludeAll` no longer creates bubbles — it fetches /api/conclude → merges → sets the ready state (used only by the manual Conclude click, e.g. free mode).
+### Verified
+- E2E health flow still works: reply → tail parsed (0 /api/conclude calls) → button glows → modal opens; no bubble remnants anywhere in the code.
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-03 — Session conclusion storage removed (stale 保存 card after refresh)
+### Problem
+- `persistConclusion` wrote the conclusion into the session doc; on refresh ChatApp re-loaded it as `summary` → the old SummaryCard ("报告 / 保存 …") reappeared with 保存 (concludeSaved resets to false) — and clicking 保存 would POST a NEW record (recordIdRef lost) → duplicate records.
+### Fix
+- Removed the session-conclusion path entirely: `persistConclusion` callback + all calls (single-call path, concludeAll, truncatePersisted), session-conclusion loading on refresh (authed + guest), the `conclusion: null` PUT, `setGuestConclusion` import, and the `SessionConclusion` type usage.
+- After refresh the chat shows only messages; the conclusion lives in the records list (sidebar 记录 / timeline). The in-session SummaryCard still shows right after a modal save (已保存).
+### Verified
+- Refresh on a session that had a stored conclusion: no summary card, no save button (bubbles only).
+### Unresolved
+- Old sessions keep their stored conclusion docs server-side (harmless, unused).
+### Disproved
+- n/a
+
+## 2026-09-04 — Restore saved conclusion after refresh (record linked to session)
+### Problem
+- After refresh the in-memory conclusion was gone (concludeReady false) → clicking the Conclude button re-ran /api/conclude instead of opening the stored report.
+### Fix
+- The SAVED record is now linked to its session: on modal save, ChatApp stores `conclusion` + `recordId` in the session (authed: two PUTs — conclusion + recordId; guest: setGuestConclusion with recordId). The sessions PUT route accepts recordId (new `setSessionRecordId`); `parseConclusion` now also keeps meal dishes; `getSessionWithMessages` returns recordId; GuestSession gains recordId.
+- On session load (authed + guest): if conclusion && recordId exist → restore recordIdRef + concludeSaved + concludeResult → the button glows and opens the STORED report; no /api/conclude call.
+### Verified
+- E2E: save a reading → refresh → button already ready (0 /api/conclude calls) → click opens the modal with the stored 130 reading.
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-04 — Conclude button: view-only, static highlight, no API
+### Problem
+- After refresh the restored conclusion kept the button glowing forever (healthGlow animation pulsing) — "stuck flashing". The button could also still fire /api/conclude when no conclusion existed.
+### Fix
+- Button is now view-only: onClick opens the modal ONLY when a conclusion is ready; `concludeAll`/`concluding` state removed entirely (no /api/conclude from the button). Disabled when no stored report.
+- `.conclude-button.ready` keeps the gradient border but the breathing animation was removed — static highlight.
+### Verified
+- E2E: save → refresh → button ready (static), 0 /api/conclude calls, click opens the stored report.
+### Unresolved
+- n/a
+### Disproved
+- n/a

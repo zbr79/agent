@@ -4,21 +4,21 @@ import { STR, useUiLang } from "@/lib/i18n";
 
 export default function ConcludeButton({
   onClick,
-  loading,
   disabled,
+  ready = false,
 }: {
   onClick: () => void;
-  loading: boolean;
   disabled: boolean;
+  ready?: boolean;
 }) {
   const lang = useUiLang();
   const t = STR[lang];
   return (
     <button
       type="button"
-      className={`conclude-button${loading ? " concluding" : ""}`}
+      className={`conclude-button${ready ? " ready" : ""}`}
       onClick={onClick}
-      disabled={disabled || loading}
+      disabled={disabled}
       aria-label={t["actions.summarize"]}
       title={t["actions.summarizeTitle"]}
     >

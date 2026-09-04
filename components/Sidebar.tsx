@@ -247,6 +247,7 @@ export default function Sidebar() {
       await fetch("/api/auth/logout", { method: "POST" });
     } catch {} finally {
       setUser(null);
+      window.dispatchEvent(new CustomEvent("inschat-auth"));
       router.replace("/");
     }
   };
@@ -561,6 +562,7 @@ export default function Sidebar() {
       onAuthed={() => {
         setAuthNonce((value) => value + 1);
         setMenuOpen(false);
+        window.dispatchEvent(new CustomEvent("inschat-auth"));
         router.replace("/");
       }}
     />

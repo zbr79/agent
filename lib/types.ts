@@ -16,9 +16,15 @@ export interface ConcludeItem {
   number?: number;
 }
 
+export interface ConcludeDish {
+  name: string;
+  rank?: string;
+}
+
 export interface ConcludeMeal {
   name: string;
   foods?: string;
+  dishes?: ConcludeDish[];
   time?: string;
 }
 

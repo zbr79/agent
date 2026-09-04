@@ -426,6 +426,231 @@ body {
   line-height: 1.6;
 }
 
+/* ---- conclude confirm/edit modal ---- */
+.conclude-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 71;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+}
+
+.conclude-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.conclude-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.conclude-field-label,
+.conclude-section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.conclude-section {
+  margin-bottom: 12px;
+}
+
+.conclude-section-label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.conclude-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.conclude-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 7px 10px;
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text);
+  outline: none;
+}
+
+.conclude-input:focus {
+  border-color: var(--pill);
+}
+
+.conclude-input-name {
+  flex: 1.4;
+}
+
+.conclude-input-value {
+  flex: 1;
+}
+
+.conclude-input-unit {
+  flex: 0.7;
+}
+
+.conclude-meal-block {
+  border: 1px solid var(--bg-soft);
+  border-radius: 10px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.conclude-meal-name {
+  margin-bottom: 6px;
+}
+
+.conclude-input-date,
+.conclude-input-time {
+  flex: 1;
+}
+
+.conclude-glucose-name {
+  flex: 0.8;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+}
+
+.conclude-reading-block {
+  border: 1px solid var(--bg-soft);
+  border-radius: 10px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+/* ---- dish boxes (per-dish name + blood-sugar rank) ---- */
+.dish-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.dish-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.dish-box-name {
+  color: var(--text);
+}
+
+.dish-box-rank {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--bg-soft);
+  color: var(--text-muted);
+}
+
+.dish-box.rank-low .dish-box-rank {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.dish-box.rank-mid .dish-box-rank {
+  background: #fff8e1;
+  color: #f9a825;
+}
+
+.dish-box.rank-high .dish-box-rank {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.conclude-dishes {
+  margin-top: 6px;
+}
+
+.conclude-dish-row {
+  align-items: center;
+}
+
+.conclude-dish-remove {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.conclude-dish-remove:hover {
+  color: #d93025;
+  background: rgba(217, 48, 37, 0.08);
+}
+
+.conclude-add-dish {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.conclude-add-dish:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.timeline-meal .dish-grid {
+  margin-top: 4px;
+}
+
+.conclude-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.conclude-modal .auth-toggle {
+  margin-top: 0;
+}
+
+.conclude-modal .save-button {
+  padding: 8px 18px;
+}
+
 /* ---- model routing tree (usage page) ---- */
 .routing-tree {
   list-style: none;
@@ -3008,6 +3233,16 @@ body {
 /* active health-mode toggle: soft breathing glow */
 .composer-toggle.active {
   animation: healthGlow 2.6s ease-in-out infinite;
+}
+
+/* conclude ready: same gradient border as the active health toggle, static
+   (no breathing animation — it would flash forever once restored) */
+.conclude-button.ready {
+  color: #3b82f6;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--bg), var(--bg)) padding-box,
+    linear-gradient(135deg, #a5e8ff, #5ec8f8, #4d7cff, #8b5cf6) border-box;
 }
 
 @keyframes healthGlow {

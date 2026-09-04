@@ -6,20 +6,32 @@ import { addGuestRecord } from "@/lib/guestStore";
 import { groupMeals, isMealRelatedItem } from "@/lib/groupMeals";
 import { STR, useUiLang } from "@/lib/i18n";
 
+function rankClass(rank: string): string {
+  const clean = rank.trim().toLowerCase();
+  if (clean === "低" || clean === "low") return "low";
+  if (clean === "中" || clean === "medium") return "mid";
+  if (clean === "高" || clean === "high") return "high";
+  return "none";
+}
+
 export default function SummaryCard({
   result,
   sourceText,
   guest = false,
+  saved = false,
 }: {
   result: ConcludeResult;
   sourceText: string;
   guest?: boolean;
+  saved?: boolean;
 }) {
   const lang = useUiLang();
   const t = STR[lang];
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [savedLocal, setSavedLocal] = useState(false);
+
+  const isSaved = saved || savedLocal;
 
   const reportTitle = t["summary.report"];
   const saveLabels = {
@@ -29,7 +41,7 @@ export default function SummaryCard({
   };
 
   const save = async () => {
-    if (saving || saved) return;
+    if (saving || isSaved) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -41,7 +53,7 @@ export default function SummaryCard({
           meals: result.meals,
           sourceText,
         });
-        setSaved(true);
+        setSavedLocal(true);
       } else {
         const response = await fetch("/api/records", {
           method: "POST",
@@ -58,7 +70,7 @@ export default function SummaryCard({
         if (!response.ok) {
           throw new Error(t["summary.saveFailed"]);
         }
-        setSaved(true);
+        setSavedLocal(true);
       }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : t["summary.saveFailed"]);
@@ -88,9 +100,9 @@ export default function SummaryCard({
               type="button"
               className="save-button"
               onClick={save}
-              disabled={saving || saved}
-            >
-              {saved ? saveLabels.done : saving ? saveLabels.busy : saveLabels.idle}
+disabled={saving || isSaved}
+              >
+              {isSaved ? saveLabels.done : saving ? saveLabels.busy : saveLabels.idle}
             </button>
             {saveError && <span className="conclusion-error">{saveError}</span>}
           </div>
@@ -98,8 +110,19 @@ export default function SummaryCard({
         {meals.map((meal, index) => (
           <div key={index} className="conclusion-meal">
             <div className="meal-name">{meal.name}</div>
-            {meal.foods && <div className="meal-foods">{meal.foods}</div>}
             {meal.time && <div className="meal-time">{meal.time}</div>}
+            {(meal.dishes ?? []).length > 0 ? (
+              <div className="dish-grid">
+                {meal.dishes!.map((dish, dishIndex) => (
+                  <span key={dishIndex} className={`dish-box${dish.rank ? ` rank-${rankClass(dish.rank)}` : ""}`}>
+                    <span className="dish-box-name">{dish.name}</span>
+                    {dish.rank && <span className="dish-box-rank">{dish.rank}</span>}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              meal.foods && <div className="meal-foods">{meal.foods}</div>
+            )}
           </div>
         ))}
         {extras.length > 0 && (

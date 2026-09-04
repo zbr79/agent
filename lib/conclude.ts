@@ -24,8 +24,10 @@ Produce a JSON conclusion with:
   - "unit": the unit if stated or clearly implied (e.g. "mg/dL", "kg", "g"). Only when applicable.
 - "meals": an array with one entry PER MEAL described in the reply. Each entry has:
   - "name": the meal name (早餐/午餐/晚餐/加餐, or breakfast/lunch/dinner/snack).
-  - "foods": the meal's foods as a comma-separated string. Foods may appear as plain lines or as rows of a markdown table — extract the food names only, drop the 🟢🟡🔴 dots, "低/中/高" labels, and the ⚠️ lines.
   - "time": the meal's time when stated (e.g. "2026年8月26日 下午 6:17").
+  - "dishes": an array with one entry PER DISH in that meal. Each dish has:
+    - "name": the dish name (e.g. "酱牛肉", "rice").
+    - "rank": the dish's blood-sugar effect level exactly as stated: 低/中/高 (or low/medium/high). Omit "rank" when the reply gives no level for that dish.
   Empty array when the reply describes no meals.
 
 Rules:
@@ -89,11 +91,32 @@ function sanitize(raw: unknown, language: "chinese" | "english"): ConcludeResult
   const meals = rawMeals
     .filter((meal) => meal && typeof meal === "object")
     .map((meal) => {
-      const { name, foods, time } = meal as Record<string, unknown>;
-      const clean: { name: string; foods?: string; time?: string } = {
+      const { name, foods, dishes, time } = meal as Record<string, unknown>;
+      const clean: {
+        name: string;
+        foods?: string;
+        dishes?: { name: string; rank?: string }[];
+        time?: string;
+      } = {
         name: typeof name === "string" && name ? name : "meal",
       };
       if (typeof foods === "string" && foods) clean.foods = foods;
+      if (Array.isArray(dishes)) {
+        clean.dishes = dishes
+          .filter((dish) => dish && typeof dish === "object")
+          .map((dish) => {
+            const raw = dish as Record<string, unknown>;
+            const cleanDish: { name: string; rank?: string } = {
+              name:
+                typeof raw.name === "string" && raw.name ? raw.name : "dish",
+            };
+            if (typeof raw.rank === "string" && raw.rank) {
+              cleanDish.rank = raw.rank;
+            }
+            return cleanDish;
+          })
+          .slice(0, 30);
+      }
       if (typeof time === "string" && time) clean.time = time;
       return clean;
     })

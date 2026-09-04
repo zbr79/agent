@@ -3,6 +3,7 @@ import {
   getSessionWithMessages,
   setSessionConclusion,
   setSessionPinned,
+  setSessionRecordId,
   setSessionTitle,
 } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
@@ -44,7 +45,7 @@ function parseConclusion(body: unknown): SessionConclusion | null {
     return clean;
   });
   const rawMeals = (raw as { meals?: unknown }).meals;
-  let meals: { name: string; foods?: string; time?: string }[] | undefined;
+  let meals: { name: string; foods?: string; dishes?: { name: string; rank?: string }[]; time?: string }[] | undefined;
   if (rawMeals !== undefined && rawMeals !== null) {
     if (!Array.isArray(rawMeals)) {
       throw new Error('"conclusion.meals" must be an array.');
@@ -53,12 +54,26 @@ function parseConclusion(body: unknown): SessionConclusion | null {
       if (!meal || typeof meal !== "object") {
         throw new Error(`"conclusion.meals[${index}]" is invalid.`);
       }
-      const { name, foods, time } = meal as Record<string, unknown>;
+      const { name, foods, dishes, time } = meal as Record<string, unknown>;
       if (typeof name !== "string" || !name) {
         throw new Error(`"conclusion.meals[${index}].name" must be a string.`);
       }
-      const clean: { name: string; foods?: string; time?: string } = { name };
+      const clean: { name: string; foods?: string; dishes?: { name: string; rank?: string }[]; time?: string } = { name };
       if (typeof foods === "string" && foods) clean.foods = foods;
+      if (Array.isArray(dishes)) {
+        clean.dishes = dishes
+          .filter((dish) => dish && typeof dish === "object")
+          .map((dish) => {
+            const rawDish = dish as Record<string, unknown>;
+            const cleanDish: { name: string; rank?: string } = {
+              name: typeof rawDish.name === "string" ? rawDish.name : "",
+            };
+            if (typeof rawDish.rank === "string" && rawDish.rank) {
+              cleanDish.rank = rawDish.rank;
+            }
+            return cleanDish;
+          });
+      }
       if (typeof time === "string" && time) clean.time = time;
       return clean;
     });
@@ -119,6 +134,19 @@ export async function PUT(
       : undefined;
     if (typeof rawPinned === "boolean") {
       const ok = await setSessionPinned(auth._id, id, rawPinned);
+      if (!ok) {
+        return Response.json({ error: "Session not found." }, { status: 404 });
+      }
+      return Response.json({ ok: true });
+    }
+    const rawRecordId = body && typeof body === "object"
+      ? (body as { recordId?: unknown }).recordId
+      : undefined;
+    if (rawRecordId !== undefined) {
+      if (rawRecordId !== null && (typeof rawRecordId !== "string" || rawRecordId.length > 100)) {
+        return Response.json({ error: '"recordId" is invalid.' }, { status: 400 });
+      }
+      const ok = await setSessionRecordId(auth._id, id, rawRecordId);
       if (!ok) {
         return Response.json({ error: "Session not found." }, { status: 404 });
       }

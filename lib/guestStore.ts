@@ -18,6 +18,7 @@ export interface GuestSession {
   messages: GuestMessage[];
   pinned?: boolean;
   conclusion?: SessionConclusion | null;
+  recordId?: string | null;
 }
 
 export interface GuestRecord {
@@ -102,12 +103,14 @@ export function appendGuestMessage(sessionId: string, message: GuestMessage): vo
 
 export function setGuestConclusion(
   sessionId: string,
-  conclusion: SessionConclusion | null
+  conclusion: SessionConclusion | null,
+  recordId?: string | null
 ): void {
   const sessions = readJson<GuestSession[]>(SESSIONS_KEY, []);
   const target = sessions.find((session) => session.id === sessionId);
   if (!target) return;
   target.conclusion = conclusion ?? null;
+  if (recordId !== undefined) target.recordId = recordId ?? null;
   target.updatedAt = Date.now();
   writeSessions(sessions);
 }
@@ -184,5 +187,23 @@ export function deleteGuestRecord(id: string): void {
   writeJson(
     RECORDS_KEY,
     readJson<GuestRecord[]>(RECORDS_KEY, []).filter((record) => record.id !== id)
+  );
+}
+
+export function updateGuestRecord(
+  id: string,
+  patch: {
+    title: string;
+    summary: string;
+    items: ConcludeItem[];
+    meals?: ConcludeMeal[];
+    sourceText?: string;
+  }
+): void {
+  writeJson(
+    RECORDS_KEY,
+    readJson<GuestRecord[]>(RECORDS_KEY, []).map((record) =>
+      record.id === id ? { ...record, ...patch } : record
+    )
   );
 }

@@ -1,4 +1,4 @@
-import { deleteRecord, insertRecord, listRecords } from "@/lib/db";
+import { deleteRecord, insertRecord, listRecords, updateRecord } from "@/lib/db";
 import { translateRecord } from "@/lib/translate";
 import { requireUser } from "@/lib/auth";
 import type { ConcludeItem, ConcludeMeal } from "@/lib/types";
@@ -50,7 +50,7 @@ function parseMeals(raw: unknown): ConcludeMeal[] | undefined {
     if (!meal || typeof meal !== "object") {
       throw new Error(`meals[${index}] is invalid.`);
     }
-    const { name, foods, time } = meal as Record<string, unknown>;
+    const { name, foods, dishes, time } = meal as Record<string, unknown>;
     if (typeof name !== "string" || !name.trim() || name.length > MAX_NAME) {
       throw new Error(`meals[${index}].name must be a short non-empty string.`);
     }
@@ -60,6 +60,32 @@ function parseMeals(raw: unknown): ConcludeMeal[] | undefined {
         throw new Error(`meals[${index}].foods is invalid.`);
       }
       if (foods) clean.foods = foods;
+    }
+    if (dishes !== undefined) {
+      if (!Array.isArray(dishes) || dishes.length > 30) {
+        throw new Error(`meals[${index}].dishes is invalid.`);
+      }
+      clean.dishes = dishes.map((dish, dishIndex): { name: string; rank?: string } => {
+        if (!dish || typeof dish !== "object") {
+          throw new Error(`meals[${index}].dishes[${dishIndex}] is invalid.`);
+        }
+        const { name: dishName, rank } = dish as Record<string, unknown>;
+        if (
+          typeof dishName !== "string" ||
+          !dishName.trim() ||
+          dishName.length > MAX_NAME
+        ) {
+          throw new Error(`meals[${index}].dishes[${dishIndex}].name is invalid.`);
+        }
+        const cleanDish: { name: string; rank?: string } = { name: dishName };
+        if (rank !== undefined) {
+          if (typeof rank !== "string" || rank.length > MAX_VALUE) {
+            throw new Error(`meals[${index}].dishes[${dishIndex}].rank is invalid.`);
+          }
+          if (rank) cleanDish.rank = rank;
+        }
+        return cleanDish;
+      });
     }
     if (time !== undefined) {
       if (typeof time !== "string" || time.length > MAX_VALUE) {
@@ -135,6 +161,70 @@ export async function POST(req: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Could not save the record.";
+    return Response.json({ error: message }, { status: 500 });
+  }
+}
+
+// Update an existing record in place — one conclusion per chat grows by
+// editing its single record instead of creating duplicates.
+export async function PUT(req: Request) {
+  const auth = await requireUser(req);
+  if (auth instanceof Response) return auth;
+  const id = new URL(req.url).searchParams.get("id");
+  if (!id) {
+    return Response.json({ error: '"id" query parameter is required.' }, { status: 400 });
+  }
+
+  let title: string;
+  let summary: string;
+  let items: ConcludeItem[];
+  let meals: ConcludeMeal[] | undefined;
+  let sourceText: string | undefined;
+  try {
+    const body: unknown = await req.json();
+    if (!body || typeof body !== "object") {
+      throw new Error("Request body must be a JSON object.");
+    }
+    const {
+      title: rawTitle,
+      summary: rawSummary,
+      items: rawItems,
+      meals: rawMeals,
+      sourceText: rawSource,
+    } = body as Record<string, unknown>;
+    if (typeof rawTitle !== "string" || !rawTitle.trim() || rawTitle.length > MAX_TITLE) {
+      throw new Error('"title" must be a short non-empty string.');
+    }
+    title = rawTitle;
+    if (typeof rawSummary !== "string" || rawSummary.length > MAX_SUMMARY) {
+      throw new Error('"summary" is invalid.');
+    }
+    summary = rawSummary;
+    items = parseItems(rawItems);
+    meals = parseMeals(rawMeals);
+    if (rawSource !== undefined) {
+      if (typeof rawSource !== "string" || rawSource.length > MAX_SOURCE) {
+        throw new Error('"sourceText" is invalid.');
+      }
+      sourceText = rawSource;
+    }
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Invalid request body." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const translated = translateRecord({ title, summary, items, meals, sourceText });
+    const record = await updateRecord(auth._id, id, translated);
+    if (!record) {
+      return Response.json({ error: "Record not found." }, { status: 404 });
+    }
+    return Response.json({ record });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Could not update the record.";
     return Response.json({ error: message }, { status: 500 });
   }
 }

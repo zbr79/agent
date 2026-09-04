@@ -1,8 +1,9 @@
-import type { ConcludeItem } from "./types";
+import type { ConcludeDish, ConcludeItem } from "./types";
 
 export interface MealGroup {
   name: string;
   foods?: string;
+  dishes?: ConcludeDish[];
   time?: string;
 }
 

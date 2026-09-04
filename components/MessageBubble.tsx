@@ -41,6 +41,7 @@ export default function MessageBubble({
   messages,
   guest = false,
   summary = null,
+  summarySaved = false,
   onRevert,
   onEdit,
   onRegenerate,
@@ -56,6 +57,7 @@ export default function MessageBubble({
   messages: Message[];
   guest?: boolean;
   summary?: { result: ConcludeResult; sourceText: string } | null;
+  summarySaved?: boolean;
   onRevert?: (id: number) => void;
   onEdit?: (id: number) => void;
   onRegenerate?: (id: number) => void;
@@ -251,6 +253,7 @@ export default function MessageBubble({
           result={summary.result}
           sourceText={summary.sourceText}
           guest={guest}
+          saved={summarySaved}
         />
       )}
       <div ref={endRef} />

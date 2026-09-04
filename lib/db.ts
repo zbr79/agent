@@ -73,7 +73,14 @@ export async function insertRecord(
   }
 ): Promise<SavedRecord> {
   const db = await getDb();
-  const doc: RecordDoc = { ...input, userId: new ObjectId(userId), savedAt: new Date() };
+  // The record always carries its own time (when it was concluded/saved),
+  // never a timestamp derived from the photo/chat content.
+  const doc: RecordDoc = {
+    ...input,
+    datetime: new Date(),
+    userId: new ObjectId(userId),
+    savedAt: new Date(),
+  };
   const result = await db.collection<RecordDoc>("records").insertOne(doc);
   return toSavedRecord({ ...doc, _id: result.insertedId });
 }
@@ -96,6 +103,37 @@ export async function deleteRecord(userId: string, id: string): Promise<boolean>
     .collection<RecordDoc>("records")
     .deleteOne({ _id: new ObjectId(id), userId: new ObjectId(userId) });
   return result.deletedCount > 0;
+}
+
+export async function updateRecord(
+  userId: string,
+  id: string,
+  input: {
+    title: string;
+    summary: string;
+    items: ConcludeItem[];
+    meals?: ConcludeMeal[];
+    sourceText?: string;
+  }
+): Promise<SavedRecord | null> {
+  if (!ObjectId.isValid(id)) return null;
+  const db = await getDb();
+  const result = await db
+    .collection<RecordDoc>("records")
+    .findOneAndUpdate(
+      { _id: new ObjectId(id), userId: new ObjectId(userId) },
+      {
+        $set: {
+          title: input.title,
+          summary: input.summary,
+          items: input.items,
+          meals: input.meals,
+          sourceText: input.sourceText,
+        },
+      },
+      { returnDocument: "after" }
+    );
+  return result ? toSavedRecord(result) : null;
 }
 
 interface CallDoc {
@@ -272,6 +310,7 @@ interface SessionDoc {
   updatedAt: Date;
   pinned?: boolean;
   conclusion?: SessionConclusion | null;
+  recordId?: string | null;
 }
 
 interface MessageDoc {
@@ -334,6 +373,7 @@ export async function getSessionWithMessages(
   session: ChatSession;
   messages: StoredMessage[];
   conclusion: SessionConclusion | null;
+  recordId: string | null;
 } | null> {
   if (!ObjectId.isValid(id)) return null;
   const db = await getDb();
@@ -350,13 +390,36 @@ export async function getSessionWithMessages(
     session: toChatSession(session),
     messages: docs.map(toStoredMessage),
     conclusion: session.conclusion ?? null,
+    recordId: session.recordId ?? null,
   };
 }
 
 export async function setSessionConclusion(
   userId: string,
   id: string,
-  conclusion: SessionConclusion | null
+  conclusion: SessionConclusion | null,
+  recordId?: string | null
+): Promise<boolean> {
+  if (!ObjectId.isValid(id)) return false;
+  const db = await getDb();
+  const set: Record<string, unknown> = {
+    conclusion: conclusion ?? null,
+    updatedAt: new Date(),
+  };
+  if (recordId !== undefined) set.recordId = recordId ?? null;
+  const result = await db
+    .collection<SessionDoc>("sessions")
+    .updateOne(
+      { _id: new ObjectId(id), userId: new ObjectId(userId) },
+      { $set: set }
+    );
+  return result.matchedCount > 0;
+}
+
+export async function setSessionRecordId(
+  userId: string,
+  id: string,
+  recordId: string | null
 ): Promise<boolean> {
   if (!ObjectId.isValid(id)) return false;
   const db = await getDb();
@@ -364,7 +427,7 @@ export async function setSessionConclusion(
     .collection<SessionDoc>("sessions")
     .updateOne(
       { _id: new ObjectId(id), userId: new ObjectId(userId) },
-      { $set: { conclusion: conclusion ?? null, updatedAt: new Date() } }
+      { $set: { recordId: recordId ?? null, updatedAt: new Date() } }
     );
   return result.matchedCount > 0;
 }

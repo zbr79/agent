@@ -3,9 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SavedRecord } from "@/lib/types";
 import { deleteGuestRecord, listGuestRecords } from "@/lib/guestStore";
-import { parseMealDateTime } from "@/lib/mealTime";
 import { isMealRelatedItem } from "@/lib/groupMeals";
 import { STR, useUiLang } from "@/lib/i18n";
+
+function rankClass(rank: string): string {
+  const clean = rank.trim().toLowerCase();
+  if (clean === "低" || clean === "low") return "low";
+  if (clean === "中" || clean === "medium") return "mid";
+  if (clean === "高" || clean === "high") return "high";
+  return "none";
+}
 
 function toSavedRecord(record: {
   id: string;
@@ -32,7 +39,6 @@ interface TimelineEntry {
   record: SavedRecord;
   ts: number;
   dateKey: string;
-  timeLabel: string | null;
 }
 
 function dayKeyOf(iso: string): string {
@@ -43,26 +49,14 @@ function dayKeyOf(iso: string): string {
 }
 
 function entryFor(record: SavedRecord): TimelineEntry {
-  const firstMealTime =
-    record.meals
-      ?.map((meal) => meal.time)
-      .find((time): time is string => !!time) ??
-    record.items.find((item) => item.name === "时间")?.value;
-  const parsed = firstMealTime ? parseMealDateTime(firstMealTime) : null;
-  if (parsed) {
-    return {
-      record,
-      ts: parsed.tsLocal,
-      dateKey: parsed.dateKey,
-      timeLabel: parsed.timeLabel,
-    };
-  }
-  const fallback = record.datetime ?? record.savedAt;
+  // Always position the record by its own time (datetime = when it was
+  // concluded/saved). Meal/photo times stay visible inside the entry
+  // content but never drive the timeline grouping.
+  const own = record.datetime ?? record.savedAt;
   return {
     record,
-    ts: new Date(fallback).getTime(),
-    dateKey: dayKeyOf(fallback),
-    timeLabel: null,
+    ts: new Date(own).getTime(),
+    dateKey: dayKeyOf(own),
   };
 }
 
@@ -189,7 +183,7 @@ export default function RecordsPanel() {
         {groups.map((group) => (
           <div key={group.key} className="timeline-day-group">
             <div className="timeline-day">{group.label}</div>
-            {group.entries.map(({ record, timeLabel }) => {
+            {group.entries.map(({ record }) => {
               const readings = record.items.filter(
                 (item) => !isMealRelatedItem(item.name)
               );
@@ -197,7 +191,6 @@ export default function RecordsPanel() {
               <div key={record._id} className="timeline-entry">
                 <span className="timeline-dot" aria-hidden="true" />
                 <div className="timeline-content">
-                  {timeLabel && <span className="timeline-time">{timeLabel}</span>}
                   {readings.length > 0 && (
                     <div className="timeline-readings">
                       {readings.map((item, index) => (
@@ -213,8 +206,25 @@ export default function RecordsPanel() {
                     record.meals.map((meal, index) => (
                       <div key={index} className="timeline-meal">
                         <span className="meal-name">{meal.name}</span>
-                        {meal.foods && (
-                          <span className="meal-foods">{meal.foods}</span>
+                        {meal.time && (
+                          <span className="meal-time">{meal.time}</span>
+                        )}
+                        {(meal.dishes ?? []).length > 0 ? (
+                          <span className="dish-grid">
+                            {meal.dishes!.map((dish, dishIndex) => (
+                              <span
+                                key={dishIndex}
+                                className={`dish-box${dish.rank ? ` rank-${rankClass(dish.rank)}` : ""}`}
+                              >
+                                <span className="dish-box-name">{dish.name}</span>
+                                {dish.rank && (
+                                  <span className="dish-box-rank">{dish.rank}</span>
+                                )}
+                              </span>
+                            ))}
+                          </span>
+                        ) : (
+                          meal.foods && <span className="meal-foods">{meal.foods}</span>
                         )}
                       </div>
                     ))

@@ -268,6 +268,16 @@ export async function* agentChat(
       yield text;
     }
 
+    // The event stream often delivers the first token before message.updated
+    // (which carries the model id), leaving modelName null — the UI chip and
+    // persisted message would then show the fallback label. Emit a corrected
+    // marker once the real model is known so the client keeps the last one.
+    if (!modelName && promptResult.status === "ok" && promptResult.info?.modelID) {
+      modelName = promptResult.info.modelID;
+      yield encodeModelMarker(modelName);
+      console.log(`[agent:${requestId}] model corrected → ${modelName}`);
+    }
+
     // Fallback: if the event stream never delivered the answer, pull the
     // finished message parts directly from the session.
     if (!produced && promptResult.status === "ok") {
