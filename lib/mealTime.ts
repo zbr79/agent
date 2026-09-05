@@ -106,3 +106,140 @@ export function formatDateTimeDisplay(
   const h12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${year}-${pad(month)}-${pad(day)} ${h12}:${pad(minute)} ${meridian}`;
 }
+
+const MEAL_TIME_NAMES: Record<string, [string, string, string, string, string]> = {
+  zh: ["早餐", "午餐", "下午茶", "晚餐", "夜宵"],
+  en: ["Breakfast", "Lunch", "Afternoon snack", "Dinner", "Late-night snack"],
+};
+
+// Refines a generic snack name (加餐/Snack) into the time-based meal name.
+// Returns the original name when it is not a generic snack, or when the time
+// cannot be parsed.
+export function refineMealName(
+  name: string,
+  time: string | undefined,
+  lang: "zh" | "en"
+): string {
+  const clean = name.trim();
+  const generic =
+    lang === "zh" ? clean === "加餐" : /^(snack|snacks)$/i.test(clean);
+  if (!generic) return clean;
+  const parsed = parseFlexibleDateTime(time ?? "");
+  if (!parsed) return clean;
+  const hour = Number(parsed.time.split(":")[0]);
+  const [b, l, t, d, n] = MEAL_TIME_NAMES[lang];
+  if (hour >= 5 && hour < 11) return b;
+  if (hour >= 11 && hour < 15) return l;
+  if (hour >= 15 && hour < 17) return t;
+  if (hour >= 17 && hour < 21) return d;
+  return n;
+}
+
+export const READING_PHASES: Record<
+  string,
+  [
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string
+  ]
+> = {
+  // fasting | before breakfast | after breakfast | before lunch | after lunch
+  // | afternoon | before dinner | after dinner | bedtime | late night
+  zh: ["空腹", "早餐前", "早餐后", "午餐前", "午餐后", "下午", "晚餐前", "晚餐后", "睡前", "凌晨"],
+  en: [
+    "Fasting",
+    "Before breakfast",
+    "After breakfast",
+    "Before lunch",
+    "After lunch",
+    "Afternoon",
+    "Before dinner",
+    "After dinner",
+    "Bedtime",
+    "Late night",
+  ],
+};
+
+// Readings are conventionally logged against a day slot, not a bare
+// number: 空腹 / 早餐后 / 午餐前 ... / 睡前 (fasting, pre/post meal, bedtime).
+// Derives that phase label from the entry time. Returns "" when the time
+// cannot be parsed. Applies to glucose and insulin readings alike.
+export function readingPhase(
+  time: string | undefined,
+  lang: "zh" | "en"
+): string {
+  const parsed = parseFlexibleDateTime(time ?? "");
+  if (!parsed) return "";
+  const hour = Number(parsed.time.split(":")[0]);
+  const [f, , ab, bl, al, af, bd, ad, bt, ln] = READING_PHASES[lang];
+  if (hour >= 5 && hour < 9) return f; // 05:00–08:59 fasting
+  if (hour >= 9 && hour < 11) return ab; // 09:00–10:59 after breakfast
+  if (hour >= 11 && hour < 12) return bl; // 11:00–11:59 before lunch
+  if (hour >= 12 && hour < 14) return al; // 12:00–13:59 after lunch
+  if (hour >= 14 && hour < 17) return af; // 14:00–16:59 afternoon
+  if (hour >= 17 && hour < 18) return bd; // 17:00–17:59 before dinner
+  if (hour >= 18 && hour < 21) return ad; // 18:00–20:59 after dinner
+  if (hour >= 21 && hour < 24) return bt; // 21:00–23:59 bedtime
+  return ln; // 00:00–04:59 late night
+}
+
+// Refines a bare insulin entry name (胰岛素/Insulin) into "胰岛素 空腹" /
+// "Insulin Fasting" style by time. Returns the original name when it is not
+// a bare insulin entry, or when the time cannot be parsed.
+export function refineInsulinName(
+  name: string,
+  time: string | undefined,
+  lang: "zh" | "en"
+): string {
+  const clean = name.trim();
+  const bare =
+    lang === "zh" ? clean === "胰岛素" : /^insulin$/i.test(clean);
+  if (!bare) return clean;
+  const phase = readingPhase(time, lang);
+  if (!phase) return clean;
+  return lang === "zh" ? `胰岛素 ${phase}` : `Insulin ${phase}`;
+}
+
+export interface PairedItem {
+  item: { name: string; value?: string; unit?: string };
+  time: string | undefined;
+  // Stored phase selection (时段/phase item), when the user overrode the
+  // time-derived label. Undefined = derive from time at display.
+  phase: string | undefined;
+}
+
+// Conclusion items store each reading followed by its own 时间/time item
+// (血糖 → 时间, 胰岛素 → 时间), and optionally a 时段/phase item after the time
+// when the phase was chosen manually. Re-attaches every reading to its time
+// and phase so displays can show the date and label together. Time/phase
+// items that precede a reading (orphans) are dropped.
+export function pairTimeItems(
+  items: { name: string; value?: string; unit?: string }[]
+): PairedItem[] {
+  const paired: PairedItem[] = [];
+  let pending: PairedItem | null = null;
+  for (const item of items) {
+    const name = item.name.trim();
+    if (/^(时间|time|timestamp|date|when)$/i.test(name)) {
+      if (pending) {
+        pending.time = item.value ?? "";
+        paired.push(pending);
+        pending = null;
+      }
+    } else if (/^(时段|phase)$/i.test(name) && pending) {
+      pending.phase = item.value ?? "";
+    } else {
+      if (pending) paired.push(pending);
+      pending = { item, time: undefined, phase: undefined };
+    }
+  }
+  if (pending) paired.push(pending);
+  return paired;
+}

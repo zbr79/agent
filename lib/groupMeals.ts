@@ -10,11 +10,16 @@ export interface MealGroup {
 const MEAL_NAMES = new Set([
   "早餐",
   "午餐",
+  "下午茶",
   "晚餐",
+  "夜宵",
   "加餐",
   "breakfast",
   "lunch",
+  "afternoon snack",
   "dinner",
+  "late-night snack",
+  "midnight snack",
   "snack",
 ]);
 const TIME_NAMES = new Set(["时间", "time"]);

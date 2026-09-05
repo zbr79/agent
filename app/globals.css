@@ -426,122 +426,422 @@ body {
   line-height: 1.6;
 }
 
-/* ---- conclude confirm/edit modal ---- */
+/* ---- conclude confirm/edit modal (modern card design) ---- */
 .conclude-modal {
   position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 71;
-  width: min(560px, calc(100vw - 32px));
+  width: min(600px, calc(100vw - 32px));
   max-height: calc(100dvh - 80px);
   overflow-y: auto;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
 }
 
 .conclude-modal-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.conclude-field {
+.conclude-modal-head-text {
+  min-width: 0;
+}
+
+.conclude-modal-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0;
+}
+
+.conclude-modal-sub {
+  font-size: 13px;
+  color: #55555a;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+.conclude-modal-close {
+  width: 30px;
+  height: 30px;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  background: var(--bg-soft);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
-.conclude-field-label,
-.conclude-section-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  letter-spacing: 0.02em;
+.conclude-modal-close:hover {
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .conclude-section {
-  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+/* catalog card header: the catalog name lives on its own row */
+.conclude-catalog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+/* second row of a reading card: phase dropdown + date/time */
+.conclude-catalog-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.conclude-catalog-meta .conclude-time-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.conclude-unit-stepper {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.conclude-unit-stepper button {
+  width: 26px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.conclude-unit-stepper button:hover:not(:disabled) {
+  color: var(--pill);
+  background: var(--bg-soft);
+}
+
+.conclude-unit-stepper button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.conclude-unit-value {
+  min-width: 40px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 0 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.conclude-phase-select {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 8px;
+  outline: none;
+  cursor: pointer;
+}
+
+.conclude-phase-select:focus {
+  border-color: var(--pill);
+}
+
+.conclude-catalog-head .conclude-time-row {
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 .conclude-section-label {
   display: block;
-  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
 }
 
-.conclude-row {
+/* reading rows (flat, no cards) */
+.conclude-reading-block {
+  margin-bottom: 14px;
+}
+
+.conclude-reading-main {
   display: flex;
-  gap: 6px;
-  margin-bottom: 6px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
-.conclude-input {
+.conclude-reading-main .conclude-time-row {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.conclude-glucose-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.conclude-reading-value {
   flex: 1;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
-  padding: 7px 10px;
   font-family: var(--font);
   font-size: 14px;
+  font-weight: 500;
   color: var(--text);
   outline: none;
+  padding: 7px 10px;
 }
 
-.conclude-input:focus {
+.conclude-reading-value:focus {
   border-color: var(--pill);
 }
 
-.conclude-input-name {
-  flex: 1.4;
+.conclude-reading-value::placeholder {
+  color: var(--border);
 }
 
-.conclude-input-value {
+.conclude-reading-unit {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 8px;
+  outline: none;
+  cursor: pointer;
+}
+
+.conclude-card-remove {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.conclude-card-remove:hover {
+  color: #d93025;
+  background: rgba(217, 48, 37, 0.08);
+}
+
+/* date/time chips */
+.conclude-time-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: 1;
+  min-width: 0;
 }
 
-.conclude-input-unit {
-  flex: 0.7;
+.conclude-time-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
-.conclude-meal-block {
-  border: 1px solid var(--bg-soft);
-  border-radius: 10px;
-  padding: 8px;
+.conclude-time-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 7px 10px;
+  outline: none;
+}
+
+.conclude-time-input:focus {
+  border-color: var(--pill);
+}
+
+.conclude-now-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+
+.conclude-now-btn:hover {
+  color: var(--pill);
+  border-color: var(--pill);
+}
+
+/* meal sections: the meal name IS the card title */
+.conclude-meal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 8px;
+}
+
+.conclude-meal-head .conclude-time-row {
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 .conclude-meal-name {
-  margin-bottom: 6px;
-}
-
-.conclude-input-date,
-.conclude-input-time {
   flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  outline: none;
+  padding: 0;
 }
 
-.conclude-glucose-name {
-  flex: 0.8;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
+.conclude-meal-name::placeholder {
+  color: var(--border);
+  font-weight: 500;
+}
+
+.conclude-dishes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.conclude-dish-row {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
-.conclude-reading-block {
-  border: 1px solid var(--bg-soft);
-  border-radius: 10px;
-  padding: 8px;
-  margin-bottom: 8px;
+.conclude-dish-name {
+  flex: 0 1 200px;
+  min-width: 0;
+  max-width: 60%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  padding: 7px 10px;
+  outline: none;
 }
 
-/* ---- dish boxes (per-dish name + blood-sugar rank) ---- */
+.conclude-dish-name:focus {
+  border-color: var(--pill);
+}
+
+.conclude-rank-badge {
+  flex-shrink: 0;
+  min-width: 46px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.conclude-rank-badge.rank-low {
+  background: #e8f5e9;
+  border-color: #a5d6a7;
+  color: #2e7d32;
+}
+
+.conclude-rank-badge.rank-mid {
+  background: #fff8e1;
+  border-color: #ffe082;
+  color: #f9a825;
+}
+
+.conclude-rank-badge.rank-high {
+  background: #ffebee;
+  border-color: #ef9a9a;
+  color: #c62828;
+}
+
+.conclude-rank-badge.rank-none {
+  color: var(--text-muted);
+}
+
+.conclude-dish-remove {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.conclude-dish-remove:hover {
+  opacity: 1;
+  color: #d93025;
+  background: rgba(217, 48, 37, 0.1);
+}
+
+/* ---- dish boxes (records timeline + summary) ---- */
 .dish-grid {
   display: flex;
   flex-wrap: wrap;
@@ -588,49 +888,6 @@ body {
   color: #c62828;
 }
 
-.conclude-dishes {
-  margin-top: 6px;
-}
-
-.conclude-dish-row {
-  align-items: center;
-}
-
-.conclude-dish-remove {
-  flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.conclude-dish-remove:hover {
-  color: #d93025;
-  background: rgba(217, 48, 37, 0.08);
-}
-
-.conclude-add-dish {
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font);
-  font-size: 13px;
-  padding: 6px 10px;
-  cursor: pointer;
-}
-
-.conclude-add-dish:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-
 .timeline-meal .dish-grid {
   margin-top: 4px;
 }
@@ -640,15 +897,49 @@ body {
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--bg-soft);
 }
 
-.conclude-modal .auth-toggle {
-  margin-top: 0;
+.conclude-cancel {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 16px;
+  border-radius: 12px;
+  cursor: pointer;
 }
 
-.conclude-modal .save-button {
-  padding: 8px 18px;
+.conclude-cancel:hover {
+  color: var(--text);
+  background: var(--bg-soft);
+}
+
+.conclude-save {
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #5ec8f8, #4d7cff, #8b5cf6);
+  color: #fff;
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(77, 124, 255, 0.35);
+  transition: opacity 0.15s ease;
+}
+
+.conclude-save:hover {
+  opacity: 0.92;
+}
+
+.conclude-save:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* ---- model routing tree (usage page) ---- */
@@ -1472,10 +1763,22 @@ body {
 }
 
 .timeline-reading {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   background: var(--bg-soft);
   border-radius: 8px;
   padding: 4px 10px;
   font-size: 13px;
+}
+
+.timeline-reading-main {
+  font-weight: 500;
+}
+
+.timeline-reading-time {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .timeline-meal {
@@ -1578,6 +1881,13 @@ body {
 .item-unit {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.item-time {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .models-capacity {
@@ -2895,6 +3205,27 @@ body {
   .search-modal {
     height: 75vh;
     width: 92vw;
+  }
+}
+
+/* On phones, the date/time row gets its own full-width line so the inputs
+   never collapse into unusable slivers next to the meal name / value. */
+@media (max-width: 640px) {
+  .conclude-meal-head,
+  .conclude-catalog-head,
+  .conclude-catalog-meta {
+    flex-wrap: wrap;
+  }
+
+  .conclude-reading-main {
+    flex-wrap: wrap;
+  }
+
+  .conclude-meal-head .conclude-time-row,
+  .conclude-catalog-head .conclude-time-row,
+  .conclude-catalog-meta .conclude-time-row,
+  .conclude-reading-main .conclude-time-row {
+    flex: 1 1 100%;
   }
 }
 

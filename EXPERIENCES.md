@@ -1094,3 +1094,41 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 - n/a
 ### Disproved
 - n/a
+
+## 2026-09-04 — Conclude modal modern redesign
+### Solved
+- Raw form rows → modern card design: rounded 20px modal with soft shadow, title + summary subtitle; readings as cards with a big 34px value input, unit pill select (mg/dL, mmol/L, U, IU, g, kg), calendar/clock chip time pickers, trash-to-remove; meals as cards with inline name, time chips and dish rows (name input + color-coded rank badge that CYCLES 低→中→高→— on tap); dashed add-card buttons; gradient save button + ghost cancel; uppercase section labels.
+- Meal trash now actually removes the meal entry (removeMeal).
+### Verified
+- E2E: modal opens with title/summary/big value/unit/save, no overflow (screenshot saved).
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-04 — Lighthouse audit (PC) + viewport a11y fix
+### Scores (headless Chrome, Lighthouse 13.4.1)
+- Home (guest): Performance 82, **Accessibility 100** (was 94), Best Practices 96, SEO 100
+- Login: Performance 83, Accessibility 92, Best Practices 96, SEO 100
+### Fixes applied
+- Removed `maximumScale=1` + `userScalable=false` from the viewport meta (app/layout.tsx) — was flagged as an accessibility violation (blocks pinch-zoom). Kept `viewportFit: cover`. Home a11y 94 → 100.
+### Remaining (informational)
+- Guest 401s from /api/auth/me fire twice (ChatApp + Sidebar auth checks) → counted as console errors; harmless expected behavior.
+- TBT ~400-480ms and ~68KB unused JS chunk — Next.js framework overhead, not actionable without bundler surgery.
+### Unresolved
+- n/a
+### Disproved
+- n/a
+
+## 2026-09-04 — Conclusion modal manual audit (a11y + mobile)
+### Found & fixed
+- No focus management: modal opened with focus staying on the trigger → now focus moves into the modal (first content control, skipping the close button) and is trapped (Tab wraps first/last) while open (ConcludeModal focus effect).
+- Escape did nothing → now closes the modal (with stopPropagation so the sidebar drawer handler doesn't double-fire).
+- Generic aria-labels "date"/"time" → localized 日期/时间 (new concludeModal.date key).
+- Subtitle contrast: #55555a on white ≈ 7.3:1 (AA pass; the probe's 2.83 reading was its transparent-background bug, not real).
+### Verified
+- Contrast: reading value 15.5:1, save button 21:1; tab order close→value→unit→remove→date→time→add→cancel→save; mobile 320px: modal 288px, no overflow, 34px value fits; focus lands on the reading value.
+### Unresolved
+- Add-card buttons rely on visible text for their name (no aria-label) — acceptable for screen readers.
+### Disproved
+- The modal cannot be audited by Lighthouse directly (it audits page navigations, not client-side state) — Playwright probing is the correct tool.

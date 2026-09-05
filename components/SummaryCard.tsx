@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ConcludeResult } from "@/lib/types";
 import { addGuestRecord } from "@/lib/guestStore";
 import { groupMeals, isMealRelatedItem } from "@/lib/groupMeals";
+import { pairTimeItems, readingPhase } from "@/lib/mealTime";
 import { STR, useUiLang } from "@/lib/i18n";
 
 function rankClass(rank: string): string {
@@ -83,11 +84,14 @@ export default function SummaryCard({
     result.meals && result.meals.length
       ? {
           meals: result.meals,
-          extras: result.items.filter(
-            (item) => !isMealRelatedItem(item.name)
+          extras: pairTimeItems(result.items).filter(
+            ({ item }) => !isMealRelatedItem(item.name)
           ),
         }
-      : groupMeals(result.items);
+      : {
+          ...groupMeals(result.items),
+          extras: pairTimeItems(groupMeals(result.items).extras),
+        };
   const { meals, extras } = grouped;
 
   return (
@@ -127,13 +131,20 @@ disabled={saving || isSaved}
         ))}
         {extras.length > 0 && (
           <ul className="conclusion-items">
-            {extras.map((item, index) => (
-              <li key={index}>
-                <span className="item-name">{item.name}</span>
-                {item.value && <span className="item-value">{item.value}</span>}
-                {item.unit && <span className="item-unit">{item.unit}</span>}
-              </li>
-            ))}
+            {extras.map(({ item, time, phase }, index) => {
+              const derived = phase ?? readingPhase(time, lang);
+              return (
+                <li key={index}>
+                  <span className="item-name">
+                    {item.name}
+                    {derived ? ` ${derived}` : ""}
+                  </span>
+                  {item.value && <span className="item-value">{item.value}</span>}
+                  {item.unit && <span className="item-unit">{item.unit}</span>}
+                  {time && <span className="item-time">{time}</span>}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

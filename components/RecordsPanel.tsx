@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SavedRecord } from "@/lib/types";
 import { deleteGuestRecord, listGuestRecords } from "@/lib/guestStore";
+import { pairTimeItems, readingPhase } from "@/lib/mealTime";
 import { isMealRelatedItem } from "@/lib/groupMeals";
 import { STR, useUiLang } from "@/lib/i18n";
 
@@ -184,22 +185,34 @@ export default function RecordsPanel() {
           <div key={group.key} className="timeline-day-group">
             <div className="timeline-day">{group.label}</div>
             {group.entries.map(({ record }) => {
-              const readings = record.items.filter(
-                (item) => !isMealRelatedItem(item.name)
+              // Pair each reading with its own 时间 item FIRST (the time items
+              // are meal-related and would be filtered out otherwise), then
+              // drop meal-named rows.
+              const paired = pairTimeItems(record.items).filter(
+                ({ item }) => !isMealRelatedItem(item.name)
               );
               return (
               <div key={record._id} className="timeline-entry">
                 <span className="timeline-dot" aria-hidden="true" />
                 <div className="timeline-content">
-                  {readings.length > 0 && (
+                  {paired.length > 0 && (
                     <div className="timeline-readings">
-                      {readings.map((item, index) => (
-                        <span key={index} className="timeline-reading">
-                          {item.name}
-                          {item.value ? ` ${item.value}` : ""}
-                          {item.unit ? ` ${item.unit}` : ""}
-                        </span>
-                      ))}
+                      {paired.map(({ item, time, phase }, index) => {
+                        const derived = phase ?? readingPhase(time, lang);
+                        return (
+                          <span key={index} className="timeline-reading">
+                            <span className="timeline-reading-main">
+                              {item.name}
+                              {derived ? ` ${derived}` : ""}
+                              {item.value ? ` ${item.value}` : ""}
+                              {item.unit ? ` ${item.unit}` : ""}
+                            </span>
+                            {time && (
+                              <span className="timeline-reading-time">{time}</span>
+                            )}
+                          </span>
+                        );
+                      })}
                     </div>
                   )}
                   {record.meals && record.meals.length > 0 ? (
@@ -229,7 +242,7 @@ export default function RecordsPanel() {
                       </div>
                     ))
                   ) : (
-                    readings.length === 0 && (
+                    paired.length === 0 && (
                       <ul className="conclusion-items">
                         {record.items.map((item, index) => (
                           <li key={index}>
