@@ -236,7 +236,7 @@ export default function OpenCodeChat() {
         </main>
       ) : (
         <>
-          <MessageBubble messages={messages} guest={false} summary={null} />
+          <MessageBubble messages={messages} guest={false} />
           {limitReset !== null && (
             <p className="limit-banner">
               <AlertTriangle size={14} />

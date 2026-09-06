@@ -5,7 +5,7 @@ import { ArrowUp, Plus, Square, X } from "lucide-react";
 import type { ChatImage } from "@/lib/types";
 import { MAX_IMAGES } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
-import { useCompressImages } from "@/lib/prefs";
+import { useCompressImages, useReasoningEffort, type ReasoningEffort } from "@/lib/prefs";
 import { compressImage } from "@/lib/imageCompress";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -43,10 +43,17 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
   const lang = useUiLang();
   const t = STR[lang];
   const [compressOn] = useCompressImages();
+  const [reasoning, setReasoning] = useReasoningEffort();
   const [text, setText] = useState("");
   const [images, setImages] = useState<ChatImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const reasoningLabels: Record<ReasoningEffort, string> = {
+    max: t["composer.reasoning.max"],
+    medium: t["composer.reasoning.medium"],
+    low: t["composer.reasoning.low"],
+  };
 
   const canSend = (text.trim().length > 0 || images.length > 0) && !sending && !disabled;
 
@@ -152,6 +159,20 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
           onKeyDown={handleKeyDown}
            aria-label={t["composer.message"]}
         />
+        <select
+          className="composer-reasoning"
+          value={reasoning}
+          onChange={(event) => setReasoning(event.target.value as ReasoningEffort)}
+          aria-label={t["composer.reasoning"]}
+          title={t["composer.reasoning"]}
+          disabled={disabled}
+        >
+          {(Object.keys(reasoningLabels) as ReasoningEffort[]).map((level) => (
+            <option key={level} value={level}>
+              {reasoningLabels[level]}
+            </option>
+          ))}
+        </select>
         {sending ? (
            <button type="button" className="send-button" onClick={onStop} aria-label={t["composer.stop"]}>
             <Square size={15} fill="currentColor" />

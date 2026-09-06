@@ -1525,6 +1525,12 @@ span.conclude-rank-badge {
   align-items: flex-start;
 }
 
+/* the assistant's response spans the full chat width on phone and desktop */
+.message.model .message-body {
+  max-width: 100%;
+  width: 100%;
+}
+
 .message.user .message-body {
   align-items: flex-end;
 }
@@ -1909,6 +1915,30 @@ span.conclude-rank-badge {
 .send-button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+/* per-user reasoning effort selector at the end of the input row */
+.composer-reasoning {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  height: 36px;
+  padding: 0 8px;
+  outline: none;
+  cursor: pointer;
+}
+
+.composer-reasoning:hover {
+  border-color: var(--text-muted);
+}
+
+.composer-reasoning:focus {
+  border-color: var(--pill);
 }
 
 .hint {

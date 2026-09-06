@@ -23,7 +23,7 @@ export async function POST(req: Request) {
         : "Invalid request body.";
     return Response.json({ error: message }, { status: 400 });
   }
-  const { messages, timeZone, language, mode } = parsed;
+  const { messages, timeZone, language, mode, reasoning } = parsed;
   const freeMode = mode === "free";
   // Only the latest message decides whether this send is an image request;
   // earlier photos in the history must not re-route text sends to the
@@ -41,17 +41,32 @@ export async function POST(req: Request) {
 
       try {
         if (!hasImage) {
-          // Skip the agent entirely when the subscription is exhausted — the
-          // opencode server hangs on prompts instead of failing fast, and the
-          // direct path surfaces the friendly limit banner immediately.
+          // Direct engine first: measured 0.2s first-token on multi-turn
+          // conversations vs 16-22s through the opencode agent server (its
+          // agent loop reasons pathologically hard once assistant turns
+          // exist). The agent stays as the fallback.
           const official = await getOpenCodeOfficialUsage();
           const quotaExhausted =
             official !== null &&
             (official.monthly?.status === "rate-limited" ||
               official.rolling.percent >= 100);
           const agentReady = !quotaExhausted && (await isAgentUp());
+          let produced = false;
+          try {
+            for await (const text of streamChat(messages, timeZone, language, freeMode, reasoning)) {
+              produced = true;
+              enqueue(text);
+            }
+            return;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.log(
+              `[chat] direct failed${produced ? " mid-stream" : ""} → ${message.slice(0, 160)}`
+            );
+            if (produced) return;
+          }
           if (agentReady) {
-            let produced = false;
+            produced = false;
             try {
               for await (const text of agentChat(messages, timeZone, language, freeMode)) {
                 produced = true;
@@ -60,12 +75,14 @@ export async function POST(req: Request) {
               return;
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
-              console.log(`[chat] agent failed${produced ? " mid-stream" : ""} → ${message.slice(0, 160)}`);
+              console.log(
+                `[chat] agent failed${produced ? " mid-stream" : ""} → ${message.slice(0, 160)}`
+              );
               if (produced) return;
             }
           }
         }
-        for await (const text of streamChat(messages, timeZone, language, freeMode)) {
+        for await (const text of streamChat(messages, timeZone, language, freeMode, reasoning)) {
           enqueue(text);
         }
       } catch (error) {

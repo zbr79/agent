@@ -69,3 +69,47 @@ export function useCompressImages(): [boolean, (on: boolean) => void] {
   }, []);
   return [on, setCompressImages];
 }
+
+export type ReasoningEffort = "max" | "medium" | "low";
+
+const REASONING_KEY = "inschat_reasoning";
+const REASONING_EVENT = "inschat-reasoning";
+
+// Reasoning effort is MAX by default (unchanged behavior); users can lower it
+// to medium/low for faster replies (vision + direct-fallback requests only —
+// the opencode agent keeps its own default).
+export function getReasoningEffort(): ReasoningEffort {
+  if (typeof window === "undefined") return "max";
+  try {
+    const value = window.localStorage.getItem(REASONING_KEY);
+    return value === "medium" || value === "low" ? value : "max";
+  } catch {
+    return "max";
+  }
+}
+
+export function setReasoningEffort(level: ReasoningEffort): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(REASONING_KEY, level);
+  } catch {}
+  window.dispatchEvent(new CustomEvent(REASONING_EVENT, { detail: level }));
+}
+
+export function useReasoningEffort(): [
+  ReasoningEffort,
+  (level: ReasoningEffort) => void
+] {
+  const [level, setLevel] = useState<ReasoningEffort>(() =>
+    getReasoningEffort()
+  );
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<ReasoningEffort>).detail;
+      setLevel(detail === "medium" || detail === "low" ? detail : "max");
+    };
+    window.addEventListener(REASONING_EVENT, handler);
+    return () => window.removeEventListener(REASONING_EVENT, handler);
+  }, []);
+  return [level, setReasoningEffort];
+}

@@ -7,6 +7,7 @@ export interface ChatRequest {
   timeZone?: string;
   language?: "zh" | "en";
   mode?: "preset" | "free";
+  reasoning?: "max" | "medium" | "low";
 }
 
 function parseImage(raw: unknown, index: number): ChatImage {
@@ -85,5 +86,14 @@ export function parseChatBody(body: unknown): ChatRequest {
     mode = rawMode;
   }
 
-  return { messages, timeZone, language, mode };
+  const rawReasoning = (body as { reasoning?: unknown }).reasoning;
+  let reasoning: "max" | "medium" | "low" | undefined;
+  if (rawReasoning !== undefined) {
+    if (rawReasoning !== "max" && rawReasoning !== "medium" && rawReasoning !== "low") {
+      throw new ChatValidationError('"reasoning" must be "max", "medium" or "low".');
+    }
+    reasoning = rawReasoning;
+  }
+
+  return { messages, timeZone, language, mode, reasoning };
 }
