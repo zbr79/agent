@@ -6,6 +6,10 @@ import type { ChatMessage } from "./types";
 
 const AGENT_URL = "http://127.0.0.1:4096";
 const AGENT_TIMEOUT_MS = 300_000;
+// The opencode server can hang on a prompt instead of erroring (e.g. when
+// the subscription is exhausted). Give up sooner so the direct engine path
+// answers instead of the user staring at a silent reply for 3 minutes.
+const AGENT_PROMPT_TIMEOUT_MS = 45_000;
 
 interface OpencodeClient {
   session: {
@@ -232,8 +236,8 @@ export async function* agentChat(
       }),
       new Promise<never>((_, reject) =>
         setTimeout(
-          () => reject(new Error("Agent prompt timed out after 180s.")),
-          180_000
+          () => reject(new Error("Agent prompt timed out after 45s.")),
+          AGENT_PROMPT_TIMEOUT_MS
         )
       ),
     ]);

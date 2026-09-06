@@ -42,6 +42,7 @@
 
 - No test framework in this repo — verification is `npm run build` plus a manual check of the live app (curl or browser).
 - Headless browser probes (playwright chromium) are available at `/home/ubuntu/opencode-tmp/shot` for visual/layout verification when a UI change is risky.
+- ALWAYS test as a GUEST (no login) until the user says otherwise. Never use the `uicompare` logged-in test account in probes — the user has never used the login feature, and authed testing pollutes MongoDB with fake sessions/messages/records.
 
 ## Model Notes
 

@@ -6,7 +6,6 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import "highlight.js/styles/github.css";
-import SummaryCard from "./SummaryCard";
 import ImageViewer from "./ImageViewer";
 import type { ConcludeResult } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
@@ -40,8 +39,6 @@ function preserveLineBreaks(text: string): string {
 export default function MessageBubble({
   messages,
   guest = false,
-  summary = null,
-  summarySaved = false,
   onRevert,
   onEdit,
   onRegenerate,
@@ -56,8 +53,6 @@ export default function MessageBubble({
 }: {
   messages: Message[];
   guest?: boolean;
-  summary?: { result: ConcludeResult; sourceText: string } | null;
-  summarySaved?: boolean;
   onRevert?: (id: number) => void;
   onEdit?: (id: number) => void;
   onRegenerate?: (id: number) => void;
@@ -248,14 +243,6 @@ export default function MessageBubble({
         </div>
         );
       })}
-      {summary && (
-        <SummaryCard
-          result={summary.result}
-          sourceText={summary.sourceText}
-          guest={guest}
-          saved={summarySaved}
-        />
-      )}
       <div ref={endRef} />
       {viewer && (
          <ImageViewer src={viewer} alt={t["composer.uploadedAlt"]} onClose={() => setViewer(null)} />

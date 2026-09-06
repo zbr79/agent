@@ -511,8 +511,13 @@ closeRef.current = () => {
       } else if (/^胰岛素|^insulin/i.test(name)) {
         pushPending();
         pending = { kind: "insulin", value: item.value ?? "", unit: item.unit ?? "U" };
-      } else if (/^(时段|phase)$/i.test(name) && pending) {
-        pending.phase = item.value ?? "";
+      } else if (/^(时段|phase)$/i.test(name)) {
+        // attach to the pending reading, or the last pushed one (legacy
+        // records saved the phase AFTER the time item)
+        const target = pending
+          ? pending
+          : (pairedInsulin[pairedInsulin.length - 1] ?? paired[paired.length - 1]);
+        if (target) target.phase = item.value ?? "";
       } else if (isTimeItem(name) && pending) {
         (pending.kind === "insulin" ? pairedInsulin : paired).push({
           value: pending.value,
@@ -524,8 +529,9 @@ closeRef.current = () => {
       }
     }
     pushPending();
-    const hasAny = paired.length > 0 || pairedInsulin.length > 0;
-    setReadings(paired.length ? paired : hasAny ? [] : [{ value: "", unit: "mg/dL", time: "" }]);
+    // No fallback card: after the user deletes every reading, the saved
+    // conclusion has empty items and a refresh must NOT resurrect a card.
+    setReadings(paired);
     setInsulins(pairedInsulin);
     setError(null);
   }, [open, result]);
@@ -613,11 +619,11 @@ closeRef.current = () => {
         };
         if (reading.unit.trim()) item.unit = reading.unit.trim();
         builtItems.push(item);
-        if (reading.time) {
-          builtItems.push({ name: timeName, value: reading.time });
-        }
         if (reading.phase) {
           builtItems.push({ name: phaseName, value: reading.phase });
+        }
+        if (reading.time) {
+          builtItems.push({ name: timeName, value: reading.time });
         }
       }
     }
@@ -629,11 +635,11 @@ closeRef.current = () => {
         };
         if (reading.unit.trim()) item.unit = reading.unit.trim();
         builtItems.push(item);
-        if (reading.time) {
-          builtItems.push({ name: timeName, value: reading.time });
-        }
         if (reading.phase) {
           builtItems.push({ name: phaseName, value: reading.phase });
+        }
+        if (reading.time) {
+          builtItems.push({ name: timeName, value: reading.time });
         }
       }
     }

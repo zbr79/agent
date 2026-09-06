@@ -22,7 +22,7 @@ import {
 } from "@/lib/guestStore";
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
 import { STR, useUiLang } from "@/lib/i18n";
-import { useInsulinMode } from "@/lib/prefs";
+import { useInsulinMode, useReasoningEffort } from "@/lib/prefs";
 
 interface UiMessage {
   id: number;
@@ -78,15 +78,12 @@ export default function ChatApp() {
   const lang = useUiLang();
   const t = STR[lang];
   const [insulinMode, toggleInsulinMode] = useInsulinMode();
+  const [reasoningEffort] = useReasoningEffort();
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
-  const [summary, setSummary] = useState<{
-    result: ConcludeResult;
-    sourceText: string;
-  } | null>(null);
   const [concludeDraft, setConcludeDraft] = useState<{
     result: ConcludeResult;
     sourceText: string;
@@ -206,7 +203,6 @@ useEffect(() => {
       return;
     }
     setMessages([]);
-    setSummary(null);
     setConcludeResult(null);
     setConcludeSaved(false);
     recordIdRef.current = null;
@@ -247,7 +243,6 @@ useEffect(() => {
                 _id: (message as { _id?: string })._id,
               }))
             );
-            setSummary(null);
             // Restore the saved conclusion (and its record link when known)
             // so the button opens the stored report instead of re-running
             // conclude. Older sessions may lack recordId — still restore.
@@ -298,7 +293,6 @@ useEffect(() => {
         ).then((hydrated) => {
           if (sessionIdRef.current === id) setMessages(hydrated);
         });
-        setSummary(null);
         if (local.conclusion) {
           recordIdRef.current = local.recordId ?? null;
           setConcludeSaved(true);
@@ -360,16 +354,27 @@ useEffect(() => {
       setFreeNotice(false);
 
       let elapsedValue = 0;
+      let contentStarted = false;
       const elapsedTimer = setInterval(() => {
-        elapsedValue += 1;
+        elapsedValue += 0.1;
         setMessages((prev) =>
           prev.map((message) =>
             message.id === modelMessage.id
-              ? { ...message, elapsed: (message.elapsed ?? 0) + 1 }
+              ? { ...message, elapsed: (message.elapsed ?? 0) + 0.1 }
               : message
           )
         );
-      }, 1000);
+      }, 100);
+
+      // The reply is perceived as "done" once the first words arrive — freeze
+      // the elapsed timer there instead of counting the whole stream tail
+      // (the model keeps streaming reasoning/health tail for seconds after).
+      const freezeElapsed = () => {
+        if (!contentStarted) {
+          contentStarted = true;
+          clearInterval(elapsedTimer);
+        }
+      };
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -386,6 +391,7 @@ useEffect(() => {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             language: lang,
             mode: insulinMode ? "preset" : "free",
+            reasoning: reasoningEffort,
           }),
           signal: controller.signal,
         });
@@ -427,6 +433,7 @@ useEffect(() => {
             );
           }
           if (text) {
+            freezeElapsed();
             modelText += text;
             // Health-mode replies end with a <CONCLUDE> JSON tail for the
             // single-call recording flow — hide it from the bubble.
@@ -561,7 +568,7 @@ useEffect(() => {
         abortRef.current = null;
       }
     },
-    [isAuthed, lang, insulinMode]
+    [isAuthed, lang, insulinMode, reasoningEffort]
   );
 
   const send = useCallback(
@@ -657,7 +664,6 @@ useEffect(() => {
       const edited: UiMessage = { ...messages[index], text: editingText.trim() };
       const base = messages.slice(0, index);
       setEditingId(null);
-      setSummary(null);
       await truncatePersisted(base);
       const sessionId = sessionIdRef.current;
       if (sessionId) {
@@ -683,7 +689,6 @@ useEffect(() => {
       const previous = messages[index - 1];
       if (previous.role !== "user") return;
       const base = messages.slice(0, index);
-      setSummary(null);
       await truncatePersisted(base);
       await streamReply(base);
     },
@@ -757,7 +762,6 @@ useEffect(() => {
         (message) => message.role === "user" || !message.failed
       ).length;
       setMessages(kept);
-      setSummary(null);
       const sessionId = sessionIdRef.current;
       if (!sessionId) return;
       if (isAuthed) {
@@ -806,8 +810,6 @@ useEffect(() => {
         <MessageBubble
           messages={messages}
           guest={isAuthed === false}
-          summary={summary}
-          summarySaved={concludeSaved}
           flashId={flashId}
           onEdit={startEdit}
           onRegenerate={regenerate}
@@ -863,7 +865,6 @@ useEffect(() => {
         }}
         onSaved={(edited, savedRecordId) => {
           recordIdRef.current = savedRecordId;
-          setSummary({ result: edited, sourceText: concludeDraft?.sourceText ?? "" });
           setConcludeSaved(true);
           // Keep the accumulated conclusion = the edited one, so later
           // replies merge ON TOP of the user's changes.

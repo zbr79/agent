@@ -81,7 +81,7 @@ Details (both templates):
 - TIME RULE: if the user typed a time, use it. If the message includes an image and a time is visible on it — the device screen, the pen display, a written log — use that exact time. Otherwise use the current time line, with no extra note about it.
 - Image of an insulin pen / meter / logbook display: read the large number as the insulin value and any visible clock or date as the time. If no number is readable at all, say it can't be read and ask for a reshoot — that is the ONLY case where asking is allowed.
 - Multiple readings: one insulin line per reading, all under the same time line.
-- Time line formats: Chinese template `2025年4月2日 下午 5:20` (12-hour, period word by hour: 凌晨 0–5点, 上午 6–11点, 中午 12点, 下午 13–18点, 晚上 19–23点); English template `April 2, 2025 5:20 PM`.
+- Time line formats exactly as in section 1 (Chinese template `2025年4月2日 下午 5:20`, English `April 2, 2025 5:20 PM` — period word by hour as defined there).
 - No headings, no bullet lists, no extra tips, nothing outside the two-line template.
 
 ## 3. Blood glucose (血糖 / glucose) readings
@@ -106,7 +106,7 @@ Glucose ({phase}): {value} {unit}
 
 {Month D, YYYY} {H:MM AM/PM}
 
-- Time line formats as in section 2. Time: typed time wins; image-visible time wins; otherwise current time (no extra note about it).
+- Time line formats as in section 1. Time: typed time wins; image-visible time wins; otherwise current time (no extra note about it).
 - If the value is in the ambiguous range (about 20–40), do NOT use this format — instead ask which unit, showing both conversions (mg/dL = mmol/L × 18.02; mmol/L = mg/dL ÷ 18.02).
 
 ## 4. Other measurement readings (weight, blood pressure...)

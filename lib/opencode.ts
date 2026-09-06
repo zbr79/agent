@@ -347,7 +347,8 @@ const NO_REASONING_WITH_IMAGES = new Set(["qwen3.5-plus"]);
 async function* streamOpenCodeOnce(
   messages: OpenAiMessage[],
   model: string,
-  tools: boolean
+  tools: boolean,
+  reasoningLevel: "max" | "medium" | "low" = "max"
 ): AsyncGenerator<string, { toolCalls: ToolCall[] }, void> {
   const requestId = Math.random().toString(36).slice(2, 8);
   const hasImageParts = messages.some(
@@ -362,7 +363,7 @@ async function* streamOpenCodeOnce(
     stream: true,
     temperature: 0.7,
   };
-  if (!skipReasoning) body.reasoning_effort = "max";
+  if (!skipReasoning) body.reasoning_effort = reasoningLevel;
   if (tools) body.tools = [WEB_FETCH_TOOL];
   const startedAt = Date.now();
   console.log(
@@ -541,7 +542,8 @@ export async function* streamChat(
   messages: ChatMessage[],
   timeZone?: string,
   language?: "zh" | "en",
-  freeMode = false
+  freeMode = false,
+  reasoning: "max" | "medium" | "low" = "max"
 ): AsyncGenerator<string> {
   const lastMessage = messages[messages.length - 1];
   const hasImage = (lastMessage?.images?.length ?? 0) > 0;
@@ -585,7 +587,7 @@ export async function* streamChat(
         let toolCalls: ToolCall[] = [];
         try {
           yield encodeTryingMarker(model);
-          const gen = streamOpenCodeOnce(working, model, useTools);
+          const gen = streamOpenCodeOnce(working, model, useTools, reasoning);
           while (true) {
             const { done, value } = await gen.next();
             if (done) {
