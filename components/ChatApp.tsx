@@ -868,7 +868,8 @@ useEffect(() => {
           // Keep the accumulated conclusion = the edited one, so later
           // replies merge ON TOP of the user's changes.
           setConcludeResult({ result: edited, sourceText: concludeDraft?.sourceText ?? "" });
-          setConcludeDraft(null);
+          // NOTE: do NOT close the modal here — auto-save fires on 退出编辑
+          // and the modal must stay open (only onClose/backdrop/Escape close).
           // Link the saved record to this session so a refresh restores the
           // conclusion (button glows → opens the stored report, no re-call).
           const sessionId = sessionIdRef.current;

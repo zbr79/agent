@@ -1,18 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { ConcludeResult } from "@/lib/types";
 import { addGuestRecord, updateGuestRecord } from "@/lib/guestStore";
 import { STR, useUiLang } from "@/lib/i18n";
-import { formatDateTimeDisplay, READING_PHASES, readingPhase, parseFlexibleDateTime, refineMealName } from "@/lib/mealTime";
-import { Calendar, ChevronLeft, ChevronRight, Clock, Trash2, X } from "lucide-react";
+import { formatDateTimeDisplay, formatDateTimeNoYear, READING_PHASES, readingPhase, parseFlexibleDateTime, refineMealName } from "@/lib/mealTime";
+import { Calendar, ChevronLeft, ChevronRight, Clock, Pencil, Trash2, X } from "lucide-react";
 
 const RANK_CYCLE: Record<string, string[]> = {
-  zh: ["低", "中", "高", ""],
-  en: ["low", "medium", "high", ""],
+  zh: ["低", "中", "高"],
+  en: ["low", "medium", "high"],
 };
 
-const UNITS = ["mg/dL", "mmol/L", "U", "IU", "g", "kg"];
+const UNITS = ["mg/dL", "mmol/L"];
 
 // Insulin units are few — cycle them with left/right steppers instead of a
 // dropdown. Custom units typed in old records are kept as-is.
@@ -95,9 +96,6 @@ function DateTimeInputs({
 
   return (
     <div className="conclude-time-row">
-      <span className="conclude-time-icon">
-        <Clock size={14} />
-      </span>
       <input
         type="time"
         className="conclude-time-input"
@@ -108,9 +106,6 @@ function DateTimeInputs({
         }}
         aria-label={t["concludeModal.time"]}
       />
-      <span className="conclude-time-icon">
-        <Calendar size={14} />
-      </span>
       <input
         type="date"
         className="conclude-time-input"
@@ -130,6 +125,265 @@ interface Reading {
   unit: string;
   time: string;
   phase?: string;
+}
+
+// ---- inline editors: every field is always editable. Hovering shows a pen;
+// clicking swaps the text for a control. Commits bubble up as onCommit. ----
+
+function InlineText({
+  value,
+  onCommit,
+  className,
+  ariaLabel,
+  inputMode,
+  placeholder,
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+  className?: string;
+  ariaLabel?: string;
+  inputMode?: "text" | "decimal";
+  placeholder?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const start = () => {
+    setDraft(value);
+    setEditing(true);
+  };
+  const commit = () => {
+    if (draft !== value) onCommit(draft);
+    setEditing(false);
+  };
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="text"
+        inputMode={inputMode}
+        className={`conclude-inline-input ${className ?? ""}`}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          } else if (event.key === "Escape") {
+            event.stopPropagation();
+            setEditing(false);
+          }
+        }}
+        aria-label={ariaLabel}
+        placeholder={placeholder}
+      />
+    );
+  }
+  return (
+    <span
+      className={`conclude-inline-text ${className ?? ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={start}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          start();
+        }
+      }}
+    >
+      {value || "—"}
+      <Pencil size={11} className="edit-pen" aria-hidden="true" />
+    </span>
+  );
+}
+
+function InlineSelect({
+  value,
+  options,
+  onCommit,
+  className,
+  ariaLabel,
+  showPen = true,
+}: {
+  value: string;
+  options: string[];
+  onCommit: (next: string) => void;
+  className?: string;
+  ariaLabel?: string;
+  showPen?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <select
+        autoFocus
+        className={`conclude-inline-select ${className ?? ""}`}
+        value={options.includes(value) ? value : value}
+        onChange={(event) => {
+          onCommit(event.target.value);
+          setEditing(false);
+        }}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            setEditing(false);
+          }
+        }}
+        aria-label={ariaLabel}
+      >
+        {!options.includes(value) && value && <option value={value}>{value}</option>}
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <span
+      className={`conclude-inline-text ${className ?? ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => setEditing(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          setEditing(true);
+        }
+      }}
+    >
+      {value}
+      {showPen && <Pencil size={11} className="edit-pen" aria-hidden="true" />}
+    </span>
+  );
+}
+
+function InlineTime({
+  value,
+  lang,
+  t,
+  onCommit,
+  className,
+}: {
+  value: string;
+  lang: "zh" | "en";
+  t: Record<string, string>;
+  onCommit: (next: string) => void;
+  className?: string;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [draft, setDraft] = useState(value);
+  return (
+    <>
+      {pickerOpen && (
+        <TimePickerModal
+          value={draft}
+          lang={lang}
+          t={t}
+          onDraft={setDraft}
+          onCommit={() => {
+            onCommit(draft);
+            setPickerOpen(false);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+      <span
+        className={`conclude-inline-text ${className ?? ""}`}
+        role="button"
+        tabIndex={0}
+        onClick={() => {
+          setDraft(value);
+          setPickerOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setDraft(value);
+            setPickerOpen(true);
+          }
+        }}
+      >
+        {value ? formatDateTimeNoYear(value, lang) : "—"}
+        <Pencil size={11} className="edit-pen" aria-hidden="true" />
+      </span>
+    </>
+  );
+}
+
+// Time selection lives in its own small modal so editing never resizes the
+// main report window, and always offers an explicit exit (取消).
+function TimePickerModal({
+  value,
+  lang,
+  t,
+  onDraft,
+  onCommit,
+  onClose,
+}: {
+  value: string;
+  lang: "zh" | "en";
+  t: Record<string, string>;
+  onDraft: (next: string) => void;
+  onCommit: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="conclude-time-modal" role="dialog" aria-modal="true">
+      <DateTimeInputs value={value} lang={lang} t={t} onDisplay={onDraft} />
+      <div className="conclude-time-modal-actions">
+        <button type="button" className="conclude-cancel" onClick={onClose}>
+          {t["actions.cancel"]}
+        </button>
+        <button type="button" className="conclude-save" onClick={onCommit}>
+          {t["summary.save"]}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InlineUnitStepper({
+  value,
+  onCommit,
+  className,
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+  className?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <div onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setEditing(false);
+        }
+      }}>
+        <UnitStepper value={value} onChange={(unit) => onCommit(unit)} />
+      </div>
+    );
+  }
+  return (
+    <span
+      className={`conclude-inline-text ${className ?? ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => setEditing(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          setEditing(true);
+        }
+      }}
+    >
+      {value}
+      <Pencil size={11} className="edit-pen" aria-hidden="true" />
+    </span>
+  );
 }
 
 export default function ConcludeModal({
@@ -159,8 +413,30 @@ export default function ConcludeModal({
   const [error, setError] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Dialog behavior: Escape closes; focus moves into the modal on open and
-  // is trapped inside (Tab wraps) while it is open.
+// Auto-save: every edit saves immediately. Saves serialize (a save started
+// while another is in flight chains after it), so a refresh never loses the
+// last edit — there is no debounce window to fall into.
+const saveRef = useRef<() => Promise<void>>(async () => undefined);
+const saveQueueRef = useRef<Promise<void> | null>(null);
+const doSave = (): Promise<void> => {
+  const run = () =>
+    saveRef.current().finally(() => {
+      saveQueueRef.current = null;
+    });
+  if (saveQueueRef.current) {
+    saveQueueRef.current = saveQueueRef.current.then(run, run);
+    return saveQueueRef.current;
+  }
+  saveQueueRef.current = run();
+  return saveQueueRef.current;
+};
+const closeRef = useRef<() => void>(() => undefined);
+closeRef.current = () => {
+  void doSave().finally(() => onClose());
+};
+
+  // Dialog behavior: Escape closes (auto-saving when editing); focus moves
+  // into the modal on open and is trapped inside (Tab wraps) while open.
   useEffect(() => {
     if (!open) return;
     const focusables = () =>
@@ -174,7 +450,7 @@ export default function ConcludeModal({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.stopPropagation();
-        onClose();
+        closeRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -325,7 +601,6 @@ export default function ConcludeModal({
   };
 
   const save = async () => {
-    if (busy) return;
     setBusy(true);
     setError(null);
     const firstMealName = meals.find((meal) => meal.name.trim())?.name.trim();
@@ -420,9 +695,65 @@ export default function ConcludeModal({
     }
   };
 
+  // Keep the latest save in a ref so debounced timers always persist the
+  // freshest state.
+  saveRef.current = save;
+
+  const commitReading = (index: number, patch: Partial<Reading>) => {
+    flushSync(() => setReading(index, patch));
+    void doSave();
+  };
+
+  const commitInsulin = (index: number, patch: Partial<Reading>) => {
+    flushSync(() => setInsulin(index, patch));
+    void doSave();
+  };
+
+  const commitMeal = (
+    index: number,
+    patch: Partial<NonNullable<ConcludeResult["meals"]>[number]>
+  ) => {
+    flushSync(() => setMeal(index, patch));
+    void doSave();
+  };
+
+  const commitDish = (
+    mealIndex: number,
+    dishIndex: number,
+    patch: Partial<{ name: string; rank?: string }>
+  ) => {
+    flushSync(() => setDish(mealIndex, dishIndex, patch));
+    void doSave();
+  };
+
+  const removeReadingAuto = (index: number) => {
+    flushSync(() => removeReading(index));
+    void doSave();
+  };
+
+  const removeInsulinAuto = (index: number) => {
+    flushSync(() => removeInsulin(index));
+    void doSave();
+  };
+
+  const removeMealAuto = (index: number) => {
+    flushSync(() => removeMeal(index));
+    void doSave();
+  };
+
+  const removeDishAuto = (mealIndex: number, dishIndex: number) => {
+    flushSync(() => removeDish(mealIndex, dishIndex));
+    void doSave();
+  };
+
+  const cycleRankAuto = (mealIndex: number, dishIndex: number) => {
+    flushSync(() => cycleDishRank(mealIndex, dishIndex));
+    void doSave();
+  };
+
   return (
     <>
-      <div className="settings-backdrop" onClick={onClose} aria-hidden="true" />
+      <div className="settings-backdrop" onClick={() => closeRef.current()} aria-hidden="true" />
       <div className="conclude-modal" role="dialog" aria-modal="true" ref={modalRef}>
         <div className="conclude-modal-head">
           <div className="conclude-modal-head-text">
@@ -431,7 +762,7 @@ export default function ConcludeModal({
           <button
             type="button"
             className="conclude-modal-close"
-            onClick={onClose}
+            onClick={() => closeRef.current()}
             aria-label={t["actions.cancel"]}
           >
             <X size={16} />
@@ -477,220 +808,147 @@ export default function ConcludeModal({
           return order[a.kind] - order[b.kind];
         });
 
-        return entries.map((entry) =>
-          entry.kind === "reading" ? (
-            <section key={`r-${entry.index}`} className="conclude-section">
+        return entries.map((entry) => {
+          if (entry.kind === "meal") {
+            const meal = meals[entry.index];
+            return (
+              <section
+                key={`m-${entry.index}`}
+                className="conclude-section conclude-section-report"
+              >
+                <div className="conclude-meal-head">
+                  <button
+                    type="button"
+                    className="conclude-card-remove"
+                    onClick={() => removeMealAuto(entry.index)}
+                    aria-label={t["concludeModal.removeDish"]}
+                    title={t["concludeModal.removeDish"]}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                  <span className="conclude-inline-meal-name">{meal.name}</span>
+                  <InlineTime
+                    value={meal.time ?? ""}
+                    lang={lang}
+                    t={t}
+                    onCommit={(time) => commitMeal(entry.index, { time })}
+                    className="conclude-inline-meal-time"
+                  />
+                </div>
+                <div className="conclude-dishes">
+                  {(meal.dishes ?? []).map((dish, dishIndex) => (
+                    <div key={dishIndex} className="conclude-dish-row">
+                      <button
+                        type="button"
+                        className="conclude-dish-remove"
+                        onClick={() => removeDishAuto(entry.index, dishIndex)}
+                        aria-label={t["concludeModal.removeDish"]}
+                        title={t["concludeModal.removeDish"]}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                      <InlineText
+                        className="conclude-inline-dish-name"
+                        value={dish.name}
+                        onCommit={(name) =>
+                          commitDish(entry.index, dishIndex, { name })
+                        }
+                        ariaLabel={t["concludeModal.name"]}
+                      />
+                      <button
+                        type="button"
+                        className={`conclude-rank-badge ${rankTone(dish.rank)}`}
+                        onClick={() => cycleRankAuto(entry.index, dishIndex)}
+                        aria-label={t["concludeModal.ranking"]}
+                        title={t["concludeModal.ranking"]}
+                      >
+                        {dish.rank ?? "低"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            );
+          }
+          const reading =
+            entry.kind === "insulin"
+              ? insulins[entry.index]
+              : readings[entry.index];
+          const label =
+            entry.kind === "insulin" ? insulinBaseName() : glucoseName;
+          const phase = phaseOf(reading);
+          const setter =
+            entry.kind === "insulin" ? commitInsulin : commitReading;
+          const remover =
+            entry.kind === "insulin" ? removeInsulinAuto : removeReadingAuto;
+          return (
+            <section
+              key={`${entry.kind}-${entry.index}`}
+              className="conclude-section conclude-section-report"
+            >
               <div className="conclude-catalog-head">
-                <span className="conclude-glucose-label">{glucoseName}</span>
                 <button
                   type="button"
                   className="conclude-card-remove"
-                  onClick={() => removeReading(entry.index)}
+                  onClick={() => remover(entry.index)}
                   aria-label={t["concludeModal.removeDish"]}
                   title={t["concludeModal.removeDish"]}
                 >
                   <Trash2 size={14} />
                 </button>
-              </div>
-              <div className="conclude-catalog-meta">
-                <DateTimeInputs
-                  key={`reading-${entry.index}-${readings[entry.index].time}`}
-                  value={readings[entry.index].time}
-                  lang={lang}
-                  t={t}
-                  onDisplay={(display) =>
-                    setReading(entry.index, { time: display })
-                  }
-                />
-              </div>
-              <div className="conclude-reading-main">
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  className="conclude-reading-value"
-                  value={readings[entry.index].value}
-                  onChange={(event) =>
-                    setReading(entry.index, { value: event.target.value })
-                  }
-                  aria-label={t["concludeModal.value"]}
-                  placeholder="0"
-                />
-                <select
-                  className="conclude-phase-select"
-                  value={phaseOf(readings[entry.index])}
-                  onChange={(event) =>
-                    setReading(entry.index, { phase: event.target.value })
-                  }
-                  aria-label={t["concludeModal.phase"]}
-                >
-                  {READING_PHASES[lang].map((phase) => (
-                    <option key={phase} value={phase}>
-                      {phase}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="conclude-reading-unit"
-                  value={readings[entry.index].unit}
-                  onChange={(event) =>
-                    setReading(entry.index, { unit: event.target.value })
-                  }
-                  aria-label={t["concludeModal.unit"]}
-                >
-                  {UNITS.map((unit) => (
-                    <option key={unit} value={unit}>
-                      {unit}
-                    </option>
-                  ))}
-                  {!UNITS.includes(readings[entry.index].unit) &&
-                    readings[entry.index].unit && (
-                      <option value={readings[entry.index].unit}>
-                        {readings[entry.index].unit}
-                      </option>
-                    )}
-                </select>
-              </div>
-            </section>
-          ) : entry.kind === "insulin" ? (
-            <section key={`i-${entry.index}`} className="conclude-section">
-              <div className="conclude-catalog-head">
                 <span className="conclude-glucose-label">
-                  {insulinBaseName()}
+                  {label}
+                  <span className="conclude-label-dot">·</span>
                 </span>
-                <button
-                  type="button"
-                  className="conclude-card-remove"
-                  onClick={() => removeInsulin(entry.index)}
-                  aria-label={t["concludeModal.removeDish"]}
-                  title={t["concludeModal.removeDish"]}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-              <div className="conclude-catalog-meta">
-                <DateTimeInputs
-                  key={`insulin-${entry.index}-${insulins[entry.index].time}`}
-                  value={insulins[entry.index].time}
+                <InlineSelect
+                  className="conclude-inline-phase"
+                  value={phase}
+                  options={READING_PHASES[lang]}
+                  onCommit={(next) => setter(entry.index, { phase: next })}
+                  ariaLabel={t["concludeModal.phase"]}
+                  showPen={false}
+                />
+                <InlineTime
+                  value={reading.time}
                   lang={lang}
                   t={t}
-                  onDisplay={(display) =>
-                    setInsulin(entry.index, { time: display })
-                  }
+                  onCommit={(time) => setter(entry.index, { time })}
+                  className="conclude-inline-time"
                 />
               </div>
               <div className="conclude-reading-main">
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  className="conclude-reading-value"
-                  value={insulins[entry.index].value}
-                  onChange={(event) =>
-                    setInsulin(entry.index, { value: event.target.value })
-                  }
-                  aria-label={t["concludeModal.value"]}
-                  placeholder="0"
-                />
-                <select
-                  className="conclude-phase-select"
-                  value={phaseOf(insulins[entry.index])}
-                  onChange={(event) =>
-                    setInsulin(entry.index, { phase: event.target.value })
-                  }
-                  aria-label={t["concludeModal.phase"]}
-                >
-                  {READING_PHASES[lang].map((phase) => (
-                    <option key={phase} value={phase}>
-                      {phase}
-                    </option>
-                  ))}
-                </select>
-                <UnitStepper
-                  value={insulins[entry.index].unit}
-                  onChange={(unit) => setInsulin(entry.index, { unit })}
-                />
-              </div>
-            </section>
-          ) : (
-            <section key={`m-${entry.index}`} className="conclude-section">
-              <div className="conclude-meal-head">
-                <input
-                  className="conclude-meal-name"
-                  value={meals[entry.index].name}
-                  onChange={(event) =>
-                    setMeal(entry.index, { name: event.target.value })
-                  }
-                  aria-label={t["concludeModal.mealName"]}
-                  placeholder={t["concludeModal.mealName"]}
-                />
-                <DateTimeInputs
-                  key={`meal-${entry.index}-${meals[entry.index].time ?? ""}`}
-                  value={meals[entry.index].time}
-                  lang={lang}
-                  t={t}
-                  onDisplay={(display) =>
-                    setMeal(entry.index, { time: display })
-                  }
-                />
-                <button
-                  type="button"
-                  className="conclude-card-remove"
-                  onClick={() => removeMeal(entry.index)}
-                  aria-label={t["concludeModal.removeDish"]}
-                  title={t["concludeModal.removeDish"]}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-              <div className="conclude-dishes">
-                {(meals[entry.index].dishes ?? []).map((dish, dishIndex) => (
-                  <div key={dishIndex} className="conclude-dish-row">
-                    <input
-                      className="conclude-dish-name"
-                      value={dish.name}
-                      onChange={(event) =>
-                        setDish(entry.index, dishIndex, {
-                          name: event.target.value,
-                        })
-                      }
-                      aria-label={t["concludeModal.name"]}
-                      placeholder={t["concludeModal.name"]}
+                <div className="conclude-value-cluster">
+                  <InlineText
+                    className="conclude-inline-value"
+                    value={reading.value}
+                    inputMode="decimal"
+                    onCommit={(next) => setter(entry.index, { value: next })}
+                    ariaLabel={t["concludeModal.value"]}
+                    placeholder="0"
+                  />
+                  {entry.kind === "insulin" ? (
+                    <InlineUnitStepper
+                      value={reading.unit}
+                      onCommit={(unit) => setter(entry.index, { unit })}
+                      className="conclude-inline-unit"
                     />
-                    <button
-                      type="button"
-                      className={`conclude-rank-badge ${rankTone(dish.rank)}`}
-                      onClick={() => cycleDishRank(entry.index, dishIndex)}
-                      aria-label={t["concludeModal.ranking"]}
-                      title={t["concludeModal.ranking"]}
-                    >
-                      {dish.rank || "—"}
-                    </button>
-                    <button
-                      type="button"
-                      className="conclude-dish-remove"
-                      onClick={() => removeDish(entry.index, dishIndex)}
-                      aria-label={t["concludeModal.removeDish"]}
-                      title={t["concludeModal.removeDish"]}
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                ))}
+                  ) : (
+                    <InlineSelect
+                      className="conclude-inline-unit"
+                      value={reading.unit}
+                      options={UNITS}
+                      onCommit={(unit) => setter(entry.index, { unit })}
+                      ariaLabel={t["concludeModal.unit"]}
+                    />
+                  )}
+                </div>
               </div>
             </section>
-          )
-        );
+          );
+        });
       })()}
 
         {error && <p className="conclusion-error">{error}</p>}
-
-        <div className="conclude-modal-actions">
-          <button type="button" className="conclude-cancel" onClick={onClose}>
-            {t["actions.cancel"]}
-          </button>
-          <button type="button" className="conclude-save" onClick={save} disabled={busy}>
-            {busy ? t["summary.saving"] : t["summary.save"]}
-          </button>
-        </div>
       </div>
     </>
   );

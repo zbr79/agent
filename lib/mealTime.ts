@@ -107,6 +107,30 @@ export function formatDateTimeDisplay(
   return `${year}-${pad(month)}-${pad(day)} ${h12}:${pad(minute)} ${meridian}`;
 }
 
+// Renders the display string without the year (view-mode reports).
+// Returns the original string when it cannot be parsed.
+export function formatDateTimeNoYear(
+  display: string,
+  lang: "zh" | "en"
+): string {
+  const parsed = parseFlexibleDateTime(display);
+  if (!parsed) return display;
+  const [, month, day] = parsed.date.split("-").map(Number);
+  const [hourRaw, minute] = parsed.time.split(":").map(Number);
+  if (!month || !day || hourRaw === undefined || minute === undefined) {
+    return display;
+  }
+  const hour = hourRaw % 24;
+  if (lang === "zh") {
+    const period = hour < 12 ? "上午" : "下午";
+    const h12 = hour % 12 === 0 ? 12 : hour % 12;
+    return `${month}月${day}日 ${period} ${h12}:${pad(minute)}`;
+  }
+  const meridian = hour < 12 ? "AM" : "PM";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${month}/${day} ${h12}:${pad(minute)} ${meridian}`;
+}
+
 const MEAL_TIME_NAMES: Record<string, [string, string, string, string, string]> = {
   zh: ["早餐", "午餐", "下午茶", "晚餐", "夜宵"],
   en: ["Breakfast", "Lunch", "Afternoon snack", "Dinner", "Late-night snack"],
