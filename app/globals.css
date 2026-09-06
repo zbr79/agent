@@ -443,15 +443,69 @@ body {
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
 }
 
+.conclude-time-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1300;
+  width: min(420px, 92vw);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+  padding: 18px;
+}
+
+.conclude-time-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.conclude-time-modal .conclude-cancel {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.conclude-time-modal .conclude-cancel:hover {
+  color: var(--text);
+  background: var(--bg-soft);
+}
+
+.conclude-time-modal .conclude-save {
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #5ec8f8, #4d7cff, #8b5cf6);
+  color: #fff;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 18px;
+  cursor: pointer;
+}
+
+.conclude-time-modal .conclude-save:hover {
+  opacity: 0.92;
+}
+
 .conclude-modal-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 12px;
   margin-bottom: 16px;
 }
 
 .conclude-modal-head-text {
+  flex: 1;
   min-width: 0;
 }
 
@@ -496,13 +550,281 @@ body {
   margin-bottom: 14px;
 }
 
-/* catalog card header: the catalog name lives on its own row */
+/* catalog card header: the catalog name + phase live together on this row */
 .conclude-catalog-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   margin-bottom: 6px;
+  min-height: 32px;
+}
+
+
+/* meal head rows keep the same height in view + edit so toggling edit
+   reveals controls in place without any vertical movement */
+.conclude-meal-head {
+  min-height: 36px;
+}
+
+/* read-only report text: clean, no ghost-input look. Row heights are held
+   by the min-heights on the row containers, so removing these paddings does
+   not shift the layout when toggling edit mode. */
+.conclude-view-time {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.conclude-view-value {
+  flex: none;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.conclude-value-cluster {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* align the number row with the catalog name (trash 28px + gap 8px) */
+  margin-left: 36px;
+}
+
+/* ---- inline editors: every field is editable, hover reveals the pen ---- */
+.conclude-inline-text {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  padding: 1px 2px;
+  cursor: text;
+  outline: none;
+}
+
+.conclude-inline-text:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* the phase chip is part of the catalog name — no hover affordance */
+.conclude-inline-phase:hover,
+.conclude-inline-phase:focus-visible {
+  background: transparent;
+}
+
+.edit-pen {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  color: var(--text-muted);
+  margin-left: 3px;
+  flex-shrink: 0;
+}
+
+.conclude-inline-text:hover .edit-pen,
+.conclude-inline-text:focus-visible .edit-pen {
+  opacity: 1;
+}
+
+.conclude-inline-input {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  border: 1px solid var(--pill);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 1px 6px;
+  line-height: 1.2;
+  outline: none;
+}
+
+/* the number value edits in a compact box that hugs the text width —
+   toggling edit should not blow up the entry box */
+.conclude-inline-value.conclude-inline-input {
+  flex: none;
+  width: 64px;
+}
+
+.conclude-inline-select {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  border: 1px solid var(--pill);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 1px 6px;
+  line-height: 1.2;
+  outline: none;
+}
+
+/* field-specific display metrics (match the previous report styles) */
+.conclude-inline-phase {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.conclude-inline-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.conclude-inline-unit {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.conclude-inline-time {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.conclude-inline-meal-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.conclude-inline-meal-time {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.conclude-inline-dish-name {
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* the label hugs the trash on the left and the phase chip on the right —
+   no fixed column, no gaps around the name */
+.conclude-glucose-label {
+  flex: 0 0 auto;
+  margin-right: -8px;
+}
+
+/* delete buttons are always visible */
+.conclude-card-remove {
+  opacity: 1;
+}
+
+/* dish delete: only visible on hover, trash icon */
+.conclude-dish-row .conclude-dish-remove {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.conclude-dish-row:hover .conclude-dish-remove,
+.conclude-dish-remove:focus-visible {
+  opacity: 1;
+}
+
+/* dish rows: delete left, name grows, rank badge at the right edge */
+.conclude-dish-row .conclude-rank-badge {
+  margin-left: auto;
+}
+
+.conclude-inline-dish-name {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* dish pen: anchored at the rightmost edge of the name entry box */
+.conclude-inline-dish-name .edit-pen {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg-soft);
+  border-radius: 4px;
+  padding: 1px;
+}
+
+/* view-mode report cards: soft background, like the records timeline chips */
+.conclude-section-report {
+  background: var(--bg-soft);
+  border-color: transparent;
+}
+
+.conclude-view-unit {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.conclude-view-meal-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.conclude-view-meal-time {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* view dish row: report text, same row metrics as the edit dish input so
+   toggling edit reveals the input box in place */
+.conclude-view-dish-name {
+  flex: 0 1 200px;
+  min-width: 0;
+  max-width: 60%;
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+
+span.conclude-rank-badge {
+  cursor: default;
+}
+
+
+.conclude-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 93px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.conclude-edit-btn:hover {
+  color: var(--pill);
+  border-color: var(--pill);
+}
+
+.conclude-edit-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* second row of a reading card: phase dropdown + date/time */
@@ -511,6 +833,15 @@ body {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+  min-height: 36px;
+}
+
+.conclude-reading-main {
+  min-height: 33px;
+}
+
+.conclude-actions-idle button {
+  visibility: hidden;
 }
 
 .conclude-catalog-meta .conclude-time-row {
@@ -529,8 +860,8 @@ body {
 }
 
 .conclude-unit-stepper button {
-  width: 26px;
-  height: 30px;
+  width: 20px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -551,7 +882,7 @@ body {
 }
 
 .conclude-unit-value {
-  min-width: 40px;
+  min-width: 32px;
   text-align: center;
   font-size: 13px;
   color: var(--text-muted);
@@ -559,22 +890,33 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.conclude-phase-select {
+.conclude-phase-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 6px 8px;
-  outline: none;
-  cursor: pointer;
 }
 
-.conclude-phase-select:focus {
-  border-color: var(--pill);
+/* borderless inline phase picker: reads like part of the label (下午▾),
+   no bubble/box — matches the view-mode 血糖·下午 label */
+.conclude-phase-select {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 700;
+  padding: 4px 18px 4px 2px;
+  cursor: pointer;
+  outline: none;
+}
+
+.conclude-phase-chevron {
+  position: absolute;
+  right: 2px;
+  pointer-events: none;
+  color: var(--text-muted);
 }
 
 .conclude-catalog-head .conclude-time-row {
@@ -659,14 +1001,13 @@ body {
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: var(--text-muted);
+  color: #d93025;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .conclude-card-remove:hover {
-  color: #d93025;
-  background: rgba(217, 48, 37, 0.08);
+  background: rgba(217, 48, 37, 0.1);
 }
 
 /* date/time chips */
@@ -753,15 +1094,24 @@ body {
 
 .conclude-dishes {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+  row-gap: 8px;
   margin-top: 10px;
+}
+
+/* vertical divider between the two dish columns */
+.conclude-dish-row:nth-child(odd) {
+  border-right: 1px solid var(--border);
+  padding-right: 16px;
+  margin-right: -16px;
 }
 
 .conclude-dish-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 33px;
 }
 
 .conclude-dish-name {
@@ -830,9 +1180,9 @@ body {
   border-radius: 50%;
   background: transparent;
   color: var(--text-muted);
-  opacity: 0.7;
+  opacity: 1;
   cursor: pointer;
-  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .conclude-dish-remove:hover {
@@ -857,7 +1207,7 @@ body {
   border-radius: 8px;
   background: var(--bg);
   padding: 4px 8px;
-  font-size: 13px;
+  min-height: 30px;
 }
 
 .dish-box-name {
@@ -892,55 +1242,6 @@ body {
   margin-top: 4px;
 }
 
-.conclude-modal-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--bg-soft);
-}
-
-.conclude-cancel {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font);
-  font-size: 14px;
-  font-weight: 500;
-  padding: 10px 16px;
-  border-radius: 12px;
-  cursor: pointer;
-}
-
-.conclude-cancel:hover {
-  color: var(--text);
-  background: var(--bg-soft);
-}
-
-.conclude-save {
-  border: none;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #5ec8f8, #4d7cff, #8b5cf6);
-  color: #fff;
-  font-family: var(--font);
-  font-size: 14px;
-  font-weight: 600;
-  padding: 10px 24px;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(77, 124, 255, 0.35);
-  transition: opacity 0.15s ease;
-}
-
-.conclude-save:hover {
-  opacity: 0.92;
-}
-
-.conclude-save:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
 
 /* ---- model routing tree (usage page) ---- */
 .routing-tree {
@@ -3226,6 +3527,17 @@ body {
   .conclude-catalog-meta .conclude-time-row,
   .conclude-reading-main .conclude-time-row {
     flex: 1 1 100%;
+  }
+
+  /* single dish column on phones — no divider */
+  .conclude-dishes {
+    grid-template-columns: 1fr;
+  }
+
+  .conclude-dish-row:nth-child(odd) {
+    border-right: none;
+    padding-right: 0;
+    margin-right: 0;
   }
 }
 
