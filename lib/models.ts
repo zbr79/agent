@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { AGENT_ROOT, assertAllowedAgentFile } from "./pathJail";
 
 export interface ModelInfo {
   name: string;
@@ -55,8 +56,8 @@ export function findModel(name: string): ModelInfo | undefined {
   return CHAT_MODELS.find((model) => model.name === name);
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const MODEL_FILE = path.join(DATA_DIR, "model.json");
+const DATA_DIR = assertAllowedAgentFile(path.join(AGENT_ROOT, "data"));
+const MODEL_FILE = assertAllowedAgentFile(path.join(DATA_DIR, "model.json"));
 
 export const AUTO_MODEL = "auto";
 
