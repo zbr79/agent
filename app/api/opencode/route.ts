@@ -4,8 +4,8 @@ import {
   chatErrorMessage,
   isBalanceError,
   quotaResetInfo,
-  streamChat,
 } from "@/lib/opencode";
+import { agentChat, isAgentUp } from "@/lib/agent";
 import { encodeLimitMarker } from "@/lib/markers";
 
 export const runtime = "nodejs";
@@ -30,9 +30,28 @@ export async function POST(req: Request) {
       req.signal.addEventListener("abort", () => {
         console.log("[opencode] client disconnected mid-stream");
       });
+      const enqueue = (text: string) => controller.enqueue(encoder.encode(text));
       try {
-        for await (const text of streamChat(messages, timeZone, language, freeMode)) {
-          controller.enqueue(encoder.encode(text));
+        // OpenCode UI needs filesystem tools from local opencode serve (:4096).
+        // Do not fall back to the remote zen path (web_fetch only) — that
+        // falsely implies the agent cannot read/edit project files.
+        const agentReady = await isAgentUp();
+        if (!agentReady) {
+          const msg =
+            language === "en"
+              ? "Local OpenCode agent server is unavailable (expected on 127.0.0.1:4096). Filesystem tools (read/edit) need inschat-agent running — start it, then retry. This UI does not use the remote web_fetch-only path."
+              : "本地 OpenCode agent 服务不可用（需要 127.0.0.1:4096）。读写项目文件依赖 inschat-agent，请启动后再试。此页面不会回退到仅有 web_fetch 的远程路径。";
+          enqueue(`\n\n[${msg}]`);
+          return;
+        }
+        for await (const text of agentChat(
+          messages,
+          timeZone,
+          language,
+          freeMode,
+          true
+        )) {
+          enqueue(text);
         }
       } catch (error) {
         const message =
@@ -41,9 +60,9 @@ export async function POST(req: Request) {
             : await chatErrorMessage(error, language);
         if (!(error instanceof ChatValidationError) && isBalanceError(error)) {
           const { window, resetAt } = await quotaResetInfo();
-          if (resetAt) controller.enqueue(encoder.encode(encodeLimitMarker(`${window}|${resetAt}`)));
+          if (resetAt) enqueue(encodeLimitMarker(`${window}|${resetAt}`));
         }
-        controller.enqueue(encoder.encode(`\n\n[${message}]`));
+        enqueue(`\n\n[${message}]`);
       } finally {
         controller.close();
       }
