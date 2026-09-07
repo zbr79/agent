@@ -1,4 +1,4 @@
-# Agent
+# Agent app
 
 Minimalist AI chatbot — text chat + image upload, streaming responses. Powered by the **opencode-go subscription** (`https://opencode.ai/zen/go/v1`).
 
