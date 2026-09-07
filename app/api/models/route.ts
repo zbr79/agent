@@ -1,4 +1,4 @@
-import { CHAT_MODELS, getActiveModel, getConcludeChain, setActiveModel } from "@/lib/models";
+import { CHAT_MODELS, getActiveModel, setActiveModel } from "@/lib/models";
 import { requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -9,7 +9,6 @@ export async function GET(req: Request) {
   const current = getActiveModel();
   return Response.json({
     current,
-    concludeModel: getConcludeChain()[0] ?? null,
     models: CHAT_MODELS.map((model) => ({
       name: model.name,
       label: model.label,

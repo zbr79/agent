@@ -6,7 +6,6 @@ export interface ChatRequest {
   messages: ChatMessage[];
   timeZone?: string;
   language?: "zh" | "en";
-  mode?: "preset" | "free";
   reasoning?: "max" | "medium" | "low";
 }
 
@@ -77,15 +76,6 @@ export function parseChatBody(body: unknown): ChatRequest {
     language = rawLanguage;
   }
 
-  const rawMode = (body as { mode?: unknown }).mode;
-  let mode: "preset" | "free" | undefined;
-  if (rawMode !== undefined) {
-    if (rawMode !== "preset" && rawMode !== "free") {
-      throw new ChatValidationError('"mode" must be "preset" or "free".');
-    }
-    mode = rawMode;
-  }
-
   const rawReasoning = (body as { reasoning?: unknown }).reasoning;
   let reasoning: "max" | "medium" | "low" | undefined;
   if (rawReasoning !== undefined) {
@@ -95,5 +85,5 @@ export function parseChatBody(body: unknown): ChatRequest {
     reasoning = rawReasoning;
   }
 
-  return { messages, timeZone, language, mode, reasoning };
+  return { messages, timeZone, language, reasoning };
 }

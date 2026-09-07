@@ -82,19 +82,6 @@ export const IMAGE_CHAIN: string[] = [
   "qwen3.5-plus",
 ];
 
-// Conclude chain: cheapest reliable text model first, then the free models.
-const CONCLUDE_CHAIN_FULL: string[] = [
-  "qwen3.8-flash",
-  "deepseek-v4-flash",
-  "deepseek-v4-flash-free",
-  "mimo-v2.5-free",
-  "nemotron-3-ultra-free",
-  "nemotron-3.5-lightning-free",
-  "ling-3.0-flash-fin-free",
-  "laguna-s-2.1-free",
-  "big-pickle",
-];
-
 // DeepSeek peak hours per official docs: 01:00-04:00 and 06:00-10:00 UTC,
 // Monday through Friday (= 09:00-12:00 and 14:00-18:00 Beijing, UTC+8).
 function isDeepSeekPeak(now: Date = new Date()): boolean {
@@ -120,12 +107,6 @@ function textChain(): string[] {
   return isDeepSeekPeak()
     ? TEXT_CHAIN_FULL.filter((name) => name !== "deepseek-v4-flash")
     : TEXT_CHAIN_FULL;
-}
-
-function concludeChain(): string[] {
-  return isDeepSeekPeak()
-    ? CONCLUDE_CHAIN_FULL.filter((name) => name !== "deepseek-v4-flash")
-    : CONCLUDE_CHAIN_FULL;
 }
 
 function filterChain(chain: string[]): string[] {
@@ -167,13 +148,4 @@ export function getChatChain(hasImage: boolean): string[] {
   const selected = getActiveModel();
   if (selected === AUTO_MODEL) return filterChain(textChain());
   return [selected];
-}
-
-export function getConcludeChain(): string[] {
-  const chain = filterChain(concludeChain());
-  const preferred = process.env.CONCLUDE_MODEL;
-  if (preferred && findModel(preferred) && preferred !== chain[0]) {
-    return [preferred, ...chain.filter((name) => name !== preferred)];
-  }
-  return chain;
 }

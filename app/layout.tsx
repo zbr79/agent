@@ -4,8 +4,8 @@ import Sidebar from "@/components/Sidebar";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "InsChat — Insulin & Glucose Tracker",
-  description: "Record insulin levels with timestamps and food photos. Get AI-powered analysis for diabetes management.",
+  title: "InsChat — AI Chat Assistant",
+  description: "General-purpose AI chat with photo analysis and live web research. Previously saved records stay viewable.",
 };
 
 export const viewport: Viewport = {

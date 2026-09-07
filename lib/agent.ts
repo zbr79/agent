@@ -5,7 +5,7 @@ import { insertCall } from "./db";
 import type { ChatMessage } from "./types";
 
 const AGENT_URL = "http://127.0.0.1:4096";
-const AGENT_TIMEOUT_MS = 300_000;
+const AGENT_TIMEOUT_MS = 900_000;
 // The opencode server can hang on a prompt instead of erroring (e.g. when
 // the subscription is exhausted). Give up sooner so the direct engine path
 // answers instead of the user staring at a silent reply for 3 minutes.
@@ -110,14 +110,12 @@ interface AgentEvent {
 // falls back to the direct engine in that case.
 export async function* agentChat(
   messages: ChatMessage[],
-  timeZone?: string,
   language?: "zh" | "en",
-  freeMode = false,
   agentTools = false
 ): AsyncGenerator<string> {
   const agent = getAgentClient();
   const session = (await agent.session.create({ body: { title: "inschat" } })).data;
-  const system = getSystemPrompt(timeZone, language, freeMode, agentTools);
+  const system = getSystemPrompt(language, agentTools);
   const requestId = Math.random().toString(36).slice(2, 8);
 
   if (process.env.OPENCODE_TEST_LIMIT === "1") {

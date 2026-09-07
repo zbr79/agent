@@ -194,7 +194,7 @@ export const READING_PHASES: Record<
 // Readings are conventionally logged against a day slot, not a bare
 // number: 空腹 / 早餐后 / 午餐前 ... / 睡前 (fasting, pre/post meal, bedtime).
 // Derives that phase label from the entry time. Returns "" when the time
-// cannot be parsed. Applies to glucose and insulin readings alike.
+// cannot be parsed. Applies to any stored reading alike.
 export function readingPhase(
   time: string | undefined,
   lang: "zh" | "en"
@@ -212,23 +212,6 @@ export function readingPhase(
   if (hour >= 18 && hour < 21) return ad; // 18:00–20:59 after dinner
   if (hour >= 21 && hour < 24) return bt; // 21:00–23:59 bedtime
   return ln; // 00:00–04:59 late night
-}
-
-// Refines a bare insulin entry name (胰岛素/Insulin) into "胰岛素 空腹" /
-// "Insulin Fasting" style by time. Returns the original name when it is not
-// a bare insulin entry, or when the time cannot be parsed.
-export function refineInsulinName(
-  name: string,
-  time: string | undefined,
-  lang: "zh" | "en"
-): string {
-  const clean = name.trim();
-  const bare =
-    lang === "zh" ? clean === "胰岛素" : /^insulin$/i.test(clean);
-  if (!bare) return clean;
-  const phase = readingPhase(time, lang);
-  if (!phase) return clean;
-  return lang === "zh" ? `胰岛素 ${phase}` : `Insulin ${phase}`;
 }
 
 export interface PairedItem {

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatUiText, STR, useUiLang } from "@/lib/i18n";
-import { modelLabel } from "@/lib/modelLabels";
 
 interface ModelRow {
   name: string;
@@ -14,7 +13,6 @@ interface ModelRow {
 
 interface ModelsData {
   current: string;
-  concludeModel?: string;
   models: ModelRow[];
 }
 
@@ -129,17 +127,7 @@ export default function ModelsPanel() {
   return (
     <div className="usage-page">
       <h2>{t["nav.models"]}</h2>
-      <p className="usage-sub">
-        {t["models.description"]}
-        {data?.concludeModel && (
-          <>
-            {" "}
-            {formatUiText(t["models.concludeDescription"], {
-              model: modelLabel(data.concludeModel),
-            })}
-          </>
-        )}
-      </p>
+      <p className="usage-sub">{t["models.description"]}</p>
 
       {error && <p className="conclusion-error">{error}</p>}
 

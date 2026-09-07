@@ -3780,58 +3780,12 @@ span.conclude-rank-badge {
   .welcome h2 {
     font-size: 18px;
   }
-
-  .welcome .composer-toggles {
-    max-width: none;
-  }
 }
 
 
 
 
 
-
-/* ---- toggle pills above the composer (ChatGPT-style) ---- */
-.composer-toggles {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 640px;
-}
-
-.composer-toggles.bottom {
-  max-width: none;
-  padding-bottom: 4px;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.composer-toggle {
-  border: 2px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--text-muted);
-  font-family: var(--font);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 4px 14px;
-  cursor: pointer;
-}
-
-.composer-toggle:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-
-.composer-toggle.active {
-  color: #3b82f6;
-  font-weight: 600;
-  border: 2px solid transparent;
-  background:
-    linear-gradient(var(--bg), var(--bg)) padding-box,
-    linear-gradient(135deg, #a5e8ff, #5ec8f8, #4d7cff, #8b5cf6) border-box;
-}
 
 /* ---- multi-image previews in the composer ---- */
 .preview-grid {
@@ -3901,11 +3855,6 @@ span.conclude-rank-badge {
 .composer textarea:disabled {
   cursor: not-allowed;
   opacity: 0.7;
-}
-
-/* active health-mode toggle: soft breathing glow */
-.composer-toggle.active {
-  animation: healthGlow 2.6s ease-in-out infinite;
 }
 
 /* conclude ready: same gradient border as the active health toggle, static
