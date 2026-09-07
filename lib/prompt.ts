@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import { AGENT_ROOT, assertAllowedAgentFile } from "./pathJail";
 
 // The persona lives in SYSTEM_PROMPT.md (project root) so it can be edited
 // without touching code; re-read per request so edits apply without a restart.
-const PROMPT_FILE = path.join(process.cwd(), "SYSTEM_PROMPT.md");
+const PROMPT_FILE = assertAllowedAgentFile(path.join(AGENT_ROOT, "SYSTEM_PROMPT.md"));
 const FALLBACK_PROMPT =
   "You are InsChat, a friendly and concise assistant. Answer clearly, use plain language, and format longer answers with markdown.";
 
