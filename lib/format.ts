@@ -18,6 +18,11 @@ export function parseLimitPayload(
   return { window, resetAt };
 }
 
+export function formatElapsed(seconds: number): string {
+  const rounded = Math.round(seconds * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
 export function formatLimitReset(
   timestamp: number,
   lang: "zh" | "en"

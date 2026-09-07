@@ -7,6 +7,7 @@ import "highlight.js/styles/github.css";
 import type { ChatImage } from "@/lib/types";
 import { modelLabel } from "@/lib/modelLabels";
 import { STR, useUiLang } from "@/lib/i18n";
+import { formatElapsed } from "@/lib/format";
 
 interface SharedMessage {
   role: "user" | "model";
@@ -80,7 +81,7 @@ export default function ShareViewer({ share }: ShareViewerProps) {
               )}
               {message.role === "model" && message.model && (
                 <div className="model-meta">
-                  {message.elapsed !== undefined && <span>{message.elapsed}s · </span>}
+                  {message.elapsed !== undefined && <span>{formatElapsed(message.elapsed)}s · </span>}
                   <span>{modelLabel(message.model)}</span>
                 </div>
               )}
