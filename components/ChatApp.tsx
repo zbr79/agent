@@ -355,12 +355,13 @@ useEffect(() => {
 
       let elapsedValue = 0;
       let contentStarted = false;
+      const startedAt = Date.now();
       const elapsedTimer = setInterval(() => {
-        elapsedValue += 0.1;
+        elapsedValue = Math.round((Date.now() - startedAt) / 100) / 10;
         setMessages((prev) =>
           prev.map((message) =>
             message.id === modelMessage.id
-              ? { ...message, elapsed: (message.elapsed ?? 0) + 0.1 }
+              ? { ...message, elapsed: elapsedValue }
               : message
           )
         );
