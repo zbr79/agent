@@ -112,11 +112,12 @@ export async function* agentChat(
   messages: ChatMessage[],
   timeZone?: string,
   language?: "zh" | "en",
-  freeMode = false
+  freeMode = false,
+  agentTools = false
 ): AsyncGenerator<string> {
   const agent = getAgentClient();
   const session = (await agent.session.create({ body: { title: "inschat" } })).data;
-  const system = getSystemPrompt(timeZone, language, freeMode);
+  const system = getSystemPrompt(timeZone, language, freeMode, agentTools);
   const requestId = Math.random().toString(36).slice(2, 8);
 
   if (process.env.OPENCODE_TEST_LIMIT === "1") {
