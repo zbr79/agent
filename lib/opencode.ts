@@ -212,12 +212,11 @@ interface OpenAiMessage {
 
 function toOpenAiMessages(
   messages: ChatMessage[],
-  timeZone?: string,
   language?: "zh" | "en",
   systemPrompt?: string
 ): OpenAiMessage[] {
   const out: OpenAiMessage[] = [
-    { role: "system", content: systemPrompt ?? getSystemPrompt(timeZone, language) },
+    { role: "system", content: systemPrompt ?? getSystemPrompt(language) },
   ];
   for (const message of messages) {
     const role = message.role === "model" ? "assistant" : "user";
@@ -540,9 +539,7 @@ const MAX_TOOL_ROUNDS = 6;
 // pinned model or pro→flash chain, with an agent loop for tool calls.
 export async function* streamChat(
   messages: ChatMessage[],
-  timeZone?: string,
   language?: "zh" | "en",
-  freeMode = false,
   reasoning: "max" | "medium" | "low" = "max"
 ): AsyncGenerator<string> {
   const lastMessage = messages[messages.length - 1];
@@ -550,9 +547,6 @@ export async function* streamChat(
   const useTools = !hasImage;
   const requestId = Math.random().toString(36).slice(2, 8);
   let chain = getChatChain(hasImage);
-  const systemOverride = freeMode
-    ? getSystemPrompt(timeZone, language, true)
-    : undefined;
   // Text-only sends must not pass earlier photo parts to text models — the
   // free gateway rejects image content (404 "No endpoints for image").
   // Mirror the agent transcript's "[photo attached]" marker so the model
@@ -571,9 +565,7 @@ export async function* streamChat(
       );
   let working: OpenAiMessage[] = toOpenAiMessages(
     sourceMessages,
-    timeZone,
-    language,
-    systemOverride
+    language
   );
   let lastError: unknown = null;
   // True when a paid model in this request failed with quota/balance errors
@@ -658,12 +650,10 @@ export async function* streamChat(
   );
 }
 
-// Non-streaming completion, used by Conclude and the health probe.
+// Non-streaming completion, used by the health probe.
 export async function completeOpenCode(
   model: string,
   messages: ChatMessage[],
-  timeZone?: string,
-  language?: "zh" | "en",
   options?: {
     maxTokens?: number;
     json?: boolean;
@@ -673,7 +663,7 @@ export async function completeOpenCode(
 ): Promise<string> {
   const body: Record<string, unknown> = {
     model,
-    messages: toOpenAiMessages(messages, timeZone, language, options?.systemPrompt),
+    messages: toOpenAiMessages(messages, undefined, options?.systemPrompt),
     stream: false,
     temperature: options?.json ? 0.1 : 0.7,
     reasoning_effort: options?.reasoning ?? "high",

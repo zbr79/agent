@@ -4,25 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import MessageBubble from "./MessageBubble";
 import Composer from "./Composer";
-import ConcludeButton from "./ConcludeButton";
-import ConcludeModal from "./ConcludeModal";
-import type {
-  ChatImage,
-  ChatMessage,
-  ConcludeResult,
-  SessionConclusion,
-} from "@/lib/types";
+import type { ChatImage, ChatMessage } from "@/lib/types";
 import { ModelMarkerParser } from "@/lib/markers";
 import {
   appendGuestMessage,
   createGuestSession,
   getGuestSession,
-  setGuestConclusion,
   truncateGuestSession,
 } from "@/lib/guestStore";
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
 import { STR, useUiLang } from "@/lib/i18n";
-import { useInsulinMode, useReasoningEffort } from "@/lib/prefs";
+import { useReasoningEffort } from "@/lib/prefs";
 
 interface UiMessage {
   id: number;
@@ -77,70 +69,12 @@ export default function ChatApp() {
   const sessionParam = searchParams.get("session");
   const lang = useUiLang();
   const t = STR[lang];
-  const [insulinMode, toggleInsulinMode] = useInsulinMode();
   const [reasoningEffort] = useReasoningEffort();
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
-  const [concludeDraft, setConcludeDraft] = useState<{
-    result: ConcludeResult;
-    sourceText: string;
-  } | null>(null);
-  const [concludeResult, setConcludeResult] = useState<{
-    result: ConcludeResult;
-    sourceText: string;
-  } | null>(null);
-  const [concludeSaved, setConcludeSaved] = useState(false);
-  // The single record this chat owns — later concludes UPDATE it instead of
-  // creating duplicates (one conclusion per chat).
-  const recordIdRef = useRef<string | null>(null);
-
-  // Merge a new reply's conclusion into the accumulated one: meals append
-  // (dedup by name+time, dishes by name — existing dishes keep the user's
-  // edits), and the glucose/time items take the latest reading.
-  const mergeConclusion = useCallback(
-    (next: ConcludeResult): ConcludeResult => {
-      const base = concludeResult?.result;
-      if (!base) return next;
-      const meals = [...(base.meals ?? [])];
-      for (const meal of next.meals ?? []) {
-        const existing = meals.find(
-          (m) => m.name === meal.name && m.time === meal.time
-        );
-        if (existing) {
-          const dishNames = new Set((existing.dishes ?? []).map((d) => d.name));
-          const fresh = (meal.dishes ?? []).filter((d) => !dishNames.has(d.name));
-          if (fresh.length) {
-            existing.dishes = [...(existing.dishes ?? []), ...fresh];
-          }
-        } else {
-          meals.push({ ...meal, dishes: meal.dishes ? [...meal.dishes] : undefined });
-        }
-      }
-      const items = [...(base.items ?? [])];
-      for (const item of next.items ?? []) {
-        // Accumulate: keep every distinct reading (the tail now covers the
-        // whole conversation); exact name+value duplicates are skipped.
-        if (
-          !items.some(
-            (existing) => existing.name === item.name && existing.value === item.value
-          )
-        ) {
-          items.push({ ...item });
-        }
-      }
-      return {
-        title: next.title || base.title,
-        summary: next.summary || base.summary,
-        items,
-        meals,
-      };
-    },
-    [concludeResult]
-  );
-  const [summaryError, setSummaryError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
   // const [shareMsg, setShareMsg] = useState<"link" | "error" | null>(null); // share feature removed
@@ -203,9 +137,6 @@ useEffect(() => {
       return;
     }
     setMessages([]);
-    setConcludeResult(null);
-    setConcludeSaved(false);
-    recordIdRef.current = null;
     if (!id) {
       sessionIdRef.current = null;
       setLoading(false);
@@ -228,8 +159,6 @@ useEffect(() => {
               model?: string;
               elapsed?: number;
             }[];
-            conclusion?: SessionConclusion | null;
-            recordId?: string | null;
           }) => {
             if (sessionIdRef.current !== id) return;
             setMessages(
@@ -243,22 +172,6 @@ useEffect(() => {
                 _id: (message as { _id?: string })._id,
               }))
             );
-            // Restore the saved conclusion (and its record link when known)
-            // so the button opens the stored report instead of re-running
-            // conclude. Older sessions may lack recordId — still restore.
-            if (body.conclusion) {
-              recordIdRef.current = body.recordId ?? null;
-              setConcludeSaved(true);
-              setConcludeResult({
-                result: {
-                  title: body.conclusion.title,
-                  summary: body.conclusion.summary,
-                  items: body.conclusion.items,
-                  meals: body.conclusion.meals,
-                },
-                sourceText: body.conclusion.sourceText ?? "",
-              });
-            }
           }
         )
         .catch(() => {
@@ -293,19 +206,6 @@ useEffect(() => {
         ).then((hydrated) => {
           if (sessionIdRef.current === id) setMessages(hydrated);
         });
-        if (local.conclusion) {
-          recordIdRef.current = local.recordId ?? null;
-          setConcludeSaved(true);
-          setConcludeResult({
-            result: {
-              title: local.conclusion.title,
-              summary: local.conclusion.summary,
-              items: local.conclusion.items,
-              meals: local.conclusion.meals,
-            },
-            sourceText: local.conclusion.sourceText ?? "",
-          });
-        }
       } else {
         sessionIdRef.current = null;
         router.replace("/");
@@ -381,7 +281,6 @@ useEffect(() => {
       abortRef.current = controller;
       const history = toApiMessages(base);
       let aborted = false;
-      let parsedConclude: ConcludeResult | null = null;
 
       try {
         const response = await fetch("/api/chat", {
@@ -391,7 +290,6 @@ useEffect(() => {
             messages: history,
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             language: lang,
-            mode: insulinMode ? "preset" : "free",
             reasoning: reasoningEffort,
           }),
           signal: controller.signal,
@@ -436,8 +334,8 @@ useEffect(() => {
           if (text) {
             freezeElapsed();
             modelText += text;
-            // Health-mode replies end with a <CONCLUDE> JSON tail for the
-            // single-call recording flow — hide it from the bubble.
+            // Legacy sessions may still echo a <CONCLUDE> JSON tail —
+            // never show it in the bubble (defense until it stops appearing).
             const openIdx = modelText.indexOf("<CONCLUDE>");
             const visible = openIdx === -1 ? modelText : modelText.slice(0, openIdx);
             setMessages((prev) =>
@@ -468,66 +366,21 @@ useEffect(() => {
           )
         );
 
-        // Single-call recording: in health mode the reply itself carries the
-        // <CONCLUDE> JSON tail — parse it instead of calling /api/conclude.
-        let savedText = modelText;
-        if (insulinMode) {
-          const match = modelText.match(/<CONCLUDE>([\s\S]*?)<\/CONCLUDE>/);
-          if (match) {
-            const visibleText = modelText.slice(0, match.index).trimEnd();
-            savedText = visibleText;
-            setMessages((prev) =>
-              prev.map((message) =>
-                message.id === modelMessage.id
-                  ? { ...message, text: visibleText }
-                  : message
-              )
-            );
-            try {
-              const raw = JSON.parse(match[1]) as Record<string, unknown>;
-              if (raw && typeof raw === "object") {
-                parsedConclude = {
-                  title:
-                    typeof raw.title === "string" ? raw.title : t["summary.report"],
-                  summary:
-                    typeof raw.summary === "string" ? raw.summary : "",
-                  items: Array.isArray(raw.items) ? (raw.items as ConcludeResult["items"]) : [],
-                  meals: Array.isArray(raw.meals)
-                    ? (raw.meals as ConcludeResult["meals"])
-                    : undefined,
-                };
-              }
-            } catch {
-              parsedConclude = null;
-            }
-          }
-          if (parsedConclude) {
-            const merged = mergeConclusion(parsedConclude);
-            setConcludeSaved(false);
-            setConcludeResult({ result: merged, sourceText: savedText });
-            // Store the conclusion into the chat right away so the button
-            // stays available after a refresh — even before the user saves
-            // the record. The record link is added when they save.
-            const sessionId = sessionIdRef.current;
-            if (sessionId) {
-              const payload = {
-                title: merged.title,
-                summary: merged.summary,
-                items: merged.items,
-                meals: merged.meals,
-                sourceText: savedText,
-              };
-              if (isAuthed) {
-                fetch(`/api/sessions/${sessionId}`, {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ conclusion: payload }),
-                }).catch(() => {});
-              } else {
-                setGuestConclusion(sessionId, payload);
-              }
-            }
-          }
+        // Legacy defense: sessions whose context was built from the removed
+        // persona may still echo the <CONCLUDE> JSON tail for a few messages —
+        // strip it unconditionally from the bubble and the persisted text.
+        const tailMatch = modelText.match(/<CONCLUDE>[\s\S]*?<\/CONCLUDE>/);
+        const savedText = tailMatch
+          ? modelText.slice(0, tailMatch.index).trimEnd()
+          : modelText;
+        if (tailMatch) {
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === modelMessage.id
+                ? { ...message, text: savedText }
+                : message
+            )
+          );
         }
         const sessionId = sessionIdRef.current;
         if (sessionId) {
@@ -569,7 +422,7 @@ useEffect(() => {
         abortRef.current = null;
       }
     },
-    [isAuthed, lang, insulinMode, reasoningEffort]
+    [isAuthed, lang, reasoningEffort]
   );
 
   const send = useCallback(
@@ -779,8 +632,6 @@ useEffect(() => {
   );
 */
 
-  const concludeReady = concludeResult !== null;
-
   return (
     <div className="app">
       {loading ? (
@@ -790,16 +641,6 @@ useEffect(() => {
       ) : messages.length === 0 ? (
         <main className="welcome">
           <h2>{t["welcome.title"]}</h2>
-          <div className="composer-toggles">
-            <button
-              type="button"
-              className={`composer-toggle${insulinMode ? " active" : ""}`}
-              onClick={() => toggleInsulinMode(!insulinMode)}
-              aria-pressed={insulinMode}
-            >
-              {t["settings.insulinMode"]}
-            </button>
-          </div>
           <Composer
             onSend={send}
             onStop={stop}
@@ -823,26 +664,6 @@ useEffect(() => {
         />
       )}
       {messages.length > 0 && (
-        <div className="composer-toggles bottom">
-          <button
-            type="button"
-            className={`composer-toggle${insulinMode ? " active" : ""}`}
-            onClick={() => toggleInsulinMode(!insulinMode)}
-            aria-pressed={insulinMode}
-          >
-            {t["settings.insulinMode"]}
-          </button>
-          {summaryError && <p className="conclusion-error">{summaryError}</p>}
-          <ConcludeButton
-            onClick={() => {
-              if (concludeReady) setConcludeDraft(concludeResult);
-            }}
-            ready={concludeReady}
-            disabled={!concludeReady || sending}
-          />
-        </div>
-      )}
-      {messages.length > 0 && (
         <Composer
           onSend={send}
           onStop={stop}
@@ -855,52 +676,6 @@ useEffect(() => {
           {t["free.notice"]}
         </p>
       )}
-      <ConcludeModal
-        open={concludeDraft !== null}
-        result={concludeDraft?.result ?? null}
-        sourceText={concludeDraft?.sourceText ?? ""}
-        guest={isAuthed === false}
-        recordId={recordIdRef.current}
-        onClose={() => {
-          setConcludeDraft(null);
-        }}
-        onSaved={(edited, savedRecordId) => {
-          recordIdRef.current = savedRecordId;
-          setConcludeSaved(true);
-          // Keep the accumulated conclusion = the edited one, so later
-          // replies merge ON TOP of the user's changes.
-          setConcludeResult({ result: edited, sourceText: concludeDraft?.sourceText ?? "" });
-          // NOTE: do NOT close the modal here — auto-save fires on 退出编辑
-          // and the modal must stay open (only onClose/backdrop/Escape close).
-          // Link the saved record to this session so a refresh restores the
-          // conclusion (button glows → opens the stored report, no re-call).
-          const sessionId = sessionIdRef.current;
-          if (!sessionId) return;
-          const payload = {
-            title: edited.title,
-            summary: edited.summary,
-            items: edited.items,
-            meals: edited.meals,
-            sourceText: concludeDraft?.sourceText ?? "",
-          };
-          if (isAuthed) {
-            fetch(`/api/sessions/${sessionId}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ conclusion: payload }),
-            }).catch(() => {});
-            if (savedRecordId) {
-              fetch(`/api/sessions/${sessionId}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ recordId: savedRecordId }),
-              }).catch(() => {});
-            }
-          } else {
-            setGuestConclusion(sessionId, payload, savedRecordId);
-          }
-        }}
-      />
     </div>
   );
 }

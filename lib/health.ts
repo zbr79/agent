@@ -54,13 +54,10 @@ async function probe(model: string): Promise<HealthResult> {
   const t0 = Date.now();
   try {
     const text = (
-      await completeOpenCode(
-        model,
-        [{ role: "user", text: CHECK_PROMPT }],
-        undefined,
-        undefined,
-        { maxTokens: 16, reasoning: "none" }
-      )
+      await completeOpenCode(model, [{ role: "user", text: CHECK_PROMPT }], {
+        maxTokens: 16,
+        reasoning: "none",
+      })
     ).trim();
     const ms = Date.now() - t0;
     insertCall({ kind: "health", model, ok: true }).catch(() => {});

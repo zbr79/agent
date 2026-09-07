@@ -8,7 +8,6 @@ import { ModelMarkerParser } from "@/lib/markers";
 import { formatLimitReset, parseLimitPayload, type LimitWindow } from "@/lib/format";
 import { AlertTriangle } from "lucide-react";
 import { STR, useUiLang } from "@/lib/i18n";
-import { useInsulinMode } from "@/lib/prefs";
 
 interface UiMessage {
   id: number;
@@ -36,7 +35,6 @@ function toApiMessages(messages: UiMessage[]): ChatMessage[] {
 export default function OpenCodeChat() {
   const lang = useUiLang();
   const t = STR[lang];
-  const [insulinMode, toggleInsulinMode] = useInsulinMode();
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [limitReset, setLimitReset] = useState<number | null>(null);
@@ -88,7 +86,6 @@ export default function OpenCodeChat() {
             messages: history,
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             language: lang,
-            mode: insulinMode ? "preset" : "free",
           }),
           signal: controller.signal,
         });
@@ -185,7 +182,7 @@ export default function OpenCodeChat() {
         abortRef.current = null;
       }
     },
-    [messages, sending, lang, insulinMode]
+    [messages, sending, lang]
   );
 
   const stop = useCallback(() => {
@@ -216,16 +213,6 @@ export default function OpenCodeChat() {
               {t["limit.banner"].replace("{time}", limitTimeLabel)}
             </p>
           )}
-          <div className="composer-toggles">
-            <button
-              type="button"
-              className={`composer-toggle${insulinMode ? " active" : ""}`}
-              onClick={() => toggleInsulinMode(!insulinMode)}
-              aria-pressed={insulinMode}
-            >
-              {t["settings.insulinMode"]}
-            </button>
-          </div>
           <Composer
             sending={sending}
             onSend={send}

@@ -22,8 +22,7 @@ export async function POST(req: Request) {
         : "Invalid request body.";
     return Response.json({ error: message }, { status: 400 });
   }
-  const { messages, timeZone, language, mode, reasoning } = parsed;
-  const freeMode = mode === "free";
+  const { messages, language, reasoning } = parsed;
   // Only the latest message decides whether this send is an image request;
   // earlier photos in the history must not re-route text sends to the
   // paid-only vision chain.
@@ -49,9 +48,7 @@ export async function POST(req: Request) {
             try {
               for await (const text of agentChat(
                 messages,
-                timeZone,
                 language,
-                freeMode,
                 true
               )) {
                 produced = true;
@@ -70,9 +67,7 @@ export async function POST(req: Request) {
           try {
             for await (const text of streamChat(
               messages,
-              timeZone,
               language,
-              freeMode,
               reasoning
             )) {
               produced = true;
@@ -88,7 +83,7 @@ export async function POST(req: Request) {
             throw error;
           }
         }
-        for await (const text of streamChat(messages, timeZone, language, freeMode, reasoning)) {
+        for await (const text of streamChat(messages, language, reasoning)) {
           enqueue(text);
         }
       } catch (error) {

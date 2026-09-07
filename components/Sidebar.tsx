@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, Sparkles, ChevronRight, Languages, Activity, Gauge, LogOut, ImageDown } from "lucide-react";
+import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, Sparkles, ChevronRight, Languages, Gauge, LogOut, ImageDown } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
 import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
 import SearchModal from "./SearchModal";
 import AuthModal from "./AuthModal";
-import { useInsulinMode, useCompressImages } from "@/lib/prefs";
+import { useCompressImages } from "@/lib/prefs";
 import { listGuestRecords } from "@/lib/guestStore";
 import type { SavedRecord } from "@/lib/types";
 
@@ -62,7 +62,6 @@ export default function Sidebar() {
   const [authOpen, setAuthOpen] = useState(false);
   const [authNonce, setAuthNonce] = useState(0);
   const [records, setRecords] = useState<SavedRecord[] | null>(null);
-  const [insulinMode, toggleInsulinMode] = useInsulinMode();
   const [compressImages, setCompressImages] = useCompressImages();
   const [menuFor, setMenuFor] = useState<{
     id: string;
@@ -598,22 +597,6 @@ export default function Sidebar() {
               <option value="zh">中文</option>
               <option value="en">English</option>
             </select>
-          </label>
-          <label className="settings-row">
-            <span className="settings-row-icon">
-              <Activity size={16} />
-            </span>
-            <span className="settings-label">{t["settings.insulinMode"]}</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={insulinMode}
-              className={`switch${insulinMode ? " on" : ""}`}
-              onClick={() => toggleInsulinMode(!insulinMode)}
-              aria-label={t["settings.insulinMode"]}
-            >
-              <span className="switch-knob" />
-            </button>
           </label>
           <label className="settings-row">
             <span className="settings-row-icon">

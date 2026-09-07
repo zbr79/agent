@@ -1,12 +1,6 @@
-import fs from "node:fs";
-import path from "node:path";
-import { AGENT_ROOT, assertAllowedAgentFile } from "./pathJail";
-
-// The persona lives in SYSTEM_PROMPT.md (project root) so it can be edited
-// without touching code; re-read per request so edits apply without a restart.
-const PROMPT_FILE = assertAllowedAgentFile(path.join(AGENT_ROOT, "SYSTEM_PROMPT.md"));
-const FALLBACK_PROMPT =
-  "You are InsChat, a friendly and concise assistant. Answer clearly, use plain language, and format longer answers with markdown.";
+// Free-chat system prompts only. The insulin (preset) persona file
+// SYSTEM_PROMPT.md and its template branch were removed — see
+// PLAN_REMOVE_INSULIN_MODE.md.
 
 // Used by the local opencode serve path (file tools under AGENT_ROOT).
 const AGENT_WORKSPACE_TOOLS =
@@ -32,53 +26,14 @@ export function isValidTimeZone(timeZone: unknown): timeZone is string {
   }
 }
 
-function currentTimeLabel(timeZone: string): string {
-  try {
-    const parts = new Intl.DateTimeFormat("zh-CN", {
-      timeZone,
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    }).formatToParts(new Date());
-    const get = (type: string) =>
-      parts.find((part) => part.type === type)?.value ?? "";
-    return `${get("year")}年${get("month")}月${get("day")}日 ${get("dayPeriod")} ${get("hour")}:${get("minute")}`;
-  } catch {
-    return new Date().toISOString();
-  }
-}
-
 export function getSystemPrompt(
-  timeZone?: string,
   language?: "zh" | "en",
-  freeMode = false,
   agentTools = false
 ): string {
-  const zone =
-    timeZone && isValidTimeZone(timeZone)
-      ? timeZone
-      : process.env.RECORD_TIMEZONE || "Asia/Shanghai";
-  if (freeMode) {
-    const modeLine =
-      language === "en"
-        ? "\n\nUI language mode: English — use English only when the user's message has no language cues (photo alone, bare number)."
-        : "\n\nUI语言模式：中文 — 仅在用户消息没有语言线索（纯图片、纯数字）时使用中文。";
-    const base = agentTools ? FREE_AGENT_PROMPT : FREE_PROMPT;
-    return `${base}${modeLine}`;
-  }
-  try {
-    const prompt = fs.readFileSync(PROMPT_FILE, "utf8").trim();
-    if (prompt) {
-      const modeLine =
-        language === "en"
-          ? "\n\nUI language mode: English — use English only when the user's message has no language cues (photo alone, bare number)."
-          : "\n\nUI语言模式：中文 — 仅在用户消息没有语言线索（纯图片、纯数字）时使用中文。";
-      const toolsLine = agentTools ? `\n\n${AGENT_WORKSPACE_TOOLS}` : "";
-      return `${prompt}${modeLine}${toolsLine}\n\n当前时间（${zone}）: ${currentTimeLabel(zone)}`;
-    }
-  } catch {}
-  return FALLBACK_PROMPT;
+  const modeLine =
+    language === "en"
+      ? "\n\nUI language mode: English — use English only when the user's message has no language cues (photo alone, bare number)."
+      : "\n\nUI语言模式：中文 — 仅在用户消息没有语言线索（纯图片、纯数字）时使用中文。";
+  const base = agentTools ? FREE_AGENT_PROMPT : FREE_PROMPT;
+  return `${base}${modeLine}`;
 }

@@ -6,7 +6,11 @@
     "webfetch": "allow",
     "websearch": "allow",
     "external_directory": "deny",
-    "bash": "deny",
+    "bash": {
+      "*": "deny",
+      "npm run build": "allow",
+      "npm run build *": "allow",
+    },
     "list": "allow",
     "glob": "allow",
     "grep": "allow",
