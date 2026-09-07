@@ -1,6 +1,5 @@
 import {
   chatErrorMessage,
-  getOpenCodeOfficialUsage,
   imageExhaustedText,
   isBalanceError,
   quotaResetInfo,
@@ -41,34 +40,20 @@ export async function POST(req: Request) {
 
       try {
         if (!hasImage) {
-          // Direct engine first: measured 0.2s first-token on multi-turn
-          // conversations vs 16-22s through the opencode agent server (its
-          // agent loop reasons pathologically hard once assistant turns
-          // exist). The agent stays as the fallback.
-          const official = await getOpenCodeOfficialUsage();
-          const quotaExhausted =
-            official !== null &&
-            (official.monthly?.status === "rate-limited" ||
-              official.rolling.percent >= 100);
-          const agentReady = !quotaExhausted && (await isAgentUp());
-          let produced = false;
-          try {
-            for await (const text of streamChat(messages, timeZone, language, freeMode, reasoning)) {
-              produced = true;
-              enqueue(text);
-            }
-            return;
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            console.log(
-              `[chat] direct failed${produced ? " mid-stream" : ""} → ${message.slice(0, 160)}`
-            );
-            if (produced) return;
-          }
-          if (agentReady) {
-            produced = false;
+          // Agent first: this product is the agent site. Prefer local
+          // filesystem tools (read/glob/edit) via opencode serve, matching
+          // /api/opencode. Fall back to the direct zen engine only when the
+          // agent is down or fails before producing any tokens.
+          if (await isAgentUp()) {
+            let produced = false;
             try {
-              for await (const text of agentChat(messages, timeZone, language, freeMode)) {
+              for await (const text of agentChat(
+                messages,
+                timeZone,
+                language,
+                freeMode,
+                true
+              )) {
                 produced = true;
                 enqueue(text);
               }
@@ -80,6 +65,27 @@ export async function POST(req: Request) {
               );
               if (produced) return;
             }
+          }
+          let produced = false;
+          try {
+            for await (const text of streamChat(
+              messages,
+              timeZone,
+              language,
+              freeMode,
+              reasoning
+            )) {
+              produced = true;
+              enqueue(text);
+            }
+            return;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.log(
+              `[chat] direct failed${produced ? " mid-stream" : ""} → ${message.slice(0, 160)}`
+            );
+            if (produced) return;
+            throw error;
           }
         }
         for await (const text of streamChat(messages, timeZone, language, freeMode, reasoning)) {
