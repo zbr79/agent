@@ -40,7 +40,7 @@ export default function ShareViewer({ share }: ShareViewerProps) {
     return (
       <div className="share-page">
         <div className="share-missing">
-          <h1>InsChat</h1>
+          <h1>Agent</h1>
           <p>{t["share.unavailable"]}</p>
         </div>
       </div>
@@ -50,7 +50,7 @@ export default function ShareViewer({ share }: ShareViewerProps) {
   return (
     <div className="share-page">
       <header className="share-head">
-        <h1>InsChat</h1>
+        <h1>Agent</h1>
         <h2>{share.title}</h2>
         <p className="share-meta">
           {t["share.shared"]} {share.kind === "chat" ? t["share.conversation"] : t["share.message"]} ·{" "}

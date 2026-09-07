@@ -1,6 +1,11 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { getSystemPrompt } from "./prompt";
-import { encodeModelMarker, encodeTryingMarker } from "./markers";
+import {
+  encodeActivityMarker,
+  encodeModelMarker,
+  encodeTryingMarker,
+  type ActivityStatus,
+} from "./markers";
 import { insertCall } from "./db";
 import type { ChatMessage } from "./types";
 
@@ -9,7 +14,7 @@ const AGENT_TIMEOUT_MS = 900_000;
 // The opencode server can hang on a prompt instead of erroring (e.g. when
 // the subscription is exhausted). Give up sooner so the direct engine path
 // answers instead of the user staring at a silent reply for 3 minutes.
-const AGENT_PROMPT_TIMEOUT_MS = 45_000;
+const AGENT_PROMPT_TIMEOUT_MS = 900_000;
 
 interface OpencodeClient {
   session: {
@@ -82,7 +87,7 @@ function buildTranscript(messages: ChatMessage[]): string {
   });
   return `Here is the conversation so far:\n\n${lines.join(
     "\n\n"
-  )}\n\nReply as InsChat to the last message.`;
+  )}\n\nReply as Agent to the last message.`;
 }
 
 interface AgentEvent {
@@ -95,7 +100,16 @@ interface AgentEvent {
       type?: string;
       text?: string;
       tool?: string;
-      state?: { status?: string; title?: string };
+      hash?: string;
+      files?: string[];
+      state?: {
+        status?: string;
+        title?: string;
+        input?: Record<string, unknown>;
+        output?: string;
+        error?: string;
+        metadata?: Record<string, unknown>;
+      };
     };
     partID?: string;
     messageID?: string;
@@ -104,6 +118,95 @@ interface AgentEvent {
     status?: { type?: string };
   };
 }
+
+
+function truncateDetail(text: string, max = 400): string {
+  const cleaned = text.replace(/\r/g, "").trim();
+  if (cleaned.length <= max) return cleaned;
+  return `${cleaned.slice(0, max)}…`;
+}
+
+function countDiffLines(text: string): { additions?: number; deletions?: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@")) continue;
+    if (line.startsWith("+")) additions += 1;
+    else if (line.startsWith("-")) deletions += 1;
+  }
+  if (!additions && !deletions) return {};
+  return { additions, deletions };
+}
+
+function toolPathFromInput(input: Record<string, unknown>): string {
+  return (
+    (typeof input.path === "string" && input.path) ||
+    (typeof input.filePath === "string" && input.filePath) ||
+    (typeof input.file === "string" && input.file) ||
+    (typeof input.target === "string" && input.target) ||
+    ""
+  );
+}
+
+function toolCommandFromInput(input: Record<string, unknown>): string {
+  return (
+    (typeof input.command === "string" && input.command) ||
+    (typeof input.cmd === "string" && input.cmd) ||
+    ""
+  );
+}
+
+function capitalizeWord(word: string): string {
+  if (!word) return word;
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+/** Human-readable process line for the transcript stream (OpenCode-ish log). */
+function formatProcessLine(opts: {
+  tool?: string;
+  path?: string;
+  title?: string;
+  command?: string;
+  status: ActivityStatus;
+  additions?: number;
+  deletions?: number;
+  kind?: string;
+}): string {
+  const tool = (opts.tool || opts.kind || "step").toLowerCase();
+  const target =
+    (opts.path || "").trim() ||
+    (opts.title || "").trim() ||
+    (opts.command ? truncateDetail(opts.command, 72) : "") ||
+    tool;
+  let line: string;
+  if (tool === "bash" || tool === "shell") {
+    line = `→ Ran: ${target}`;
+  } else if (
+    tool === "edit" ||
+    tool === "write" ||
+    tool === "apply_patch" ||
+    tool === "patch"
+  ) {
+    line = `→ Edited ${target}`;
+  } else if (tool === "read" || tool === "list") {
+    line = `→ Read ${target}`;
+  } else if (tool === "grep") {
+    line = `→ Grep ${target}`;
+  } else if (tool === "glob") {
+    line = `→ Glob ${target}`;
+  } else {
+    line = `→ ${capitalizeWord(tool)} ${target}`;
+  }
+  if (opts.additions != null || opts.deletions != null) {
+    line += ` (+${opts.additions ?? 0} -${opts.deletions ?? 0})`;
+  } else if (opts.status === "error") {
+    line += " ✗";
+  } else if (opts.status === "completed" && (tool === "bash" || tool === "shell")) {
+    line += " ✓";
+  }
+  return line;
+}
+
 
 // Streams the agent's answer from the opencode server. Throws before the
 // first token if the server is unreachable or the prompt fails — the caller
@@ -140,6 +243,7 @@ export async function* agentChat(
     let produced = false;
     let modelName: string | null = null;
     let toolHits = new Set<string>();
+    let toolStatus = new Map<string, ActivityStatus>();
     let idle = false;
     let failed: Error | null = null;
     let promptSettled = false;
@@ -204,11 +308,143 @@ export async function* agentChat(
               if (part?.id && part?.type) {
                 partTypes.set(part.id, part.type);
               }
-              if (part?.type === "tool" && !toolHits.has(part.tool ?? "")) {
-                toolHits.add(part.tool ?? "");
-                const label = part.state?.title || part.tool || "tool";
-                yield encodeTryingMarker(`${label}`.slice(0, 60));
-                console.log(`[agent:${requestId}] tool ${part.tool} (${part.state?.status})`);
+              if (part?.type === "patch") {
+                const patchKey = part.id || `patch:${part.hash || "files"}`;
+                const files = Array.isArray(part.files) ? part.files.filter((f) => typeof f === "string") : [];
+                const title = files.length === 1 ? files[0] : files.length ? `${files.length} files` : "patch";
+                const last = toolStatus.get(patchKey);
+                if (last !== "completed") {
+                  toolStatus.set(patchKey, "completed");
+                  yield encodeActivityMarker({
+                    id: patchKey,
+                    kind: "patch",
+                    tool: "patch",
+                    title,
+                    path: files[0],
+                    status: "completed",
+                    detail: files.length ? files.join(", ") : undefined,
+                    output: files.length ? files.map((f) => `• ${f}`).join("\n") : undefined,
+                  });
+                  if (!produced) {
+                    produced = true;
+                    yield encodeModelMarker(modelName ?? "qwen3.8-flash");
+                  }
+                  yield `\n${formatProcessLine({
+                    tool: "patch",
+                    path: files[0],
+                    title,
+                    status: "completed",
+                    kind: "patch",
+                  })}\n`;
+                  console.log(`[agent:${requestId}] patch ${title}`);
+                }
+              }
+              if (part?.type === "tool") {
+                const toolKey = part.id || part.tool || "tool";
+                const rawStatus = part.state?.status || "";
+                let activityStatus: ActivityStatus | null = null;
+                if (rawStatus === "pending" || rawStatus === "running") {
+                  activityStatus = "running";
+                } else if (rawStatus === "completed") {
+                  activityStatus = "completed";
+                } else if (rawStatus === "error") {
+                  activityStatus = "error";
+                }
+                const input = part.state?.input ?? {};
+                const pathish = toolPathFromInput(input);
+                const command = toolCommandFromInput(input);
+                const toolName = (part.tool || "tool").toLowerCase();
+                const title =
+                  pathish ||
+                  (part.state?.title && String(part.state.title)) ||
+                  (command ? command.slice(0, 80) : "") ||
+                  undefined;
+                const outputRaw =
+                  typeof part.state?.output === "string" ? part.state.output : "";
+                const errorRaw =
+                  typeof part.state?.error === "string" ? part.state.error : "";
+                const isEditTool =
+                  toolName === "edit" ||
+                  toolName === "write" ||
+                  toolName === "apply_patch" ||
+                  toolName === "patch";
+                let detail: string | undefined =
+                  pathish || (command ? truncateDetail(command, 120) : undefined);
+                let output: string | undefined;
+                let additions: number | undefined;
+                let deletions: number | undefined;
+                if (activityStatus === "completed" || activityStatus === "error") {
+                  const body = activityStatus === "error" ? errorRaw || outputRaw : outputRaw;
+                  if (body) {
+                    output = truncateDetail(body, isEditTool ? 1200 : 600);
+                    if (isEditTool || body.includes("\n+") || body.includes("\n-")) {
+                      const counts = countDiffLines(body);
+                      additions = counts.additions;
+                      deletions = counts.deletions;
+                    }
+                    if (isEditTool && !detail) detail = pathish || title;
+                    if (!isEditTool && command) {
+                      detail = truncateDetail(command, 160);
+                    } else if (!isEditTool && body && !pathish) {
+                      detail = truncateDetail(body.split("\n")[0] || body, 120);
+                    }
+                  } else if (isEditTool && pathish) {
+                    detail = `edited ${pathish}`;
+                  }
+                }
+                if (activityStatus) {
+                  const last = toolStatus.get(toolKey);
+                  // Re-emit on completed/error even if status unchanged so richer
+                  // output/diff can replace a bare running→completed stub.
+                  const richer =
+                    (activityStatus === "completed" || activityStatus === "error") &&
+                    (output || additions != null || deletions != null);
+                  if (last !== activityStatus || richer) {
+                    toolStatus.set(toolKey, activityStatus);
+                    yield encodeActivityMarker({
+                      id: toolKey,
+                      kind: "tool",
+                      tool: part.tool || "tool",
+                      title,
+                      path: pathish || undefined,
+                      status: activityStatus,
+                      detail,
+                      output,
+                      additions,
+                      deletions,
+                    });
+                    // Mirror completed/error tools into the transcript as process lines
+                    // so the center pane narrates work even if the Activity rail is ignored.
+                    if (activityStatus === "completed" || activityStatus === "error") {
+                      if (!produced) {
+                        produced = true;
+                        yield encodeModelMarker(modelName ?? "qwen3.8-flash");
+                      }
+                      yield `\n${formatProcessLine({
+                        tool: part.tool || "tool",
+                        path: pathish || undefined,
+                        title,
+                        command: command || undefined,
+                        status: activityStatus,
+                        additions,
+                        deletions,
+                      })}\n`;
+                    }
+                    console.log(
+                      `[agent:${requestId}] tool ${part.tool} (${activityStatus}) ${title ?? ""}`.trim()
+                    );
+                  }
+                }
+                // Keep TRYING chips for older UI paths / processSteps trail.
+                if (
+                  activityStatus === "running" &&
+                  toolKey &&
+                  !toolHits.has(toolKey)
+                ) {
+                  toolHits.add(toolKey);
+                  const label = title || part.tool || "tool";
+                  yield encodeTryingMarker(`${label}`.slice(0, 60));
+                }
               }
             } else if (event.type === "session.idle") {
               idle = true;
@@ -222,24 +458,17 @@ export async function* agentChat(
       }
     })();
 
-    // Wait for the prompt to settle, reading events concurrently. The
-    // opencode server can hang instead of erroring when the subscription is
-    // exhausted — enforce a hard timeout so callers can fall back.
-    const promptPromise = Promise.race([
-      agent.session.prompt({
-        path: { id: session.id },
-        body: {
-          system,
-          parts: [{ type: "text", text: buildTranscript(messages) }],
-        },
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error("Agent prompt timed out after 45s.")),
-          AGENT_PROMPT_TIMEOUT_MS
-        )
-      ),
-    ]);
+    // Start the prompt without blocking the event pump. Previously we
+    // awaited prompt settlement first, which meant TRYING markers and
+    // tokens only flushed after tools finished — the UI stuck on
+    // "Working…" with no chips for the whole wait.
+    const promptPromise = agent.session.prompt({
+      path: { id: session.id },
+      body: {
+        system,
+        parts: [{ type: "text", text: buildTranscript(messages) }],
+      },
+    });
 
     interface PromptInfo {
       cost?: number;
@@ -253,23 +482,51 @@ export async function* agentChat(
       };
     }
 
-    // Wait for the prompt to settle, reading events concurrently.
-    const promptResult = await promptPromise
+    type PromptResult =
+      | { status: "ok"; info: PromptInfo | undefined }
+      | { status: "error"; info: undefined };
+
+    let promptResult: PromptResult | null = null;
+    const promptResultPromise: Promise<PromptResult> = Promise.race([
+      promptPromise,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Agent prompt timed out after ${AGENT_PROMPT_TIMEOUT_MS / 1000}s.`
+              )
+            ),
+          AGENT_PROMPT_TIMEOUT_MS
+        )
+      ),
+    ])
       .then(
         (result) =>
           ({
             status: "ok" as const,
             info: (result as { data?: { info?: PromptInfo } }).data?.info,
-          })
+          }) satisfies PromptResult
       )
       .catch((error: unknown) => {
         failed = error instanceof Error ? error : new Error(String(error));
-        return { status: "error" as const, info: undefined };
+        return { status: "error" as const, info: undefined } satisfies PromptResult;
+      })
+      .then((result) => {
+        promptResult = result;
+        promptSettled = true;
+        return result;
       });
-    promptSettled = true;
+
+    // Yield SSE chunks to the client while the prompt is still running.
     for await (const text of readEvents) {
       yield text;
     }
+
+    const settledResult: PromptResult =
+      promptResult ?? (await promptResultPromise);
+    promptResult = settledResult;
+
 
     // The event stream often delivers the first token before message.updated
     // (which carries the model id), leaving modelName null — the UI chip and

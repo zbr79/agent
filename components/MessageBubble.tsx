@@ -7,7 +7,6 @@ import rehypeHighlight from "rehype-highlight";
 import { Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import "highlight.js/styles/github.css";
 import ImageViewer from "./ImageViewer";
-import type { ConcludeResult } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
 import { modelLabel } from "@/lib/modelLabels";
 import { formatElapsed } from "@/lib/format";
@@ -21,6 +20,7 @@ interface Message {
   failed?: boolean;
   model?: string;
   trying?: string;
+  processSteps?: string[];
   elapsed?: number;
 }
 
@@ -126,18 +126,20 @@ export default function MessageBubble({
 
   return (
     <main className="messages">
-      {messages.map((message, index) => {
+      {messages.map((message) => {
         const imageUrls = (message.images ?? []).map((image) => dataUrl(image));
         const splitImages =
           message.role === "user" && imageUrls.length > 0 && message.text
             ? imageUrls
             : null;
         const isEditing = editingId === message.id;
+        const processWaiting =
+          message.streaming && !message.text && message.role === "model";
         return (
         <div
           key={message.id}
           id={`msg-${message.id}`}
-          className={`message ${message.role}${flashId === message.id ? " flash" : ""}`}
+          className={`message ${message.role}${message.role === "model" ? " transcript" : ""}${flashId === message.id ? " flash" : ""}`}
         >
           <div className="message-body">
             {isEditing ? (
@@ -186,13 +188,58 @@ export default function MessageBubble({
                   </ReactMarkdown>
                 </div>
               </>
+            ) : message.role === "model" ? (
+              <div className="transcript-entry">
+                {imageUrls.map((url, imageIndex) => (
+                  <img
+                    key={imageIndex}
+                    src={url}
+                    alt={t["composer.uploadedAlt"]}
+                    onClick={() => setViewer(url)}
+                  />
+                ))}
+                {processWaiting && (
+                  <div className="process-panel" aria-live="polite">
+                    <span className="thinking">
+                      <span className="thinking-label">
+                        {t["process.working"] || t["thinking"]}
+                      </span>
+                      <span className="thinking-dots" aria-hidden="true">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                    </span>
+                  </div>
+                )}
+                {(message.processSteps?.length ?? 0) > 0 && (
+                  <div className="process-steps" aria-label="process">
+                    {message.processSteps!.map((step, idx) => (
+                      <div key={`${message.id}-step-${idx}`} className="process-step-line">
+                        → {step}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {message.text && (
+                  <div className="transcript-body">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeHighlight]}
+                    >
+                      {preserveLineBreaks(message.text)}
+                    </ReactMarkdown>
+                  </div>
+                )}
+                {message.streaming && message.text && <span className="cursor" />}
+              </div>
             ) : (
               <div className="bubble">
                 {imageUrls.map((url, imageIndex) => (
                   <img
                     key={imageIndex}
                     src={url}
-                     alt={t["composer.uploadedAlt"]}
+                    alt={t["composer.uploadedAlt"]}
                     onClick={() => setViewer(url)}
                   />
                 ))}
@@ -204,18 +251,6 @@ export default function MessageBubble({
                     {preserveLineBreaks(message.text)}
                   </ReactMarkdown>
                 )}
-                {message.streaming && !message.text && (
-                  <span className="thinking">
-                    {!message.trying && message.model && (
-                      <span className="thinking-label">{t["thinking"]}</span>
-                    )}
-                    <span className="thinking-dots" aria-hidden="true">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                  </span>
-                )}
                 {message.streaming && message.text && <span className="cursor" />}
               </div>
             )}
@@ -226,12 +261,17 @@ export default function MessageBubble({
                     {renderButtons(true, message)}
                   </div>
                 )}
-                {!message.failed && message.model && (
+                {!message.failed &&
+                  (message.model ||
+                    (!message.streaming && message.elapsed !== undefined)) && (
                   <div className={`model-meta${message.streaming ? " live" : ""}`}>
-                    {!message.streaming && message.elapsed !== undefined && (
-                      <span>{formatElapsed(message.elapsed)}s · </span>
+                    {message.elapsed !== undefined && !message.streaming && (
+                      <span>
+                        {formatElapsed(message.elapsed)}s
+                        {message.model ? " · " : ""}
+                      </span>
                     )}
-                    <span>{modelLabel(message.model)}</span>
+                    {message.model && <span>{modelLabel(message.model)}</span>}
                   </div>
                 )}
               </div>

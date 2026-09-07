@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, Sparkles, ChevronRight, Languages, Gauge, LogOut, ImageDown } from "lucide-react";
+import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
 import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
@@ -383,7 +383,7 @@ export default function Sidebar() {
           <Menu size={20} />
         </button>
         <Link href="/" className="mobile-brand">
-          InsChat
+          Agent
         </Link>
       </div>
       {menuOpen && (
@@ -409,9 +409,9 @@ export default function Sidebar() {
       >
         <div className="sidebar-brand-row">
           <span className="brand-mark">
-            <Sparkles size={16} />
+            <img src="/icon.svg" width={28} height={28} alt="" />
           </span>
-          <span className="brand-name">InsChat</span>
+          <span className="brand-name">Agent</span>
           <button
             type="button"
             className="sidebar-hide"

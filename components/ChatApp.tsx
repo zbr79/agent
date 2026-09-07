@@ -4,6 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import MessageBubble from "./MessageBubble";
 import Composer from "./Composer";
+import ActivityPanel, {
+  finalizeRunningActivities,
+  hasSuccessfulProgress,
+  hasToolErrors,
+  upsertActivity,
+  type ActivityItem,
+} from "./ActivityPanel";
 import type { ChatImage, ChatMessage } from "@/lib/types";
 import { ModelMarkerParser } from "@/lib/markers";
 import {
@@ -25,12 +32,118 @@ interface UiMessage {
   failed?: boolean;
   model?: string;
   trying?: string;
+  processSteps?: string[];
   elapsed?: number;
   _id?: string;
   _index?: string;
 }
 
 let nextId = 1;
+
+function isConnectionLossError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (!(error instanceof Error)) return false;
+  const msg = (error.message || "").toLowerCase();
+  return (
+    error.name === "TypeError" ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("network error") ||
+    msg.includes("fetch failed") ||
+    msg.includes("load failed") ||
+    msg.includes("connection") ||
+    msg.includes("aborted")
+  );
+}
+
+
+
+const WORKLOG_KEY = "agent.renstoolbox.worklog.v1";
+
+type WorkLogSnapshot = {
+  activities: ActivityItem[];
+  assistantSnippet?: string;
+  endHint?: "completed" | "completed_closed" | "failed" | "interrupted" | null;
+  sessionId?: string | null;
+  savedAt: number;
+};
+
+function loadWorkLog(): WorkLogSnapshot | null {
+  try {
+    const raw = sessionStorage.getItem(WORKLOG_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as WorkLogSnapshot;
+    if (!parsed || !Array.isArray(parsed.activities)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveWorkLog(snapshot: WorkLogSnapshot) {
+  try {
+    sessionStorage.setItem(WORKLOG_KEY, JSON.stringify(snapshot));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function clearWorkLog() {
+  try {
+    sessionStorage.removeItem(WORKLOG_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+type RunEndHint = "completed" | "completed_closed" | "failed" | "interrupted" | null;
+
+function classifyRunEnd(opts: {
+  aborted: boolean;
+  connectionLost: boolean;
+  hardError: boolean;
+  activities: ActivityItem[];
+  hadText: boolean;
+}): { endHint: RunEndHint; failedMessage: boolean; finalizeAs: "error" | "interrupted" | "completed" } {
+  const { aborted, connectionLost, hardError, activities, hadText } = opts;
+  const useful = hasSuccessfulProgress(activities) || hadText;
+  const toolErrors = hasToolErrors(activities);
+
+  if (aborted) {
+    return {
+      endHint: useful ? "interrupted" : "interrupted",
+      failedMessage: false,
+      finalizeAs: "interrupted",
+    };
+  }
+  if (toolErrors && !connectionLost) {
+    return { endHint: "failed", failedMessage: true, finalizeAs: "error" };
+  }
+  if (connectionLost) {
+    // Deferred restart / socket close after successful edits/builds → Completed
+    // (connection closed). Never paint this as Interrupted/Failed.
+    if (useful) {
+      return {
+        endHint: "completed_closed",
+        failedMessage: false,
+        finalizeAs: "completed",
+      };
+    }
+    // Connection lost before useful work — Interrupted, not Failed.
+    return {
+      endHint: "interrupted",
+      failedMessage: false,
+      finalizeAs: "interrupted",
+    };
+  }
+  if (hardError && !useful) {
+    return { endHint: "failed", failedMessage: true, finalizeAs: "error" };
+  }
+  if (toolErrors) {
+    return { endHint: "failed", failedMessage: true, finalizeAs: "error" };
+  }
+  return { endHint: "completed", failedMessage: false, finalizeAs: "completed" };
+}
 
 function toApiMessages(messages: UiMessage[]): ChatMessage[] {
   return messages
@@ -39,6 +152,13 @@ function toApiMessages(messages: UiMessage[]): ChatMessage[] {
         !message.failed && (message.text || (message.images?.length ?? 0) > 0)
     )
     .map(({ role, text, images }) => ({ role, text, images }));
+}
+
+
+function appendProcessStep(steps: string[] | undefined, step: string): string[] {
+  const list = steps ?? [];
+  if (list.includes(step)) return list;
+  return [...list, step];
 }
 
 function persistMessage(
@@ -82,7 +202,15 @@ export default function ChatApp() {
   const handledMsgRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const userStoppedRef = useRef(false);
   const [freeNotice, setFreeNotice] = useState(false);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [activityLive, setActivityLive] = useState(false);
+  const [activityEndHint, setActivityEndHint] = useState<RunEndHint>(null);
+  const [activityRailOpen, setActivityRailOpen] = useState(false);
+  const [assistantSnippet, setAssistantSnippet] = useState("");
+  const activitiesRef = useRef<ActivityItem[]>([]);
+  const restoredWorkLogRef = useRef(false);
 
   // Free-model notice: centered gray text, auto-dismisses after a few seconds.
   useEffect(() => {
@@ -90,6 +218,33 @@ export default function ChatApp() {
     const timer = setTimeout(() => setFreeNotice(false), 6000);
     return () => clearTimeout(timer);
   }, [freeNotice]);
+
+  useEffect(() => {
+    activitiesRef.current = activities;
+  }, [activities]);
+
+  // Restore last run work log after refresh so Activity trail survives reload.
+  useEffect(() => {
+    if (restoredWorkLogRef.current) return;
+    restoredWorkLogRef.current = true;
+    const snap = loadWorkLog();
+    if (!snap?.activities?.length) return;
+    setActivities(snap.activities);
+    setActivityEndHint(snap.endHint ?? "completed");
+    if (snap.assistantSnippet) setAssistantSnippet(snap.assistantSnippet);
+  }, []);
+
+  // Persist work log whenever the trail or end hint changes (not while empty+idle).
+  useEffect(() => {
+    if (!activities.length && !activityEndHint) return;
+    saveWorkLog({
+      activities,
+      assistantSnippet: assistantSnippet || undefined,
+      endHint: activityEndHint,
+      sessionId: sessionIdRef.current,
+      savedAt: Date.now(),
+    });
+  }, [activities, activityEndHint, assistantSnippet]);
 
   // Auth state refresh: runs on mount, on URL changes, and when the sidebar
 // signals login/logout ("inschat-auth") — ChatApp never remounts for those,
@@ -139,6 +294,10 @@ useEffect(() => {
     setMessages([]);
     if (!id) {
       sessionIdRef.current = null;
+      setActivities([]);
+      setActivityEndHint(null);
+      setAssistantSnippet("");
+      clearWorkLog();
       setLoading(false);
       return;
     }
@@ -247,41 +406,31 @@ useEffect(() => {
         role: "model",
         text: "",
         streaming: true,
-        elapsed: 0,
+        processSteps: [],
       };
       setMessages([...base, modelMessage]);
       setSending(true);
       setFreeNotice(false);
+      setActivities([]);
+      activitiesRef.current = [];
+      setActivityEndHint(null);
+      setAssistantSnippet("");
+      setActivityLive(true);
+      clearWorkLog();
 
-      let elapsedValue = 0;
-      let contentStarted = false;
       const startedAt = Date.now();
-      const elapsedTimer = setInterval(() => {
+      let elapsedValue = 0;
+      const finalizeElapsed = () => {
         elapsedValue = Math.round((Date.now() - startedAt) / 100) / 10;
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === modelMessage.id
-              ? { ...message, elapsed: elapsedValue }
-              : message
-          )
-        );
-      }, 100);
-
-      // The reply is perceived as "done" once the first words arrive — freeze
-      // the elapsed timer there instead of counting the whole stream tail
-      // (the model keeps streaming reasoning/health tail for seconds after).
-      const freezeElapsed = () => {
-        if (!contentStarted) {
-          contentStarted = true;
-          clearInterval(elapsedTimer);
-        }
       };
 
+      userStoppedRef.current = false;
       const controller = new AbortController();
       abortRef.current = controller;
       const history = toApiMessages(base);
       let aborted = false;
 
+      let modelText = "";
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
@@ -302,14 +451,20 @@ useEffect(() => {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         const parser = new ModelMarkerParser();
-        let modelText = "";
         let modelName: string | undefined;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const { text, model, trying, free } = parser.push(
+          const { text, model, trying, tryings, free, activities: incomingActivities } = parser.push(
             decoder.decode(value, { stream: true })
           );
+          if (incomingActivities?.length) {
+            setActivities((prev) => {
+              const next = upsertActivity(prev, incomingActivities);
+              activitiesRef.current = next;
+              return next;
+            });
+          }
           if (free) {
             setFreeNotice(true);
           }
@@ -318,21 +473,38 @@ useEffect(() => {
             setMessages((prev) =>
               prev.map((message) =>
                 message.id === modelMessage.id
-                  ? { ...message, model: modelName, trying: undefined }
-                  : message
-              )
-            );
-          } else if (trying) {
-            setMessages((prev) =>
-              prev.map((message) =>
-                message.id === modelMessage.id
-                  ? { ...message, trying }
+                  ? { ...message, model: modelName }
                   : message
               )
             );
           }
+          const incomingSteps = tryings?.length
+            ? tryings
+            : trying
+              ? [trying]
+              : [];
+          if (incomingSteps.length) {
+            setMessages((prev) =>
+              prev.map((message) => {
+                if (message.id !== modelMessage.id) return message;
+                let steps = message.processSteps ?? [];
+                for (const step of incomingSteps) {
+                  steps = appendProcessStep(steps, step);
+                }
+                return {
+                  ...message,
+                  trying: incomingSteps[incomingSteps.length - 1],
+                  processSteps: steps,
+                };
+              })
+            );
+          }
           if (text) {
-            freezeElapsed();
+            // Ignore whitespace-only flushes so chips stay visible until
+            // real answer tokens arrive (and still keep the trail after).
+            if (!text.trim() && !modelText) {
+              continue;
+            }
             modelText += text;
             // Legacy sessions may still echo a <CONCLUDE> JSON tail —
             // never show it in the bubble (defense until it stops appearing).
@@ -341,7 +513,12 @@ useEffect(() => {
             setMessages((prev) =>
               prev.map((message) =>
                 message.id === modelMessage.id
-                  ? { ...message, text: visible }
+                  ? {
+                      ...message,
+                      text: visible,
+                      trying: undefined,
+                      // Keep processSteps as a completed trail above the answer.
+                    }
                   : message
               )
             );
@@ -360,11 +537,25 @@ useEffect(() => {
             )
           );
         }
+        finalizeElapsed();
         setMessages((prev) =>
           prev.map((message) =>
-            message.id === modelMessage.id ? { ...message, streaming: false } : message
+            message.id === modelMessage.id
+              ? {
+                  ...message,
+                  streaming: false,
+                  trying: undefined,
+                  // Retain processSteps trail for the completed turn.
+                  elapsed: elapsedValue,
+                }
+              : message
           )
         );
+        const finalized = finalizeRunningActivities(activitiesRef.current, "completed");
+        setActivities(finalized);
+        activitiesRef.current = finalized;
+        setActivityEndHint("completed");
+        setAssistantSnippet(modelText.trim().slice(0, 280));
 
         // Legacy defense: sessions whose context was built from the removed
         // persona may still echo the <CONCLUDE> JSON tail for a few messages —
@@ -401,24 +592,73 @@ useEffect(() => {
           }
         }
       } catch (error) {
-        aborted = error instanceof DOMException && error.name === "AbortError";
+        const isAbort =
+          error instanceof DOMException && error.name === "AbortError";
+        // Only treat AbortError as Interrupted when the user hit Stop.
+        // Deferred restart / proxy close can also surface as AbortError —
+        // if tools already succeeded, classify as Completed (connection closed).
+        aborted = Boolean(isAbort && userStoppedRef.current);
+        const connectionLost =
+          !aborted && (isConnectionLossError(error) || isAbort);
+        const hardError = !aborted && !connectionLost;
+        const classification = classifyRunEnd({
+          aborted,
+          connectionLost,
+          hardError,
+          activities: activitiesRef.current,
+          hadText: Boolean(modelText?.trim()),
+        });
+        const finalized = finalizeRunningActivities(
+          activitiesRef.current,
+          classification.finalizeAs
+        );
+        setActivities(finalized);
+        activitiesRef.current = finalized;
+        setActivityEndHint(classification.endHint);
+        if (modelText?.trim()) {
+          setAssistantSnippet(modelText.trim().slice(0, 280));
+        }
+        const lossMsg = t["chat.connectionLost"] || t["chat.requestFailed"];
+        const keepTrail =
+          aborted ||
+          connectionLost ||
+          classification.endHint === "completed_closed" ||
+          classification.endHint === "completed";
+        finalizeElapsed();
+        let displayText: string | undefined;
+        if (aborted) {
+          displayText = undefined; // keep existing
+        } else if (
+          classification.endHint === "completed_closed" ||
+          classification.endHint === "completed"
+        ) {
+          displayText = modelText; // may be empty — process trail is the product
+        } else if (connectionLost) {
+          displayText = modelText || lossMsg;
+        } else {
+          displayText =
+            modelText ||
+            (error instanceof Error ? error.message : t["chat.requestFailed"]);
+        }
         setMessages((prev) =>
           prev.map((message) =>
             message.id === modelMessage.id
               ? {
                   ...message,
                   streaming: false,
-                  failed: !aborted,
-                  text: aborted
-                    ? message.text
-                     : message.text || (error instanceof Error ? error.message : t["chat.requestFailed"]),
+                  failed: classification.failedMessage,
+                  trying: undefined,
+                  processSteps: keepTrail ? message.processSteps : [],
+                  elapsed:
+                    !classification.failedMessage ? elapsedValue : message.elapsed,
+                  text: displayText === undefined ? message.text : displayText,
                 }
               : message
           )
         );
       } finally {
-        clearInterval(elapsedTimer);
         setSending(false);
+        setActivityLive(false);
         abortRef.current = null;
       }
     },
@@ -599,6 +839,7 @@ useEffect(() => {
 */
 
   const stop = useCallback(() => {
+    userStoppedRef.current = true;
     abortRef.current?.abort();
   }, []);
 
@@ -632,50 +873,132 @@ useEffect(() => {
   );
 */
 
-  return (
-    <div className="app">
-      {loading ? (
-        <main className="messages">
-          <p className="empty">{t["records.loading"]}</p>
-        </main>
-      ) : messages.length === 0 ? (
-        <main className="welcome">
-          <h2>{t["welcome.title"]}</h2>
+  // Activity right-rail temporarily disabled — keep markers/stream, hide panel + mobile toggle.
+  const SHOW_ACTIVITY_RAIL = false;
+  const showActivityRail =
+    SHOW_ACTIVITY_RAIL && (activityLive || sending || activities.length > 0);
+
+  // Full-width chat when rail is off (no app-workspace grid / activity-rail).
+  if (!showActivityRail) {
+    return (
+      <div className="app">
+        {loading ? (
+          <main className="messages">
+            <p className="empty">{t["records.loading"]}</p>
+          </main>
+        ) : messages.length === 0 ? (
+          <main className="welcome">
+            <h2>{t["welcome.title"]}</h2>
+            <Composer
+              onSend={send}
+              onStop={stop}
+              sending={sending}
+              placeholder={t["composer.placeholder"]}
+            />
+          </main>
+        ) : (
+          <MessageBubble
+            messages={messages}
+            guest={isAuthed === false}
+            flashId={flashId}
+            onEdit={startEdit}
+            onRegenerate={regenerate}
+            canAct={!sending}
+            editingId={editingId}
+            editingText={editingText}
+            onEditingText={setEditingText}
+            onEditSave={editSave}
+            onEditCancel={() => setEditingId(null)}
+          />
+        )}
+        {messages.length > 0 && (
           <Composer
             onSend={send}
             onStop={stop}
             sending={sending}
             placeholder={t["composer.placeholder"]}
           />
-        </main>
-      ) : (
-        <MessageBubble
-          messages={messages}
-          guest={isAuthed === false}
-          flashId={flashId}
-          onEdit={startEdit}
-          onRegenerate={regenerate}
-          canAct={!sending}
-          editingId={editingId}
-          editingText={editingText}
-          onEditingText={setEditingText}
-          onEditSave={editSave}
-          onEditCancel={() => setEditingId(null)}
-        />
-      )}
-      {messages.length > 0 && (
-        <Composer
-          onSend={send}
-          onStop={stop}
-          sending={sending}
-          placeholder={t["composer.placeholder"]}
-        />
-      )}
-      {freeNotice && (
-        <p className="free-note-overlay" onClick={() => setFreeNotice(false)}>
-          {t["free.notice"]}
-        </p>
+        )}
+        {freeNotice && (
+          <p className="free-note-overlay" onClick={() => setFreeNotice(false)}>
+            {t["free.notice"]}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`app-workspace${activityRailOpen ? " activity-open" : ""}`}>
+      <div className="app app-center">
+        {loading ? (
+          <main className="messages">
+            <p className="empty">{t["records.loading"]}</p>
+          </main>
+        ) : messages.length === 0 ? (
+          <main className="welcome">
+            <h2>{t["welcome.title"]}</h2>
+            <Composer
+              onSend={send}
+              onStop={stop}
+              sending={sending}
+              placeholder={t["composer.placeholder"]}
+            />
+          </main>
+        ) : (
+          <MessageBubble
+            messages={messages}
+            guest={isAuthed === false}
+            flashId={flashId}
+            onEdit={startEdit}
+            onRegenerate={regenerate}
+            canAct={!sending}
+            editingId={editingId}
+            editingText={editingText}
+            onEditingText={setEditingText}
+            onEditSave={editSave}
+            onEditCancel={() => setEditingId(null)}
+          />
+        )}
+        {messages.length > 0 && (
+          <Composer
+            onSend={send}
+            onStop={stop}
+            sending={sending}
+            placeholder={t["composer.placeholder"]}
+          />
+        )}
+        {freeNotice && (
+          <p className="free-note-overlay" onClick={() => setFreeNotice(false)}>
+            {t["free.notice"]}
+          </p>
+        )}
+      </div>
+      {showActivityRail && (
+        <>
+          <button
+            type="button"
+            className="activity-rail-toggle"
+            aria-expanded={activityRailOpen}
+            aria-controls="activity-rail"
+            onClick={() => setActivityRailOpen((open) => !open)}
+          >
+            {t["activity.title"] || "Activity"}
+          </button>
+          <aside
+            id="activity-rail"
+            className={`activity-rail${activityRailOpen ? " open" : ""}`}
+            aria-label={t["activity.title"] || "Activity"}
+          >
+            <ActivityPanel
+              items={activities}
+              active={activityLive || sending}
+              endHint={activityEndHint}
+            />
+          </aside>
+        </>
       )}
     </div>
   );
 }
+
