@@ -18,7 +18,7 @@
   --border: #ece7f4;
   --trail: #b45309;
   --trail-bright: #ea580c;
-  --mode-build: #3b82f6;
+  --mode-build: #9a86c9;
   --mode-plan: #ea580c;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
@@ -1255,58 +1255,6 @@ span.conclude-rank-badge {
   background: rgba(217, 48, 37, 0.1);
 }
 
-/* ---- dish boxes (records timeline + summary) ---- */
-.dish-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.dish-box {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  padding: 4px 8px;
-  min-height: 30px;
-}
-
-.dish-box-name {
-  color: var(--text);
-}
-
-.dish-box-rank {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 6px;
-  background: var(--bg-soft);
-  color: var(--text-muted);
-}
-
-.dish-box.rank-low .dish-box-rank {
-  background: #e8f5e9;
-  color: #2e7d32;
-}
-
-.dish-box.rank-mid .dish-box-rank {
-  background: #fff8e1;
-  color: #f9a825;
-}
-
-.dish-box.rank-high .dish-box-rank {
-  background: #ffebee;
-  color: #c62828;
-}
-
-.timeline-meal .dish-grid {
-  margin-top: 4px;
-}
-
-
 /* ---- model routing tree (usage page) ---- */
 .routing-tree {
   list-style: none;
@@ -1972,13 +1920,13 @@ span.conclude-rank-badge {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* agent (build) mode: blue border; plan mode: orange border */
+/* agent (build) mode: purple border; plan mode: orange border */
 .input-row.mode-build {
   border-color: var(--mode-build);
 }
 
 .input-row.mode-build:focus-within {
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 3px rgba(154, 134, 201, 0.18);
 }
 
 .input-row.mode-plan {
@@ -2054,7 +2002,7 @@ span.conclude-rank-badge {
   margin-bottom: 8px;
 }
 
-/* standalone max reasoning toggle pill */
+/* standalone MAX reasoning toggle pill: white when off, green when on */
 .composer-reasoning {
   flex-shrink: 0;
   border: 1px solid var(--border);
@@ -2073,17 +2021,6 @@ span.conclude-rank-badge {
   gap: 5px;
 }
 
-.composer-reasoning-box {
-  width: 13px;
-  height: 13px;
-  border: 1.5px solid currentColor;
-  border-radius: 3px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
 .composer-reasoning:hover {
   color: var(--text);
 }
@@ -2093,15 +2030,9 @@ span.conclude-rank-badge {
 }
 
 .composer-reasoning.active {
-  background: var(--pill);
-  border-color: var(--pill);
-  color: var(--pill-text);
-}
-
-.composer-reasoning.active .composer-reasoning-box {
-  border-color: transparent;
-  background: var(--pill-text);
-  color: var(--pill);
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
 }
 
 /* build/plan segmented toggle pill */
@@ -2247,106 +2178,6 @@ span.conclude-rank-badge {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.timeline {
-  display: flex;
-  flex-direction: column;
-  margin-top: 8px;
-}
-
-.timeline-day {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin: 16px 0 10px;
-}
-
-.timeline-entry {
-  display: flex;
-  gap: 12px;
-  position: relative;
-  padding-bottom: 16px;
-}
-
-.timeline-entry::before {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 16px;
-  bottom: 0;
-  width: 1px;
-  background: var(--border);
-}
-
-.timeline-day-group .timeline-entry:last-child::before {
-  display: none;
-}
-
-.timeline-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--pill);
-  margin-top: 5px;
-  flex-shrink: 0;
-}
-
-.timeline-content {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.timeline-time {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.timeline-readings {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.timeline-reading {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: var(--bg-soft);
-  border-radius: 8px;
-  padding: 4px 10px;
-  font-size: 13px;
-}
-
-.timeline-reading-main {
-  font-weight: 500;
-}
-
-.timeline-reading-time {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.timeline-meal {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.timeline-meal .meal-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.timeline-meal .meal-foods {
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.timeline-content .record-delete {
-  align-self: flex-start;
 }
 
 .conclusion-head strong {
@@ -2647,77 +2478,6 @@ span.conclude-rank-badge {
 }
 
 .save-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.records-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.record-card {
-  background: var(--bg-soft);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 14px 16px;
-}
-
-.record-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 6px;
-}
-
-.record-head strong {
-  font-size: 15px;
-}
-
-.record-time {
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.record-summary {
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.5;
-  margin-bottom: 8px;
-}
-
-.record-datetime {
-  font-size: 12px;
-  color: var(--text);
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.record-foot {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 8px;
-}
-
-.record-delete {
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: #d93025;
-  font-family: var(--font);
-  font-size: 12px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-}
-
-.record-delete:hover:not(:disabled) {
-  border-color: #d93025;
-}
-
-.record-delete:disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -3817,28 +3577,6 @@ span.conclude-rank-badge {
   outline: none;
   font-family: var(--font);
   font-size: 15px;
-  color: var(--text);
-}
-
-.search-tabs {
-  display: flex;
-  gap: 6px;
-}
-
-.search-tab {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 5px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-}
-
-.search-tab.active {
-  background: rgba(0, 0, 0, 0.08);
   color: var(--text);
 }
 

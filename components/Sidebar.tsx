@@ -10,8 +10,6 @@ import { STR, useUiLang, setUiLang } from "@/lib/i18n";
 import SearchModal from "./SearchModal";
 import AuthModal from "./AuthModal";
 import { useCompressImages } from "@/lib/prefs";
-import { listGuestRecords } from "@/lib/guestStore";
-import type { SavedRecord } from "@/lib/types";
 
 interface MeUser {
   _id: string;
@@ -61,7 +59,6 @@ export default function Sidebar() {
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authNonce, setAuthNonce] = useState(0);
-  const [records, setRecords] = useState<SavedRecord[] | null>(null);
   const [compressImages, setCompressImages] = useCompressImages();
   const [menuFor, setMenuFor] = useState<{
     id: string;
@@ -151,24 +148,8 @@ export default function Sidebar() {
         .then((response) => response.json())
         .then((body: { sessions: ChatSession[] }) => setSessions(body.sessions))
         .catch(() => {});
-      fetch("/api/records")
-        .then((response) => response.json())
-        .then((body: { records: SavedRecord[] }) => setRecords(body.records))
-        .catch(() => {});
     } else {
       setGuestSessions(listGuestSessions());
-      setRecords(
-        listGuestRecords().map((record) => ({
-          _id: record.id,
-          title: record.title,
-          summary: record.summary,
-          items: record.items,
-          meals: record.meals,
-          sourceText: record.sourceText,
-          savedAt: record.savedAt,
-          datetime: null,
-        }))
-      );
     }
   }, [authChecked, user]);
 
@@ -478,27 +459,6 @@ export default function Sidebar() {
                 )}
               </>
             )}
-          </div>
-        </div>
-      )}
-      {authChecked && (
-        <div className="session-nav">
-          <span className="sidebar-label">{t["nav.records"]}</span>
-          <div className="session-list">
-            {records === null && <p className="session-hint">{t["nav.loading"]}</p>}
-            {records !== null && records.length === 0 && (
-              <p className="session-hint">{t["records.empty"]}</p>
-            )}
-            {records?.map((record) => (
-              <Link
-                key={record._id}
-                href="/records"
-                className="session-link"
-                onClick={() => setMenuOpen(false)}
-              >
-                <FitTitle title={record.title} />
-              </Link>
-            ))}
           </div>
         </div>
       )}

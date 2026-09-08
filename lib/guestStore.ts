@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatImage, ConcludeItem, ConcludeMeal, SessionConclusion } from "./types";
+import type { ChatImage, SessionConclusion } from "./types";
 
 export interface GuestMessage {
   role: "user" | "model";
@@ -21,18 +21,7 @@ export interface GuestSession {
   recordId?: string | null;
 }
 
-export interface GuestRecord {
-  id: string;
-  title: string;
-  summary: string;
-  items: ConcludeItem[];
-  meals?: ConcludeMeal[];
-  sourceText?: string;
-  savedAt: string;
-}
-
 const SESSIONS_KEY = "inschat_guest_sessions";
-const RECORDS_KEY = "inschat_guest_records";
 
 function newId(): string {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -154,56 +143,4 @@ export function clearGuestSessions(): void {
   try {
     window.localStorage.removeItem(SESSIONS_KEY);
   } catch {}
-}
-
-export function listGuestRecords(): GuestRecord[] {
-  return readJson<GuestRecord[]>(RECORDS_KEY, []).sort((a, b) =>
-    b.savedAt.localeCompare(a.savedAt)
-  );
-}
-
-export function addGuestRecord(input: {
-  title: string;
-  summary: string;
-  items: ConcludeItem[];
-  meals?: ConcludeMeal[];
-  sourceText?: string;
-}): GuestRecord {
-  const record: GuestRecord = {
-    ...input,
-    id: newId(),
-    savedAt: new Date().toISOString(),
-  };
-  const records = readJson<GuestRecord[]>(RECORDS_KEY, []);
-  if (writeJson(RECORDS_KEY, [record, ...records])) return record;
-  const slim = [record, ...records].map((r, index) =>
-    index > 20 ? { ...r, sourceText: undefined } : r
-  );
-  writeJson(RECORDS_KEY, slim);
-  return record;
-}
-
-export function deleteGuestRecord(id: string): void {
-  writeJson(
-    RECORDS_KEY,
-    readJson<GuestRecord[]>(RECORDS_KEY, []).filter((record) => record.id !== id)
-  );
-}
-
-export function updateGuestRecord(
-  id: string,
-  patch: {
-    title: string;
-    summary: string;
-    items: ConcludeItem[];
-    meals?: ConcludeMeal[];
-    sourceText?: string;
-  }
-): void {
-  writeJson(
-    RECORDS_KEY,
-    readJson<GuestRecord[]>(RECORDS_KEY, []).map((record) =>
-      record.id === id ? { ...record, ...patch } : record
-    )
-  );
 }

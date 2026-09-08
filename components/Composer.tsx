@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, Plus, Square, X } from "lucide-react";
+import { ArrowUp, Plus, Square, X } from "lucide-react";
 import type { ChatImage } from "@/lib/types";
 import { MAX_IMAGES } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
@@ -191,10 +191,7 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
           title={t["composer.reasoning"]}
           disabled={disabled}
         >
-          <span className="composer-reasoning-box" aria-hidden="true">
-            {maxOn && <Check size={10} strokeWidth={3.5} />}
-          </span>
-          max
+          MAX
         </button>
       </div>
       <div className={`input-row mode-${mode}`}>
