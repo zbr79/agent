@@ -1128,7 +1128,7 @@ useEffect(() => {
       <div className="app">
         {loading ? (
           <main className="messages">
-            <p className="empty">{t["records.loading"]}</p>
+            <p className="empty">{t["nav.loading"]}</p>
           </main>
         ) : messages.length === 0 ? (
           <main className="welcome">
@@ -1177,7 +1177,7 @@ useEffect(() => {
       <div className="app app-center">
         {loading ? (
           <main className="messages">
-            <p className="empty">{t["records.loading"]}</p>
+            <p className="empty">{t["nav.loading"]}</p>
           </main>
         ) : messages.length === 0 ? (
           <main className="welcome">

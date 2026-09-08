@@ -43,17 +43,6 @@ export interface SessionConclusion {
   sourceText?: string;
 }
 
-export interface SavedRecord {
-  _id: string;
-  title: string;
-  summary: string;
-  items: ConcludeItem[];
-  meals?: ConcludeMeal[];
-  sourceText?: string;
-  savedAt: string;
-  datetime: string | null;
-}
-
 export interface ApiCall {
   _id: string;
   kind: "chat" | "conclude" | "health" | "opencode";

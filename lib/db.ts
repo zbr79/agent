@@ -4,26 +4,11 @@ import type {
   ApiCall,
   ChatImage,
   ChatSession,
-  ConcludeItem,
-  ConcludeMeal,
-  SavedRecord,
   SessionConclusion,
   StoredMessage,
 } from "./types";
 
 const DB_NAME = process.env.MONGODB_DB || "inschat";
-
-interface RecordDoc {
-  _id?: ObjectId;
-  userId?: ObjectId;
-  title: string;
-  summary: string;
-  items: ConcludeItem[];
-  meals?: ConcludeMeal[];
-  sourceText?: string;
-  savedAt: Date;
-  datetime: Date | null;
-}
 
 let clientPromise: Promise<MongoClient> | null = null;
 
@@ -46,94 +31,6 @@ function getClient(): Promise<MongoClient> {
 
 export async function getDb(): Promise<Db> {
   return (await getClient()).db(DB_NAME);
-}
-
-export function toSavedRecord(doc: RecordDoc): SavedRecord {
-  return {
-    _id: doc._id?.toString() ?? "",
-    title: doc.title,
-    summary: doc.summary,
-    items: doc.items,
-    meals: doc.meals,
-    sourceText: doc.sourceText,
-    savedAt: doc.savedAt.toISOString(),
-    datetime: doc.datetime ? doc.datetime.toISOString() : null,
-  };
-}
-
-export async function insertRecord(
-  userId: string,
-  input: {
-    title: string;
-    summary: string;
-    items: ConcludeItem[];
-    meals?: ConcludeMeal[];
-    sourceText?: string;
-    datetime: Date | null;
-  }
-): Promise<SavedRecord> {
-  const db = await getDb();
-  // The record always carries its own time (when it was concluded/saved),
-  // never a timestamp derived from the photo/chat content.
-  const doc: RecordDoc = {
-    ...input,
-    datetime: new Date(),
-    userId: new ObjectId(userId),
-    savedAt: new Date(),
-  };
-  const result = await db.collection<RecordDoc>("records").insertOne(doc);
-  return toSavedRecord({ ...doc, _id: result.insertedId });
-}
-
-export async function listRecords(userId: string, limit = 100): Promise<SavedRecord[]> {
-  const db = await getDb();
-  const docs = await db
-    .collection<RecordDoc>("records")
-    .find({ userId: new ObjectId(userId) })
-    .sort({ savedAt: -1 })
-    .limit(limit)
-    .toArray();
-  return docs.map(toSavedRecord);
-}
-
-export async function deleteRecord(userId: string, id: string): Promise<boolean> {
-  if (!ObjectId.isValid(id)) return false;
-  const db = await getDb();
-  const result = await db
-    .collection<RecordDoc>("records")
-    .deleteOne({ _id: new ObjectId(id), userId: new ObjectId(userId) });
-  return result.deletedCount > 0;
-}
-
-export async function updateRecord(
-  userId: string,
-  id: string,
-  input: {
-    title: string;
-    summary: string;
-    items: ConcludeItem[];
-    meals?: ConcludeMeal[];
-    sourceText?: string;
-  }
-): Promise<SavedRecord | null> {
-  if (!ObjectId.isValid(id)) return null;
-  const db = await getDb();
-  const result = await db
-    .collection<RecordDoc>("records")
-    .findOneAndUpdate(
-      { _id: new ObjectId(id), userId: new ObjectId(userId) },
-      {
-        $set: {
-          title: input.title,
-          summary: input.summary,
-          items: input.items,
-          meals: input.meals,
-          sourceText: input.sourceText,
-        },
-      },
-      { returnDocument: "after" }
-    );
-  return result ? toSavedRecord(result) : null;
 }
 
 interface CallDoc {
@@ -916,35 +813,4 @@ export async function searchChats(
       },
     ];
   });
-}
-
-export interface RecordHit {
-  id: string;
-  title: string;
-  summary: string;
-  savedAt: string;
-}
-
-export async function searchRecords(
-  userId: string,
-  q: string,
-  limit = 10
-): Promise<RecordHit[]> {
-  const db = await getDb();
-  const regex = new RegExp(escapeRegex(q), "i");
-  const docs = await db
-    .collection<RecordDoc>("records")
-    .find({
-      userId: new ObjectId(userId),
-      $or: [{ title: regex }, { summary: regex }, { sourceText: regex }],
-    })
-    .sort({ savedAt: -1 })
-    .limit(limit)
-    .toArray();
-  return docs.map((doc) => ({
-    id: doc._id!.toString(),
-    title: doc.title,
-    summary: doc.summary,
-    savedAt: doc.savedAt.toISOString(),
-  }));
 }
