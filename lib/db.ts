@@ -322,7 +322,15 @@ interface MessageDoc {
   model?: string;
   elapsed?: number;
   createdAt: Date;
+  status?: "pending" | "done" | "failed";
+  updatedAt?: Date;
+  processSteps?: string[];
 }
+
+const MAX_MESSAGE_TEXT = 100_000;
+// Model messages stream server-side heartbeats while a run is live; a
+// pending doc untouched for this long means the process died mid-run.
+const PENDING_STALE_MS = 3 * 60_000;
 
 function toChatSession(doc: SessionDoc): ChatSession {
   return {
@@ -344,6 +352,9 @@ function toStoredMessage(doc: MessageDoc): StoredMessage {
     model: doc.model,
     elapsed: doc.elapsed,
     createdAt: doc.createdAt.toISOString(),
+    status: doc.status ?? "done",
+    updatedAt: doc.updatedAt?.toISOString(),
+    processSteps: doc.processSteps,
   };
 }
 
@@ -386,6 +397,23 @@ export async function getSessionWithMessages(
     .find({ sessionId: new ObjectId(id) })
     .sort({ createdAt: 1 })
     .toArray();
+  // Safety net: a server restart kills detached runs, leaving their pending
+  // docs orphaned. Anything whose heartbeat went stale is interrupted.
+  const cutoff = Date.now() - PENDING_STALE_MS;
+  for (const doc of docs) {
+    if (doc.status !== "pending") continue;
+    if ((doc.updatedAt ?? doc.createdAt).getTime() > cutoff) continue;
+    const text = doc.text?.trim()
+      ? doc.text
+      : "[Interrupted — the server stopped before finishing this reply.]";
+    const now = new Date();
+    await db
+      .collection<MessageDoc>("messages")
+      .updateOne({ _id: doc._id }, { $set: { status: "failed", text, updatedAt: now } });
+    doc.status = "failed";
+    doc.text = text;
+    doc.updatedAt = now;
+  }
   return {
     session: toChatSession(session),
     messages: docs.map(toStoredMessage),
@@ -465,6 +493,246 @@ export async function appendMessage(
   if (updated.matchedCount === 0) return null;
   return toStoredMessage(doc);
 }
+
+// Create the placeholder model message that an in-flight /api/chat run
+// streams into. Returns null when the session is missing / not owned.
+export async function startPendingModelMessage(
+  userId: string,
+  sessionId: string
+): Promise<StoredMessage | null> {
+  if (!ObjectId.isValid(userId) || !ObjectId.isValid(sessionId)) return null;
+  const db = await getDb();
+  const session = await db
+    .collection<SessionDoc>("sessions")
+    .findOne({ _id: new ObjectId(sessionId), userId: new ObjectId(userId) });
+  if (!session) return null;
+  const now = new Date();
+  const doc: MessageDoc = {
+    sessionId: new ObjectId(sessionId),
+    role: "model",
+    text: "",
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const result = await db.collection<MessageDoc>("messages").insertOne(doc);
+  await db
+    .collection<SessionDoc>("sessions")
+    .updateOne({ _id: new ObjectId(sessionId) }, { $set: { updatedAt: now } });
+  return toStoredMessage({ ...doc, _id: result.insertedId });
+}
+
+// Partial-progress + heartbeat write for a pending run message. Filtered to
+// status "pending" so it can never clobber a finalized message.
+const MAX_PROCESS_STEPS = 80;
+const MAX_PROCESS_STEP_LEN = 180;
+
+function sanitizeProcessSteps(steps: string[] | undefined): string[] | undefined {
+  if (!steps?.length) return undefined;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of steps) {
+    if (typeof raw !== "string") continue;
+    const clean = raw.replace(/^\s*→\s+/, "").trim().slice(0, MAX_PROCESS_STEP_LEN);
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    out.push(clean);
+    if (out.length >= MAX_PROCESS_STEPS) break;
+  }
+  return out.length ? out : undefined;
+}
+
+export async function updateMessageProgress(
+  messageId: string,
+  input: { text?: string; model?: string; elapsed?: number; processSteps?: string[] }
+): Promise<void> {
+  if (!ObjectId.isValid(messageId)) return;
+  const db = await getDb();
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (input.text !== undefined) set.text = input.text.slice(0, MAX_MESSAGE_TEXT);
+  if (input.model !== undefined) set.model = input.model;
+  if (input.elapsed !== undefined) set.elapsed = input.elapsed;
+  if (input.processSteps !== undefined) {
+    const steps = sanitizeProcessSteps(input.processSteps);
+    if (steps) set.processSteps = steps;
+  }
+  await db
+    .collection<MessageDoc>("messages")
+    .updateOne({ _id: new ObjectId(messageId), status: "pending" }, { $set: set });
+}
+
+export async function finalizeMessage(
+  messageId: string,
+  input: {
+    text: string;
+    model?: string;
+    elapsed?: number;
+    status: "done" | "failed";
+    processSteps?: string[];
+  }
+): Promise<void> {
+  if (!ObjectId.isValid(messageId)) return;
+  const db = await getDb();
+  const set: Record<string, unknown> = {
+    status: input.status,
+    text: input.text.slice(0, MAX_MESSAGE_TEXT),
+    updatedAt: new Date(),
+  };
+  if (input.model !== undefined) set.model = input.model;
+  if (input.elapsed !== undefined) set.elapsed = input.elapsed;
+  const steps = sanitizeProcessSteps(input.processSteps);
+  if (steps) set.processSteps = steps;
+  await db
+    .collection<MessageDoc>("messages")
+    .updateOne({ _id: new ObjectId(messageId) }, { $set: set });
+}
+
+
+const GUEST_SESSION_RE = /^[0-9a-zA-Z-]{8,64}$/;
+
+export function isGuestSessionId(id: string): boolean {
+  return GUEST_SESSION_RE.test(id) && !ObjectId.isValid(id);
+}
+
+interface GuestRunDoc {
+  _id?: ObjectId;
+  sessionId: string;
+  role: "model";
+  text: string;
+  status: "pending" | "done" | "failed";
+  processSteps?: string[];
+  model?: string;
+  elapsed?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function toGuestRun(doc: GuestRunDoc): StoredMessage {
+  return {
+    _id: doc._id?.toString() ?? "",
+    sessionId: doc.sessionId,
+    role: "model",
+    text: doc.text,
+    model: doc.model,
+    elapsed: doc.elapsed,
+    createdAt: doc.createdAt.toISOString(),
+    status: doc.status,
+    updatedAt: doc.updatedAt.toISOString(),
+    processSteps: doc.processSteps,
+  };
+}
+
+// Guest chat ids are UUIDs in localStorage, not owned Mongo sessions.
+// Persist the in-flight model message so a hard refresh can rejoin the run.
+export async function startGuestPendingRun(sessionId: string): Promise<StoredMessage | null> {
+  if (!isGuestSessionId(sessionId)) return null;
+  const db = await getDb();
+  const now = new Date();
+  const col = db.collection<GuestRunDoc>("guestRuns");
+  const existing = await col.findOne({ sessionId });
+  if (existing) {
+    await col.updateOne(
+      { _id: existing._id },
+      {
+        $set: {
+          role: "model",
+          text: "",
+          status: "pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+        $unset: { processSteps: "", model: "", elapsed: "" },
+      }
+    );
+    return toGuestRun({
+      ...existing,
+      role: "model",
+      text: "",
+      status: "pending",
+      processSteps: undefined,
+      model: undefined,
+      elapsed: undefined,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  const doc: GuestRunDoc = {
+    sessionId,
+    role: "model",
+    text: "",
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const result = await col.insertOne(doc);
+  return toGuestRun({ ...doc, _id: result.insertedId });
+}
+
+export async function updateGuestRunProgress(
+  sessionId: string,
+  input: { text?: string; model?: string; elapsed?: number; processSteps?: string[] }
+): Promise<void> {
+  if (!isGuestSessionId(sessionId)) return;
+  const db = await getDb();
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (input.text !== undefined) set.text = input.text.slice(0, MAX_MESSAGE_TEXT);
+  if (input.model !== undefined) set.model = input.model;
+  if (input.elapsed !== undefined) set.elapsed = input.elapsed;
+  if (input.processSteps !== undefined) {
+    const steps = sanitizeProcessSteps(input.processSteps);
+    if (steps) set.processSteps = steps;
+  }
+  await db
+    .collection<GuestRunDoc>("guestRuns")
+    .updateOne({ sessionId, status: "pending" }, { $set: set });
+}
+
+export async function finalizeGuestRun(
+  sessionId: string,
+  input: {
+    text: string;
+    model?: string;
+    elapsed?: number;
+    status: "done" | "failed";
+    processSteps?: string[];
+  }
+): Promise<void> {
+  if (!isGuestSessionId(sessionId)) return;
+  const db = await getDb();
+  const set: Record<string, unknown> = {
+    status: input.status,
+    text: input.text.slice(0, MAX_MESSAGE_TEXT),
+    updatedAt: new Date(),
+  };
+  if (input.model !== undefined) set.model = input.model;
+  if (input.elapsed !== undefined) set.elapsed = input.elapsed;
+  const steps = sanitizeProcessSteps(input.processSteps);
+  if (steps) set.processSteps = steps;
+  await db.collection<GuestRunDoc>("guestRuns").updateOne({ sessionId }, { $set: set });
+}
+
+export async function getGuestRun(sessionId: string): Promise<StoredMessage | null> {
+  if (!isGuestSessionId(sessionId)) return null;
+  const db = await getDb();
+  const col = db.collection<GuestRunDoc>("guestRuns");
+  const doc = await col.findOne({ sessionId });
+  if (!doc) return null;
+  if (doc.status === "pending") {
+    const cutoff = Date.now() - PENDING_STALE_MS;
+    if ((doc.updatedAt ?? doc.createdAt).getTime() <= cutoff) {
+      const text = doc.text?.trim()
+        ? doc.text
+        : "[Interrupted — the server stopped before finishing this reply.]";
+      const now = new Date();
+      await col.updateOne({ _id: doc._id }, { $set: { status: "failed", text, updatedAt: now } });
+      doc.status = "failed";
+      doc.text = text;
+      doc.updatedAt = now;
+    }
+  }
+  return toGuestRun(doc);
+}
+
 
 // Revert: keep the first `keep` messages of the session, delete the rest.
 export async function truncateMessages(
