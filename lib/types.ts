@@ -88,6 +88,11 @@ export interface StoredMessage {
   model?: string;
   elapsed?: number;
   createdAt: string;
+  /** Server-side run state for model messages; legacy docs default to "done". */
+  status?: "pending" | "done" | "failed";
+  updatedAt?: string;
+  /** Transcript trail (Ran/Read/Edited labels, no leading arrow). */
+  processSteps?: string[];
 }
 
 export const MAX_MESSAGES = 20;

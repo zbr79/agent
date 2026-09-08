@@ -48,6 +48,42 @@ export function encodeActivityMarker(event: ActivityEvent): string {
   return `${ACTIVITY_PREFIX}${JSON.stringify(event)}${MARK}`;
 }
 
+/** Transcript trail label (no leading arrow) matching Ran/Read/Edited lines. */
+export function activityTrailLabel(event: ActivityEvent): string | null {
+  const tool = (event.tool || event.kind || "step").toLowerCase();
+  const raw =
+    (event.path || "").trim() ||
+    (event.title || "").trim() ||
+    (event.detail || "").trim() ||
+    (event.tool || "").trim();
+  if (!raw) return null;
+  const target = raw.length > 72 ? `${raw.slice(0, 72)}...` : raw;
+  let line: string;
+  if (tool === "bash" || tool === "shell") line = `Ran: ${target}`;
+  else if (
+    tool === "edit" ||
+    tool === "write" ||
+    tool === "apply_patch" ||
+    tool === "patch"
+  ) {
+    line = `Edited ${target}`;
+  } else if (tool === "read" || tool === "list") line = `Read ${target}`;
+  else if (tool === "grep") line = `Grep ${target}`;
+  else if (tool === "glob") line = `Glob ${target}`;
+  else {
+    const name = tool ? tool.charAt(0).toUpperCase() + tool.slice(1) : "Step";
+    line = `${name} ${target}`;
+  }
+  if (event.additions != null || event.deletions != null) {
+    line += ` (+${event.additions ?? 0} -${event.deletions ?? 0})`;
+  } else if (event.status === "error") {
+    line += " ✗";
+  } else if (event.status === "completed" && (tool === "bash" || tool === "shell")) {
+    line += " ✓";
+  }
+  return line;
+}
+
 interface Parsed {
   text: string;
   model?: string;

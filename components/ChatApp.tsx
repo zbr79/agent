@@ -1,3 +1,7 @@
+// qa-guest-refresh-20260908
+// qa-refresh-guest-20260908
+// qa-refresh-persist-20260908
+// qa-refresh-long-20260907
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -21,7 +25,7 @@ import {
 } from "@/lib/guestStore";
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
 import { STR, useUiLang } from "@/lib/i18n";
-import { useReasoningEffort } from "@/lib/prefs";
+import { useChatMode, useReasoningEffort } from "@/lib/prefs";
 
 interface UiMessage {
   id: number;
@@ -34,8 +38,134 @@ interface UiMessage {
   trying?: string;
   processSteps?: string[];
   elapsed?: number;
+  status?: "pending" | "done" | "failed";
   _id?: string;
   _index?: string;
+}
+
+interface StoredLike {
+  _id?: string;
+  role: string;
+  text: string;
+  images?: ChatImage[];
+  model?: string;
+  elapsed?: number;
+  status?: "pending" | "done" | "failed";
+  processSteps?: string[];
+}
+
+function trailKey(item: string): string {
+  return item
+    .replace(/\s*\(\+\d+\s+-\d+\)\s*$/, "")
+    .replace(/\s*[\u2713\u2717]\s*$/, "")
+    .trim()
+    .toLowerCase();
+}
+
+function textTrailItems(text: string): string[] {
+  const items: string[] = [];
+  for (const raw of text.split("\n")) {
+    const match = raw.match(/^\s*→\s+(.+)$/);
+    if (match?.[1]?.trim()) items.push(match[1].trim());
+  }
+  return items;
+}
+
+function cleanSteps(steps: string[] | undefined): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of steps ?? []) {
+    const clean = String(raw).replace(/^\s*→\s+/, "").trim();
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    out.push(clean);
+  }
+  return out;
+}
+
+/** Pending refresh must show stored Ran/Read/Edited lines even if text is still empty. */
+function withRestoredTrail(text: string, steps: string[], pending: boolean): string {
+  if (!pending || steps.length === 0) return text;
+  const existing = textTrailItems(text);
+  const keys = new Set(existing.map(trailKey));
+  const missing = steps.filter((step) => !keys.has(trailKey(step)));
+  if (!missing.length) return text;
+  const extra = missing.map((step) => `\u2192 ${step}`).join("\n");
+  return text.trim() ? `${text.replace(/\s+$/, "")}\n${extra}` : extra;
+}
+
+function mapStoredMessages(list: StoredLike[], prev: UiMessage[] = []): UiMessage[] {
+  const prevByStoreId = new Map(
+    prev.filter((message) => message._id).map((message) => [message._id as string, message])
+  );
+  return list.map((message) => {
+    const status = message.status ?? "done";
+    const pending = status === "pending";
+    const processSteps = cleanSteps(message.processSteps);
+    const existing = message._id ? prevByStoreId.get(message._id) : undefined;
+    return {
+      id: existing?.id ?? nextId++,
+      role: message.role === "model" ? "model" : "user",
+      text: withRestoredTrail(message.text ?? "", processSteps, pending),
+      images: message.images,
+      model: message.model,
+      elapsed: message.elapsed,
+      status,
+      streaming: pending,
+      failed: status === "failed",
+      processSteps,
+      trying: pending && processSteps.length ? processSteps[processSteps.length - 1] : undefined,
+      _id: message._id,
+    };
+  });
+}
+
+
+function mergeGuestRun(prev: UiMessage[], run: StoredLike): UiMessage[] {
+  const mapped = mapStoredMessages([run], prev)[0];
+  if (!mapped) return prev;
+  const byId = run._id ? prev.findIndex((message) => message._id === run._id) : -1;
+  if (byId >= 0) {
+    const next = prev.slice();
+    next[byId] = { ...mapped, id: prev[byId].id };
+    return next;
+  }
+  const last = prev[prev.length - 1];
+  if (last?.role === "model" && (last.streaming || last._id === run._id)) {
+    return [...prev.slice(0, -1), { ...mapped, id: last.id }];
+  }
+  if (last?.role === "model" && (run.status ?? "done") !== "pending") return prev;
+  return [...prev, mapped];
+}
+
+function rememberGuestRun(sessionId: string, run: StoredLike, saved: Set<string>) {
+  if ((run.status ?? "done") === "pending") return;
+  const key = `${sessionId}:${run._id || "run"}`;
+  if (saved.has(key)) return;
+  const local = getGuestSession(sessionId);
+  if (!local) {
+    saved.add(key);
+    return;
+  }
+  const last = local.messages[local.messages.length - 1];
+  if (last?.role === "model") {
+    saved.add(key);
+    return;
+  }
+  saved.add(key);
+  appendGuestMessage(sessionId, {
+    role: "model",
+    text: run.text ?? "",
+    model: run.model,
+    elapsed: run.elapsed,
+  });
+}
+
+function latestModelPending(list: StoredLike[]): boolean {
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].role === "model") return (list[i].status ?? "done") === "pending";
+  }
+  return false;
 }
 
 let nextId = 1;
@@ -109,26 +239,23 @@ function classifyRunEnd(opts: {
   const useful = hasSuccessfulProgress(activities) || hadText;
   const toolErrors = hasToolErrors(activities);
 
-  if (aborted) {
+  // Useful work (edits / build / reply text) + disconnect or abort after that
+  // (deferred pm2 restart killing Next mid-stream, proxy close, etc.) → always
+  // Completed / completed_closed — never Interrupted.
+  if ((aborted || connectionLost) && useful) {
     return {
-      endHint: useful ? "interrupted" : "interrupted",
+      endHint: "completed_closed",
       failedMessage: false,
-      finalizeAs: "interrupted",
+      finalizeAs: "completed",
     };
+  }
+  if (aborted) {
+    return { endHint: "interrupted", failedMessage: false, finalizeAs: "interrupted" };
   }
   if (toolErrors && !connectionLost) {
     return { endHint: "failed", failedMessage: true, finalizeAs: "error" };
   }
   if (connectionLost) {
-    // Deferred restart / socket close after successful edits/builds → Completed
-    // (connection closed). Never paint this as Interrupted/Failed.
-    if (useful) {
-      return {
-        endHint: "completed_closed",
-        failedMessage: false,
-        finalizeAs: "completed",
-      };
-    }
     // Connection lost before useful work — Interrupted, not Failed.
     return {
       endHint: "interrupted",
@@ -170,8 +297,8 @@ function persistMessage(
     model?: string;
     elapsed?: number;
   }
-) {
-  fetch(`/api/sessions/${sessionId}/messages`, {
+): Promise<unknown> {
+  return fetch(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(message),
@@ -190,6 +317,7 @@ export default function ChatApp() {
   const lang = useUiLang();
   const t = STR[lang];
   const [reasoningEffort] = useReasoningEffort();
+  const [chatMode] = useChatMode();
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -211,6 +339,94 @@ export default function ChatApp() {
   const [assistantSnippet, setAssistantSnippet] = useState("");
   const activitiesRef = useRef<ActivityItem[]>([]);
   const restoredWorkLogRef = useRef(false);
+  const resumeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Re-attach to a run that is still going (or was left pending) on the
+  // server: poll the session until the placeholder flips to done/failed.
+  const stopResume = useCallback(() => {
+    if (resumeTimerRef.current) {
+      clearInterval(resumeTimerRef.current);
+      resumeTimerRef.current = null;
+    }
+  }, []);
+
+  const startResume = useCallback(
+    (id: string) => {
+      stopResume();
+      // Rejoin the VIEW of a still-live detached run. Do not open a new
+      // agent session or POST /api/chat — the original handler keeps writing.
+      setSending(true);
+      setActivityLive(true);
+      const tick = async () => {
+        if (sessionIdRef.current !== id) {
+          stopResume();
+          return;
+        }
+        try {
+          const response = await fetch(`/api/sessions/${id}`);
+          if (!response.ok) return;
+          const body = (await response.json()) as { messages?: StoredLike[] };
+          const list = body.messages ?? [];
+          const stillPending = latestModelPending(list);
+          if (sessionIdRef.current === id) {
+            setMessages((prev) => mapStoredMessages(list, prev));
+            setSending(stillPending);
+            setActivityLive(stillPending);
+          }
+          if (!stillPending) stopResume();
+        } catch {
+          /* retry next tick */
+        }
+      };
+      void tick();
+      resumeTimerRef.current = setInterval(() => {
+        void tick();
+      }, 2500);
+    },
+    [stopResume]
+  );
+
+  const savedGuestRunsRef = useRef(new Set<string>());
+
+  // Guest sessions live in localStorage (UUID). The in-flight model message
+  // is on the server; poll it the same way signed-in pending runs are polled.
+  const startGuestResume = useCallback(
+    (id: string) => {
+      stopResume();
+      setSending(true);
+      setActivityLive(true);
+      const tick = async () => {
+        if (sessionIdRef.current !== id) {
+          stopResume();
+          return;
+        }
+        try {
+          const response = await fetch(`/api/guest-runs/${id}`);
+          if (!response.ok) return;
+          const body = (await response.json()) as { run?: StoredLike | null };
+          const run = body.run;
+          if (!run || sessionIdRef.current !== id) return;
+          setMessages((prev) => mergeGuestRun(prev, run));
+          const stillPending = (run.status ?? "done") === "pending";
+          setSending(stillPending);
+          setActivityLive(stillPending);
+          if (!stillPending) {
+            rememberGuestRun(id, run, savedGuestRunsRef.current);
+            stopResume();
+          }
+        } catch {
+          /* retry next tick */
+        }
+      };
+      void tick();
+      resumeTimerRef.current = setInterval(() => {
+        void tick();
+      }, 2500);
+    },
+    [stopResume]
+  );
+
+  useEffect(() => stopResume, [stopResume]);
 
   // Free-model notice: centered gray text, auto-dismisses after a few seconds.
   useEffect(() => {
@@ -223,15 +439,11 @@ export default function ChatApp() {
     activitiesRef.current = activities;
   }, [activities]);
 
-  // Restore last run work log after refresh so Activity trail survives reload.
+  // sessionStorage is not the source of truth. It dies on tab close and
+  // used to mark a still-running trail completed. The transcript comes from
+  // the pending model message (text + processSteps) loaded with the session.
   useEffect(() => {
-    if (restoredWorkLogRef.current) return;
     restoredWorkLogRef.current = true;
-    const snap = loadWorkLog();
-    if (!snap?.activities?.length) return;
-    setActivities(snap.activities);
-    setActivityEndHint(snap.endHint ?? "completed");
-    if (snap.assistantSnippet) setAssistantSnippet(snap.assistantSnippet);
   }, []);
 
   // Persist work log whenever the trail or end hint changes (not while empty+idle).
@@ -292,6 +504,7 @@ useEffect(() => {
       return;
     }
     setMessages([]);
+    stopResume();
     if (!id) {
       sessionIdRef.current = null;
       setActivities([]);
@@ -310,27 +523,19 @@ useEffect(() => {
           return response.json();
         })
         .then(
-          (body: {
-            messages: {
-              role: string;
-              text: string;
-              images?: ChatImage[];
-              model?: string;
-              elapsed?: number;
-            }[];
-          }) => {
+          (body: { messages: StoredLike[] }) => {
             if (sessionIdRef.current !== id) return;
-            setMessages(
-              body.messages.map((message) => ({
-                id: nextId++,
-                role: message.role === "model" ? "model" : "user",
-                text: message.text,
-                images: message.images,
-                model: message.model,
-                elapsed: message.elapsed,
-                _id: (message as { _id?: string })._id,
-              }))
-            );
+            const list = mapStoredMessages(body.messages ?? []);
+            setMessages(list);
+            const hasPending = latestModelPending(body.messages ?? []);
+            if (hasPending) {
+              setSending(true);
+              setActivityLive(true);
+              startResume(id);
+            } else {
+              setSending(false);
+              setActivityLive(false);
+            }
           }
         )
         .catch(() => {
@@ -362,8 +567,28 @@ useEffect(() => {
             elapsed: message.elapsed,
             _index: String(index),
           }))
-        ).then((hydrated) => {
-          if (sessionIdRef.current === id) setMessages(hydrated);
+        ).then(async (hydrated) => {
+          if (sessionIdRef.current !== id) return;
+          setMessages(hydrated);
+          try {
+            const response = await fetch(`/api/guest-runs/${id}`);
+            if (!response.ok || sessionIdRef.current !== id) return;
+            const body = (await response.json()) as { run?: StoredLike | null };
+            const run = body.run;
+            if (!run || sessionIdRef.current !== id) return;
+            setMessages((prev) => mergeGuestRun(prev.length ? prev : hydrated, run));
+            if ((run.status ?? "done") === "pending") {
+              setSending(true);
+              setActivityLive(true);
+              startGuestResume(id);
+            } else {
+              rememberGuestRun(id, run, savedGuestRunsRef.current);
+              setSending(false);
+              setActivityLive(false);
+            }
+          } catch {
+            /* local user prompt still shows */
+          }
         });
       } else {
         sessionIdRef.current = null;
@@ -371,7 +596,7 @@ useEffect(() => {
       }
       setLoading(false);
     }
-  }, [sessionParam, isAuthed, router]);
+  }, [sessionParam, isAuthed, router, startResume, startGuestResume, stopResume]);
 
   // Usage-limit banner removed (2026-09-02): exhaustion now falls back to
 // free models for text, and image sends get the reply-text explanation.
@@ -401,6 +626,7 @@ useEffect(() => {
   // with the user message that triggers it).
   const streamReply = useCallback(
     async (base: UiMessage[]) => {
+      stopResume();
       const modelMessage: UiMessage = {
         id: nextId++,
         role: "model",
@@ -408,7 +634,14 @@ useEffect(() => {
         streaming: true,
         processSteps: [],
       };
-      setMessages([...base, modelMessage]);
+      // A resumed-from-server pending bubble must stop showing a live cursor
+      // once a fresh run takes over the conversation.
+      const settledBase = base.map((message) =>
+        message._id && message.streaming
+          ? { ...message, streaming: false }
+          : message
+      );
+      setMessages([...settledBase, modelMessage]);
       setSending(true);
       setFreeNotice(false);
       setActivities([]);
@@ -431,6 +664,7 @@ useEffect(() => {
       let aborted = false;
 
       let modelText = "";
+      let runPersisted = false;
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
@@ -440,6 +674,8 @@ useEffect(() => {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             language: lang,
             reasoning: reasoningEffort,
+            mode: chatMode,
+            sessionId: sessionIdRef.current ?? undefined,
           }),
           signal: controller.signal,
         });
@@ -447,6 +683,9 @@ useEffect(() => {
           await response.text();
           throw new Error(t["chat.requestFailed"]);
         }
+        // When the server owns the model-message persistence it replies with
+        // this header; the client must not POST a second copy at the end.
+        runPersisted = response.headers.get("x-run-persisted") === "1";
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -576,12 +815,14 @@ useEffect(() => {
         const sessionId = sessionIdRef.current;
         if (sessionId) {
           if (isAuthed) {
-            persistMessage(sessionId, {
-              role: "model",
-              text: savedText,
-              model: modelName,
-              elapsed: elapsedValue,
-            });
+            if (!runPersisted) {
+              persistMessage(sessionId, {
+                role: "model",
+                text: savedText,
+                model: modelName,
+                elapsed: elapsedValue,
+              });
+            }
           } else {
             appendGuestMessage(sessionId, {
               role: "model",
@@ -662,7 +903,7 @@ useEffect(() => {
         abortRef.current = null;
       }
     },
-    [isAuthed, lang, reasoningEffort]
+    [isAuthed, lang, reasoningEffort, chatMode, stopResume]
   );
 
   const send = useCallback(
@@ -698,7 +939,10 @@ useEffect(() => {
       const userMessage: UiMessage = { id: nextId++, role: "user", text: trimmed, images };
       if (sessionId) {
         if (authed) {
-          persistMessage(sessionId, { role: "user", text: trimmed, images });
+          // Await before starting the run: the server creates the pending
+          // model placeholder the moment /api/chat lands, so the user doc
+          // must already exist to keep createdAt order (question, answer).
+          await persistMessage(sessionId, { role: "user", text: trimmed, images });
         } else if (images && images.length > 0) {
           const keys = images.map((_, i) => `${sessionId}:${userMessage.id}:${i}`);
           const stored = await Promise.all(
@@ -762,7 +1006,7 @@ useEffect(() => {
       const sessionId = sessionIdRef.current;
       if (sessionId) {
         if (isAuthed) {
-          persistMessage(sessionId, { role: "user", text: edited.text, images: edited.images });
+          await persistMessage(sessionId, { role: "user", text: edited.text, images: edited.images });
         } else {
           appendGuestMessage(sessionId, {
             role: "user",
