@@ -7,6 +7,7 @@ import {
   type ActivityStatus,
 } from "./markers";
 import { insertCall } from "./db";
+import { AGENT_ROOT } from "./pathJail";
 import type { ChatMessage } from "./types";
 
 const AGENT_URL = "http://127.0.0.1:4096";
@@ -23,7 +24,11 @@ interface OpencodeClient {
     }>;
     prompt: (input: {
       path: { id: string };
-      body: { system?: string; parts: { type: string; text?: string }[] };
+      body: {
+        system?: string;
+        agent?: string;
+        parts: { type: string; text?: string }[];
+      };
     }) => Promise<{ data: unknown }>;
     delete: (input: { path: { id: string } }) => Promise<unknown>;
     messages: (input: { path: { id: string } }) => Promise<unknown>;
@@ -161,6 +166,11 @@ function capitalizeWord(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
+function shortPath(p: string): string {
+  const prefix = `${AGENT_ROOT}/`;
+  return p.startsWith(prefix) ? p.slice(prefix.length) : p;
+}
+
 /** Human-readable process line for the transcript stream (OpenCode-ish log). */
 function formatProcessLine(opts: {
   tool?: string;
@@ -174,8 +184,8 @@ function formatProcessLine(opts: {
 }): string {
   const tool = (opts.tool || opts.kind || "step").toLowerCase();
   const target =
-    (opts.path || "").trim() ||
-    (opts.title || "").trim() ||
+    shortPath((opts.path || "").trim()) ||
+    shortPath((opts.title || "").trim()) ||
     (opts.command ? truncateDetail(opts.command, 72) : "") ||
     tool;
   let line: string;
@@ -214,11 +224,12 @@ function formatProcessLine(opts: {
 export async function* agentChat(
   messages: ChatMessage[],
   language?: "zh" | "en",
-  agentTools = false
+  agentTools = false,
+  mode: "build" | "plan" = "build"
 ): AsyncGenerator<string> {
   const agent = getAgentClient();
   const session = (await agent.session.create({ body: { title: "inschat" } })).data;
-  const system = getSystemPrompt(language, agentTools);
+  const system = getSystemPrompt(language, agentTools, mode === "plan");
   const requestId = Math.random().toString(36).slice(2, 8);
 
   if (process.env.OPENCODE_TEST_LIMIT === "1") {
@@ -244,6 +255,10 @@ export async function* agentChat(
     let modelName: string | null = null;
     let toolHits = new Set<string>();
     let toolStatus = new Map<string, ActivityStatus>();
+    const mirroredKeys = new Set<string>();
+    const changedFiles: string[] = [];
+    const seenChanged = new Set<string>();
+    let buildOk: boolean | null = null;
     let idle = false;
     let failed: Error | null = null;
     let promptSettled = false;
@@ -315,6 +330,12 @@ export async function* agentChat(
                 const last = toolStatus.get(patchKey);
                 if (last !== "completed") {
                   toolStatus.set(patchKey, "completed");
+                  for (const f of files) {
+                    if (f && !seenChanged.has(f)) {
+                      seenChanged.add(f);
+                      changedFiles.push(f);
+                    }
+                  }
                   yield encodeActivityMarker({
                     id: patchKey,
                     kind: "patch",
@@ -329,13 +350,16 @@ export async function* agentChat(
                     produced = true;
                     yield encodeModelMarker(modelName ?? "qwen3.8-flash");
                   }
-                  yield `\n${formatProcessLine({
-                    tool: "patch",
-                    path: files[0],
-                    title,
-                    status: "completed",
-                    kind: "patch",
-                  })}\n`;
+                  if (!mirroredKeys.has(patchKey)) {
+                    mirroredKeys.add(patchKey);
+                    yield `\n${formatProcessLine({
+                      tool: "patch",
+                      path: files[0],
+                      title,
+                      status: "completed",
+                      kind: "patch",
+                    })}\n`;
+                  }
                   console.log(`[agent:${requestId}] patch ${title}`);
                 }
               }
@@ -354,6 +378,31 @@ export async function* agentChat(
                 const pathish = toolPathFromInput(input);
                 const command = toolCommandFromInput(input);
                 const toolName = (part.tool || "tool").toLowerCase();
+                const isDeferredRestart =
+                  (toolName === "bash" || toolName === "shell") &&
+                  /restart-agent-deferred\.sh/.test(command);
+                if (isDeferredRestart && activityStatus === "error") {
+                  activityStatus = "completed";
+                }
+                if (
+                  (toolName === "bash" || toolName === "shell") &&
+                  /npm\s+run\s+build/.test(command)
+                ) {
+                  if (activityStatus === "completed") buildOk = true;
+                  else if (activityStatus === "error") buildOk = false;
+                }
+                if (
+                  activityStatus === "completed" &&
+                  (toolName === "edit" ||
+                    toolName === "write" ||
+                    toolName === "apply_patch" ||
+                    toolName === "patch") &&
+                  pathish &&
+                  !seenChanged.has(pathish)
+                ) {
+                  seenChanged.add(pathish);
+                  changedFiles.push(pathish);
+                }
                 const title =
                   pathish ||
                   (part.state?.title && String(part.state.title)) ||
@@ -420,15 +469,18 @@ export async function* agentChat(
                         produced = true;
                         yield encodeModelMarker(modelName ?? "qwen3.8-flash");
                       }
-                      yield `\n${formatProcessLine({
-                        tool: part.tool || "tool",
-                        path: pathish || undefined,
-                        title,
-                        command: command || undefined,
-                        status: activityStatus,
-                        additions,
-                        deletions,
-                      })}\n`;
+                      if (!mirroredKeys.has(toolKey)) {
+                        mirroredKeys.add(toolKey);
+                        yield `\n${formatProcessLine({
+                          tool: part.tool || "tool",
+                          path: pathish || undefined,
+                          title,
+                          command: command || undefined,
+                          status: activityStatus,
+                          additions,
+                          deletions,
+                        })}\n`;
+                      }
                     }
                     console.log(
                       `[agent:${requestId}] tool ${part.tool} (${activityStatus}) ${title ?? ""}`.trim()
@@ -466,6 +518,7 @@ export async function* agentChat(
       path: { id: session.id },
       body: {
         system,
+        agent: mode === "plan" ? "plan" : undefined,
         parts: [{ type: "text", text: buildTranscript(messages) }],
       },
     });
@@ -608,6 +661,21 @@ export async function* agentChat(
           cacheWrite: tokens.cache?.write ?? 0,
         }
       : undefined;
+    // Structured Done summary into the text stream (Activity rail may be off).
+    {
+      const lines: string[] = ["", "Done"];
+      if (changedFiles.length) {
+        lines.push(`- Files changed: ${changedFiles.join(", ")}`);
+      }
+      if (buildOk === true) {
+        lines.push("- Build: ok");
+      } else if (buildOk === false) {
+        lines.push("- Build: failed");
+      }
+      if (lines.length > 1) {
+        yield `${lines.join("\n")}\n`;
+      }
+    }
     insertCall({
       kind: "opencode",
       model: info?.modelID ?? modelName ?? "qwen3.8-flash",

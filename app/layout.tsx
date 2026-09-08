@@ -1,3 +1,5 @@
+// <!-- qa-fix-20260907 -->
+// <!-- qa-refresh-20260907 -->
 import { Suspense } from "react";
 import type { Metadata, Viewport } from "next";
 import Sidebar from "@/components/Sidebar";

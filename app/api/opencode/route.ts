@@ -21,7 +21,7 @@ export async function POST(req: Request) {
         : "Invalid request body.";
     return Response.json({ error: message }, { status: 400 });
   }
-  const { messages, language } = parsed;
+  const { messages, language, mode } = parsed;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -46,7 +46,8 @@ export async function POST(req: Request) {
         for await (const text of agentChat(
           messages,
           language,
-          true
+          true,
+          mode
         )) {
           enqueue(text);
         }

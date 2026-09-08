@@ -16,6 +16,10 @@
   --bubble-model: #f9f7fd;
   --bubble-model-text: #322f3a;
   --border: #ece7f4;
+  --trail: #b45309;
+  --trail-bright: #ea580c;
+  --mode-build: #3b82f6;
+  --mode-plan: #ea580c;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
 }
@@ -1965,6 +1969,24 @@ span.conclude-rank-badge {
   border: 1px solid var(--border);
   border-radius: 24px;
   padding: 8px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* agent (build) mode: blue border; plan mode: orange border */
+.input-row.mode-build {
+  border-color: var(--mode-build);
+}
+
+.input-row.mode-build:focus-within {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.input-row.mode-plan {
+  border-color: var(--mode-plan);
+}
+
+.input-row.mode-plan:focus-within {
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.16);
 }
 
 .input-row textarea {
@@ -1977,6 +1999,7 @@ span.conclude-rank-badge {
   line-height: 1.4;
   padding: 8px 10px;
   max-height: 160px;
+  overflow-y: auto;
   outline: none;
   color: var(--text);
 }
@@ -2023,28 +2046,116 @@ span.conclude-rank-badge {
   cursor: default;
 }
 
-/* per-user reasoning effort selector at the end of the input row */
+/* toolbar row: mode pill + standalone max button */
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* standalone max reasoning toggle pill */
 .composer-reasoning {
   flex-shrink: 0;
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--bg);
   color: var(--text-muted);
   font-family: var(--font);
   font-size: 12px;
-  font-weight: 500;
-  height: 36px;
-  padding: 0 8px;
+  font-weight: 600;
+  height: 32px;
+  padding: 0 12px;
   outline: none;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.composer-reasoning-box {
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .composer-reasoning:hover {
-  border-color: var(--text-muted);
+  color: var(--text);
 }
 
 .composer-reasoning:focus {
+  color: var(--text);
+}
+
+.composer-reasoning.active {
+  background: var(--pill);
   border-color: var(--pill);
+  color: var(--pill-text);
+}
+
+.composer-reasoning.active .composer-reasoning-box {
+  border-color: transparent;
+  background: var(--pill-text);
+  color: var(--pill);
+}
+
+/* build/plan segmented toggle pill */
+.composer-mode {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg);
+}
+
+.composer-mode-btn {
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  height: 100%;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.composer-mode-btn:hover {
+  color: var(--text);
+}
+
+.composer-mode-btn.active {
+  background: var(--pill);
+  color: var(--pill-text);
+}
+
+.composer-mode-btn-build.active {
+  background: var(--mode-build);
+}
+
+.composer-mode-btn-plan.active {
+  background: var(--mode-plan);
+}
+
+.composer-mode-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.composer-reasoning:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .hint {
@@ -3094,6 +3205,8 @@ span.conclude-rank-badge {
 .reply-footer .model-meta {
   align-self: center;
   margin-top: 0;
+  /* keep model/usage on the right even while streaming (no action buttons yet) */
+  margin-left: auto;
 }
 
 /* ---- sidebar: search, hide/collapse, pin ---- */
@@ -4531,6 +4644,71 @@ button.settings-row:hover {
   font-size: 12px;
   color: var(--text-muted);
   line-height: 1.4;
+}
+
+.trail-wave {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  margin: 2px 0;
+  padding: 1px 2px;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  border-radius: 6px;
+}
+
+.trail-wave.expandable {
+  cursor: pointer;
+}
+
+.trail-lines {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.trail-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--trail);
+  overflow-wrap: anywhere;
+  animation: trail-roll 0.18s ease;
+}
+
+.trail-wave.live .trail-line {
+  color: var(--trail-bright);
+}
+
+.trail-chevron {
+  flex: none;
+  margin-top: 3px;
+  color: var(--trail);
+  transition: transform 0.15s ease;
+}
+
+.trail-wave.open .trail-chevron {
+  transform: rotate(180deg);
+}
+
+.trail-wave.expandable:hover .trail-line,
+.trail-wave.expandable:hover .trail-chevron {
+  color: var(--trail-bright);
+}
+
+@keyframes trail-roll {
+  from {
+    opacity: 0.3;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* De-emphasize model bubbles if any remain */

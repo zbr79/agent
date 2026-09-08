@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Check, Copy, Pencil, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, Copy, Pencil, RefreshCw } from "lucide-react";
 import "highlight.js/styles/github.css";
 import ImageViewer from "./ImageViewer";
 import { STR, useUiLang } from "@/lib/i18n";
@@ -35,6 +35,57 @@ function preserveLineBreaks(text: string): string {
     .split("\n")
     .map((line) => (line.endsWith("  ") ? line : `${line}  `))
     .join("\n");
+}
+
+// Server mirrors tool activity as "→ Read foo.ts" lines inside the answer
+// text. Consecutive tool lines form a "wave": while streaming, the wave shows
+// only its latest line (each new command replaces the one before it), and once
+// human-readable prose appears the wave commits as a single line and the next
+// wave starts fresh below it.
+const TRAIL_RE = /^\s*→\s+(.+)$/;
+
+type Segment =
+  | { type: "prose"; text: string }
+  | { type: "wave"; items: string[] };
+
+function splitSegments(text: string): Segment[] {
+  const segments: Segment[] = [];
+  for (const raw of text.split("\n")) {
+    const match = raw.match(TRAIL_RE);
+    if (match) {
+      const last = segments[segments.length - 1];
+      if (last && last.type === "wave") last.items.push(match[1].trim());
+      else segments.push({ type: "wave", items: [match[1].trim()] });
+    } else if (raw.trim()) {
+      const last = segments[segments.length - 1];
+      if (last && last.type === "prose") last.text += `\n${raw}`;
+      else segments.push({ type: "prose", text: raw });
+    }
+  }
+  return segments;
+}
+
+function TrailWave({ items, active }: { items: string[]; active?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const expandable = items.length > 1;
+  const shown = open ? items : items.slice(-1);
+  return (
+    <button
+      type="button"
+      className={`trail-wave${active ? " live" : ""}${expandable ? " expandable" : ""}${open ? " open" : ""}`}
+      onClick={expandable ? () => setOpen((v) => !v) : undefined}
+      aria-expanded={expandable ? open : undefined}
+    >
+      <span className="trail-lines">
+        {shown.map((item, index) => (
+          <span key={`${index}-${item}`} className="trail-line">{`→ ${item}`}</span>
+        ))}
+      </span>
+      {expandable && (
+        <ChevronDown size={13} className="trail-chevron" aria-hidden="true" />
+      )}
+    </button>
+  );
 }
 
 export default function MessageBubble({
@@ -133,8 +184,18 @@ export default function MessageBubble({
             ? imageUrls
             : null;
         const isEditing = editingId === message.id;
+        const segments = splitSegments(message.text ?? "");
+        if (
+          message.role === "model" &&
+          !segments.some((segment) => segment.type === "wave")
+        ) {
+          const steps = (message.processSteps ?? [])
+            .map((step) => step.trim())
+            .filter(Boolean);
+          if (steps.length) segments.unshift({ type: "wave", items: steps });
+        }
         const processWaiting =
-          message.streaming && !message.text && message.role === "model";
+          message.streaming && segments.length === 0 && message.role === "model";
         return (
         <div
           key={message.id}
@@ -212,26 +273,25 @@ export default function MessageBubble({
                     </span>
                   </div>
                 )}
-                {(message.processSteps?.length ?? 0) > 0 && (
-                  <div className="process-steps" aria-label="process">
-                    {message.processSteps!.map((step, idx) => (
-                      <div key={`${message.id}-step-${idx}`} className="process-step-line">
-                        → {step}
-                      </div>
-                    ))}
-                  </div>
+                {segments.map((segment, index) =>
+                  segment.type === "wave" ? (
+                    <TrailWave
+                      key={`w${index}`}
+                      items={segment.items}
+                      active={message.streaming && index === segments.length - 1}
+                    />
+                  ) : (
+                    <div key={`p${index}`} className="transcript-body">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeHighlight]}
+                      >
+                        {preserveLineBreaks(segment.text)}
+                      </ReactMarkdown>
+                    </div>
+                  )
                 )}
-                {message.text && (
-                  <div className="transcript-body">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      rehypePlugins={[rehypeHighlight]}
-                    >
-                      {preserveLineBreaks(message.text)}
-                    </ReactMarkdown>
-                  </div>
-                )}
-                {message.streaming && message.text && <span className="cursor" />}
+                {message.streaming && segments.length > 0 && <span className="cursor" />}
               </div>
             ) : (
               <div className="bubble">

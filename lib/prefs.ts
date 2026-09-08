@@ -37,19 +37,19 @@ export function useCompressImages(): [boolean, (on: boolean) => void] {
   return [on, setCompressImages];
 }
 
-export type ReasoningEffort = "max" | "medium" | "low";
+export type ReasoningEffort = "max" | "medium";
 
 const REASONING_KEY = "inschat_reasoning";
 const REASONING_EVENT = "inschat-reasoning";
 
 // Reasoning effort is MAX by default (unchanged behavior); users can lower it
-// to medium/low for faster replies (vision + direct-fallback requests only —
+// to medium for faster replies (vision + direct-fallback requests only —
 // the opencode agent keeps its own default).
 export function getReasoningEffort(): ReasoningEffort {
   if (typeof window === "undefined") return "max";
   try {
     const value = window.localStorage.getItem(REASONING_KEY);
-    return value === "medium" || value === "low" ? value : "max";
+    return value === "medium" ? value : "max";
   } catch {
     return "max";
   }
@@ -73,10 +73,47 @@ export function useReasoningEffort(): [
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<ReasoningEffort>).detail;
-      setLevel(detail === "medium" || detail === "low" ? detail : "max");
+      setLevel(detail === "medium" ? detail : "max");
     };
     window.addEventListener(REASONING_EVENT, handler);
     return () => window.removeEventListener(REASONING_EVENT, handler);
   }, []);
   return [level, setReasoningEffort];
+}
+
+export type ChatMode = "build" | "plan";
+
+const MODE_KEY = "inschat_mode";
+const MODE_EVENT = "inschat-mode";
+
+// Build (default) = full agent with edit/bash allowlist. Plan = opencode's
+// read-only agent (edit/bash denied server-side) for research and proposals.
+export function getChatMode(): ChatMode {
+  if (typeof window === "undefined") return "build";
+  try {
+    return window.localStorage.getItem(MODE_KEY) === "plan" ? "plan" : "build";
+  } catch {
+    return "build";
+  }
+}
+
+export function setChatMode(mode: ChatMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MODE_KEY, mode);
+  } catch {}
+  window.dispatchEvent(new CustomEvent(MODE_EVENT, { detail: mode }));
+}
+
+export function useChatMode(): [ChatMode, (mode: ChatMode) => void] {
+  const [mode, setMode] = useState<ChatMode>(() => getChatMode());
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<ChatMode>).detail;
+      setMode(detail === "plan" ? "plan" : "build");
+    };
+    window.addEventListener(MODE_EVENT, handler);
+    return () => window.removeEventListener(MODE_EVENT, handler);
+  }, []);
+  return [mode, setChatMode];
 }

@@ -14,6 +14,12 @@ const FREE_AGENT_PROMPT =
   AGENT_WORKSPACE_TOOLS +
   " Never invent file contents — read them. Never invent numbers or facts; use webfetch when live data is needed.";
 
+// Plan mode: same tools for research, but edit/bash are denied server-side
+// (opencode agent "plan"). The prompt must not ask the model to build or
+// restart, or it will chase denied tools and waste turns.
+const PLAN_AGENT_NOTE =
+  "PLAN MODE (read-only): do NOT edit files and do NOT run bash commands (no npm run build, no restart scripts) — those tools are denied and attempts will fail. Investigate with read/grep/glob/webfetch/websearch and answer with analysis, findings, and a concrete implementation proposal (files, exact changes, order of work) described in text so it can be applied later in Build mode.";
+
 export function isValidTimeZone(timeZone: unknown): timeZone is string {
   if (typeof timeZone !== "string" || !timeZone || timeZone.length > 64) {
     return false;
@@ -28,12 +34,14 @@ export function isValidTimeZone(timeZone: unknown): timeZone is string {
 
 export function getSystemPrompt(
   language?: "zh" | "en",
-  agentTools = false
+  agentTools = false,
+  planMode = false
 ): string {
   const modeLine =
     language === "en"
       ? "\n\nUI language mode: English — use English only when the user's message has no language cues (photo alone, bare number)."
       : "\n\nUI语言模式：中文 — 仅在用户消息没有语言线索（纯图片、纯数字）时使用中文。";
-  const base = agentTools ? FREE_AGENT_PROMPT : FREE_PROMPT;
+  let base = agentTools ? FREE_AGENT_PROMPT : FREE_PROMPT;
+  if (planMode && agentTools) base = `${base}\n\n${PLAN_AGENT_NOTE}`;
   return `${base}${modeLine}`;
 }
