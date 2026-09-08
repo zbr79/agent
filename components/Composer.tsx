@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Plus, Square, X } from "lucide-react";
+import { ArrowUp, Mic, Plus, Square, X } from "lucide-react";
 import type { ChatImage } from "@/lib/types";
-import { MAX_IMAGES } from "@/lib/types";
+import { GUEST_MAX_AUDIO_MS, MAX_AUDIO_BYTES, MAX_IMAGES, USER_MAX_AUDIO_MS } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
 import { useChatMode, useCompressImages, useReasoningEffort, type ChatMode } from "@/lib/prefs";
 import { compressImage } from "@/lib/imageCompress";
+import {
+  isVoiceInputSupported,
+  recordVoice,
+  VoiceInputError,
+  type VoiceRecordHandle,
+} from "@/lib/audioRecorder";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -16,6 +22,7 @@ interface ComposerProps {
   onStop: () => void;
   disabled?: boolean;
   placeholder?: string;
+  signedIn?: boolean;
 }
 
 function readImage(
@@ -39,7 +46,21 @@ function readImage(
   });
 }
 
-export default function Composer({ sending, onSend, onStop, disabled = false, placeholder }: ComposerProps) {
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+export default function Composer({
+  sending,
+  onSend,
+  onStop,
+  disabled = false,
+  placeholder,
+  signedIn = false,
+}: ComposerProps) {
   const lang = useUiLang();
   const t = STR[lang];
   const [compressOn] = useCompressImages();
@@ -48,8 +69,14 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
   const [text, setText] = useState("");
   const [images, setImages] = useState<ChatImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [voiceHint, setVoiceHint] = useState<string | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<"idle" | "recording" | "transcribing">("idle");
+  const [elapsedMs, setElapsedMs] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const voiceRef = useRef<VoiceRecordHandle | null>(null);
+  const textRef = useRef(text);
+  textRef.current = text;
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -58,9 +85,15 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
     el.style.height = `${el.scrollHeight}px`;
   }, [text]);
 
-  const maxOn = reasoning === "max";
+  useEffect(() => {
+    return () => {
+      voiceRef.current?.cancel();
+    };
+  }, []);
 
+  const maxOn = reasoning === "max";
   const canSend = (text.trim().length > 0 || images.length > 0) && !sending && !disabled;
+  const hint = voiceHint || imageError;
 
   const handleSend = () => {
     if (!canSend) return;
@@ -68,6 +101,27 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
     setText("");
     setImages([]);
     setImageError(null);
+  };
+
+  const insertAtCaret = (snippet: string) => {
+    const cleaned = snippet.trim();
+    if (!cleaned) return;
+    const el = textareaRef.current;
+    const current = textRef.current;
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    const before = current.slice(0, start);
+    const after = current.slice(end);
+    const padBefore = before.length > 0 && !/\s$/.test(before) ? " " : "";
+    const padAfter = after.length > 0 && !/^\s/.test(after) ? " " : "";
+    const insert = `${padBefore}${cleaned}${padAfter}`;
+    const next = `${before}${insert}${after}`;
+    setText(next);
+    const caret = before.length + insert.length;
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(caret, caret);
+    });
   };
 
   const insertNewline = () => {
@@ -142,6 +196,107 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
   const removeImage = (index: number) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
   };
+
+  const transcribe = async (blob: Blob, durationMs: number) => {
+    if (blob.size > MAX_AUDIO_BYTES) {
+      setVoiceHint(t["composer.audioTooLarge"]);
+      setVoiceStatus("idle");
+      return;
+    }
+    setVoiceStatus("transcribing");
+    const body = new FormData();
+    body.append("file", blob, "dictation.wav");
+    body.append("language", lang === "zh" ? "zh" : lang === "en" ? "en" : "auto");
+    body.append("durationMs", String(durationMs));
+    try {
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body,
+        credentials: "same-origin",
+        signal: AbortSignal.timeout(70000),
+      });
+      const payload = (await response.json().catch(() => null)) as { text?: string; error?: string } | null;
+      if (response.status === 503) {
+        setVoiceHint(t["composer.transcribeUnavailable"]);
+        return;
+      }
+      if (response.status === 413) {
+        setVoiceHint(t["composer.audioTooLarge"]);
+        return;
+      }
+      if (!response.ok) {
+        setVoiceHint(t["composer.transcribeFailed"]);
+        return;
+      }
+      const transcript = payload?.text?.trim() ?? "";
+      if (!transcript) {
+        setVoiceHint(t["composer.transcribeFailed"]);
+        return;
+      }
+      insertAtCaret(transcript);
+      setVoiceHint(null);
+    } catch {
+      setVoiceHint(t["composer.transcribeFailed"]);
+    } finally {
+      setVoiceStatus("idle");
+    }
+  };
+
+  const startRecording = () => {
+    if (disabled || voiceStatus !== "idle") return;
+    if (!isVoiceInputSupported()) {
+      setVoiceHint(t["composer.micUnsupported"]);
+      return;
+    }
+    setVoiceHint(null);
+    setElapsedMs(0);
+    const handle = recordVoice({
+      maxMs: signedIn ? USER_MAX_AUDIO_MS : GUEST_MAX_AUDIO_MS,
+      onTick: setElapsedMs,
+    });
+    voiceRef.current = handle;
+    setVoiceStatus("recording");
+    void handle.result
+      .then((recording) => {
+        if (voiceRef.current !== handle) return;
+        voiceRef.current = null;
+        void transcribe(recording.blob, recording.durationMs);
+      })
+      .catch((error: unknown) => {
+        if (voiceRef.current !== handle) return;
+        voiceRef.current = null;
+        setVoiceStatus("idle");
+        if (error instanceof VoiceInputError && error.code === "cancelled") return;
+        if (error instanceof VoiceInputError && error.code === "unsupported") {
+          setVoiceHint(t["composer.micUnsupported"]);
+          return;
+        }
+        if (error instanceof VoiceInputError && error.code === "denied") {
+          setVoiceHint(t["composer.micDenied"]);
+          return;
+        }
+        setVoiceHint(t["composer.transcribeFailed"]);
+      });
+  };
+
+  const handleMic = () => {
+    if (voiceStatus === "recording") {
+      // The spinning ring on the mic button is the only "transcribing"
+      // indicator; no text hints.
+      setVoiceStatus("transcribing");
+      voiceRef.current?.stop();
+      return;
+    }
+    if (voiceStatus === "transcribing") return;
+    startRecording();
+  };
+
+  const micLabel =
+    voiceStatus === "recording"
+      ? t["composer.stopRecording"]
+      : voiceStatus === "transcribing"
+        ? t["composer.transcribing"]
+        : t["composer.record"];
 
   return (
     <div className="composer">
@@ -223,6 +378,26 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
           onKeyDown={handleKeyDown}
            aria-label={t["composer.message"]}
         />
+        {voiceStatus !== "idle" && (
+          <span
+            className={`composer-mic-timer${voiceStatus === "transcribing" ? " dim" : ""}`}
+            aria-live="polite"
+          >
+            {formatElapsed(elapsedMs)}
+          </span>
+        )}
+        <button
+          type="button"
+          className={`icon-button composer-mic${voiceStatus === "recording" ? " recording" : ""}${voiceStatus === "transcribing" ? " transcribing" : ""}`}
+          onClick={handleMic}
+          aria-label={micLabel}
+          title={micLabel}
+          aria-pressed={voiceStatus === "recording"}
+          aria-busy={voiceStatus === "transcribing"}
+          disabled={disabled || voiceStatus === "transcribing"}
+        >
+          <Mic size={18} />
+        </button>
         {sending ? (
            <button type="button" className="send-button" onClick={onStop} aria-label={t["composer.stop"]}>
             <Square size={15} fill="currentColor" />
@@ -239,7 +414,7 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
           </button>
         )}
       </div>
-      {imageError && <p className="hint">{imageError}</p>}
+      {hint && <p className="hint">{hint}</p>}
     </div>
   );
 }

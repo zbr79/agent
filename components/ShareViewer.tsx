@@ -7,7 +7,7 @@ import "highlight.js/styles/github.css";
 import type { ChatImage } from "@/lib/types";
 import { modelLabel } from "@/lib/modelLabels";
 import { STR, useUiLang } from "@/lib/i18n";
-import { formatElapsed } from "@/lib/format";
+import { formatElapsed, stripDoneLines } from "@/lib/format";
 
 interface SharedMessage {
   role: "user" | "model";
@@ -75,13 +75,21 @@ export default function ShareViewer({ share }: ShareViewerProps) {
                     remarkPlugins={[remarkGfm]}
                     rehypePlugins={[rehypeHighlight]}
                   >
-                    {preserveLineBreaks(message.text)}
+                    {preserveLineBreaks(
+                      message.role === "model"
+                        ? stripDoneLines(message.text)
+                        : message.text
+                    )}
                   </ReactMarkdown>
                 </div>
               )}
               {message.role === "model" && message.model && (
                 <div className="model-meta">
-                  {message.elapsed !== undefined && <span>{formatElapsed(message.elapsed)}s · </span>}
+                  {message.elapsed !== undefined && (
+                    <span>
+                      {t["message.finishedIn"]} {formatElapsed(message.elapsed, lang)} ·{" "}
+                    </span>
+                  )}
                   <span>{modelLabel(message.model)}</span>
                 </div>
               )}

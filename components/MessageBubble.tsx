@@ -9,7 +9,7 @@ import "highlight.js/styles/github.css";
 import ImageViewer from "./ImageViewer";
 import { STR, useUiLang } from "@/lib/i18n";
 import { modelLabel } from "@/lib/modelLabels";
-import { formatElapsed } from "@/lib/format";
+import { formatElapsed, stripDoneLines } from "@/lib/format";
 
 interface Message {
   id: number;
@@ -294,7 +294,11 @@ export default function MessageBubble({
             ? imageUrls
             : null;
         const isEditing = editingId === message.id;
-        const segments = splitSegments(message.text ?? "");
+        const segments = splitSegments(
+          message.role === "model"
+            ? stripDoneLines(message.text ?? "")
+            : message.text ?? ""
+        );
         if (
           message.role === "model" &&
           !segments.some((segment) => segment.type === "wave")
@@ -402,6 +406,12 @@ export default function MessageBubble({
                   )
                 )}
                 {message.streaming && segments.length > 0 && <span className="cursor" />}
+                {!message.streaming &&
+                  !message.failed &&
+                  !processWaiting &&
+                  segments.length > 0 && (
+                    <div className="done-rule" aria-hidden="true" />
+                  )}
               </div>
             ) : (
               <div className="bubble">
@@ -437,7 +447,7 @@ export default function MessageBubble({
                   <div className={`model-meta${message.streaming ? " live" : ""}`}>
                     {message.elapsed !== undefined && !message.streaming && (
                       <span>
-                        {formatElapsed(message.elapsed)}s
+                        {t["message.finishedIn"]} {formatElapsed(message.elapsed, lang)}
                         {message.model ? " · " : ""}
                       </span>
                     )}

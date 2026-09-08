@@ -9,7 +9,12 @@ import { agentChat, isAgentUp } from "@/lib/agent";
 import { ChatValidationError } from "@/lib/errors";
 import { parseChatBody, type ChatRequest } from "@/lib/chatRequest";
 import { getUserFromRequest } from "@/lib/auth";
-import { activityTrailLabel, ModelMarkerParser, type ActivityEvent } from "@/lib/markers";
+import {
+  activityTrailLabel,
+  encodeKeepMarker,
+  ModelMarkerParser,
+  type ActivityEvent,
+} from "@/lib/markers";
 import { AGENT_ROOT } from "@/lib/pathJail";
 import {
   finalizeGuestRun,
@@ -25,6 +30,35 @@ export const runtime = "nodejs";
 const MAX_PERSIST_TEXT = 100_000;
 const PROGRESS_INTERVAL_MS = 5_000;
 const HEARTBEAT_INTERVAL_MS = 10_000;
+
+// In-flight runs that own a pending Mongo doc. A `pm2 restart agent` (the
+// deferred recycle after DONE) sends SIGINT/SIGTERM; the handlers below then
+// flush every live run to "done" with the text streamed so far, instead of
+// leaving the placeholder pending until the stale sweep unlocks the composer.
+type RunFlush = () => void;
+type GlobalWithLiveRuns = typeof globalThis & { __agentLiveChatRuns?: Map<string, RunFlush> };
+function getLiveRuns(): Map<string, RunFlush> {
+  const g = globalThis as GlobalWithLiveRuns;
+  if (!g.__agentLiveChatRuns) g.__agentLiveChatRuns = new Map();
+  return g.__agentLiveChatRuns;
+}
+
+let shutdownHooksInstalled = false;
+function installShutdownFlush(): void {
+  if (shutdownHooksInstalled) return;
+  shutdownHooksInstalled = true;
+  const flush = () => {
+    for (const fn of Array.from(getLiveRuns().values())) {
+      try {
+        fn();
+      } catch {
+        /* best effort: process exit may still win the race */
+      }
+    }
+  };
+  process.on("SIGTERM", flush);
+  process.on("SIGINT", flush);
+}
 
 export async function POST(req: Request) {
   let parsed: ChatRequest;
@@ -69,8 +103,13 @@ export async function POST(req: Request) {
     }
   }
   const persistedRun = runMessageId !== null || guestSessionId !== null;
+  // Snapshot before the run can null it out: finishRun resets runMessageId
+  // when the stream ends, which may happen before the headers are built.
+  const runMessageIdForHeader = runMessageId;
   if (persistedRun) {
     console.log(`[chat] pending ${runMessageId ? "session" : "guest"} ${sessionId}`);
+    // Register with the shutdown flush so a restart mid-run still finalizes.
+    installShutdownFlush();
   }
 
   const startedAt = Date.now();
@@ -159,7 +198,9 @@ export async function POST(req: Request) {
     if (runMessageId) updateMessageProgress(runMessageId, payload).catch(() => {});
     if (guestSessionId) updateGuestRunProgress(guestSessionId, payload).catch(() => {});
   };
+  const runKey = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const finishRun = (status: "done" | "failed", extra = "") => {
+    getLiveRuns().delete(runKey);
     if (!runMessageId && !guestSessionId) return;
     const tail = parser.flush();
     if (tail) noteTextTrail(tail);
@@ -178,10 +219,14 @@ export async function POST(req: Request) {
   };
   // Liveness heartbeat: proves the run is still executing even when tools
   // run for minutes without emitting text, so the stale-pending sweep in
-  // getSessionWithMessages only fires for genuinely dead runs.
-  const heartbeat = persistedRun
-    ? setInterval(() => persistProgress(true), HEARTBEAT_INTERVAL_MS)
-    : null;
+  // getSessionWithMessages only fires for genuinely dead runs. It also pushes
+  // a no-op KEEP marker down the stream — without bytes leaving the server,
+  // nginx's read timeout (or a phone backgrounding the tab) drops the
+  // connection even though the run is perfectly healthy.
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  if (persistedRun) {
+    getLiveRuns().set(runKey, () => finishRun("done"));
+  }
   const collect = persistedRun
     ? (chunk: string) => {
         const out = parser.push(chunk);
@@ -235,6 +280,12 @@ export async function POST(req: Request) {
           console.log("[chat] stream cancelled → run continues detached");
         }
       };
+      if (persistedRun) {
+        heartbeat = setInterval(() => {
+          persistProgress(true);
+          enqueue(encodeKeepMarker());
+        }, HEARTBEAT_INTERVAL_MS);
+      }
 
       try {
         try {
@@ -337,6 +388,10 @@ export async function POST(req: Request) {
     "X-Accel-Buffering": "no",
   };
   if (persistedRun) headers["X-Run-Persisted"] = "1";
+  // Lets the browser close its own pending placeholder on the clean-end
+  // path (robust even if this handler dies microseconds later). Guests key on
+  // the session id itself, so no id header needed for them.
+  if (runMessageIdForHeader) headers["X-Run-Message-Id"] = runMessageIdForHeader;
 
   return new Response(stream, { headers });
 }

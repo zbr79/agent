@@ -665,6 +665,7 @@ useEffect(() => {
 
       let modelText = "";
       let runPersisted = false;
+      let runMessageId: string | null = null;
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
@@ -686,6 +687,9 @@ useEffect(() => {
         // When the server owns the model-message persistence it replies with
         // this header; the client must not POST a second copy at the end.
         runPersisted = response.headers.get("x-run-persisted") === "1";
+        // The pending placeholder id, so this tab can close it itself on the
+        // clean-end path even if the handler dies microseconds later.
+        runMessageId = response.headers.get("x-run-message-id");
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -830,6 +834,30 @@ useEffect(() => {
               model: modelName,
               elapsed: elapsedValue,
             });
+          }
+          // Clean end + server-owned persistence: this tab closes its own
+          // pending placeholder. The handler usually does it a few ms later
+          // anyway — this only matters when it dies at exactly that moment
+          // (deferred restart), so a refresh cannot lock the composer.
+          if (runPersisted) {
+            if (isAuthed && runMessageId) {
+              fetch(`/api/sessions/${sessionId}/messages`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  finalizePending: true,
+                  messageId: runMessageId,
+                  text: savedText,
+                  elapsed: elapsedValue,
+                }),
+              }).catch(() => {});
+            } else if (!isAuthed) {
+              fetch(`/api/guest-runs/${sessionId}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: savedText, elapsed: elapsedValue }),
+              }).catch(() => {});
+            }
           }
         }
       } catch (error) {
@@ -1138,6 +1166,7 @@ useEffect(() => {
               onStop={stop}
               sending={sending}
               placeholder={t["composer.placeholder"]}
+              signedIn={isAuthed === true}
             />
           </main>
         ) : (
@@ -1161,6 +1190,7 @@ useEffect(() => {
             onStop={stop}
             sending={sending}
             placeholder={t["composer.placeholder"]}
+            signedIn={isAuthed === true}
           />
         )}
         {freeNotice && (
@@ -1187,6 +1217,7 @@ useEffect(() => {
               onStop={stop}
               sending={sending}
               placeholder={t["composer.placeholder"]}
+              signedIn={isAuthed === true}
             />
           </main>
         ) : (
@@ -1210,6 +1241,7 @@ useEffect(() => {
             onStop={stop}
             sending={sending}
             placeholder={t["composer.placeholder"]}
+            signedIn={isAuthed === true}
           />
         )}
         {freeNotice && (
