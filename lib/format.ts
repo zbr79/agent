@@ -18,9 +18,36 @@ export function parseLimitPayload(
   return { window, resetAt };
 }
 
-export function formatElapsed(seconds: number): string {
-  const rounded = Math.round(seconds * 10) / 10;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+// Wall-clock duration of a finished reply, e.g. "1m 22s" / "22s" (en) or
+// "1分22秒" / "22秒" (zh). Whole seconds only — no decimals.
+export function formatElapsed(seconds: number, lang: "zh" | "en" = "en"): string {
+  const total = Math.max(0, Math.round(seconds));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (lang === "zh") {
+    return m > 0 ? `${m}分${s}秒` : `${s}秒`;
+  }
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+// The agent protocol ends replies with a bare "DONE" line (older builds also
+// synthesized a "Done" header, sometimes followed by summary bullets). The UI
+// hides the word and shows a gray end-rule instead, so drop any standalone
+// done line outside code fences from display text.
+export function stripDoneLines(text: string): string {
+  if (!text.trim()) return text;
+  const out: string[] = [];
+  let inFence = false;
+  for (const line of text.split("\n")) {
+    if (line.trimStart().startsWith("```")) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+    if (!inFence && /^done[.!]?$/i.test(line.trim())) continue;
+    out.push(line);
+  }
+  return out.join("\n").replace(/\s+$/, "");
 }
 
 export function formatLimitReset(

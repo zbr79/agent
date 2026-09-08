@@ -8,6 +8,9 @@ const TRYING_PREFIX = `${MARK}TRYING:`;
 const LIMIT_PREFIX = `${MARK}LIMIT:`;
 const FREE_PREFIX = `${MARK}FREE:`;
 const ACTIVITY_PREFIX = `${MARK}ACTIVITY:`;
+// No-op chunk pushed down the stream while tools run silently, so proxies
+// never see an idle connection and drop it. Stripped by the parser.
+const KEEP_PREFIX = `${MARK}KEEP:`;
 
 export type ActivityStatus = "running" | "completed" | "error" | "interrupted";
 export type ActivityKind = "tool" | "text" | "step" | "patch";
@@ -46,6 +49,10 @@ export function encodeFreeMarker(): string {
 
 export function encodeActivityMarker(event: ActivityEvent): string {
   return `${ACTIVITY_PREFIX}${JSON.stringify(event)}${MARK}`;
+}
+
+export function encodeKeepMarker(): string {
+  return `${KEEP_PREFIX}${MARK}`;
 }
 
 /** Transcript trail label (no leading arrow) matching Ran/Read/Edited lines. */
@@ -151,6 +158,7 @@ function markerValue(inner: string): {
   if (inner.startsWith("TRYING:")) return { trying: inner.slice(7) };
   if (inner.startsWith("LIMIT:")) return { limit: inner.slice(6) };
   if (inner.startsWith("FREE:")) return { free: true };
+  if (inner.startsWith("KEEP:")) return {};
   if (inner.startsWith("ACTIVITY:")) {
     const activity = parseActivityJson(inner.slice(9));
     return activity ? { activity } : {};
@@ -164,6 +172,7 @@ const KNOWN_PREFIXES = [
   LIMIT_PREFIX,
   FREE_PREFIX,
   ACTIVITY_PREFIX,
+  KEEP_PREFIX,
 ];
 
 // Incremental parser that strips markers from arbitrarily split chunks.

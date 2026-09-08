@@ -1994,6 +1994,84 @@ span.conclude-rank-badge {
   background: rgba(0, 0, 0, 0.05);
 }
 
+
+.composer-mic {
+  color: var(--text-muted);
+}
+
+.composer-mic.recording {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.12);
+  animation: mic-pulse 1.1s ease-in-out infinite;
+}
+
+.composer-mic:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.composer-mic.transcribing,
+.composer-mic.transcribing:disabled {
+  position: relative;
+  opacity: 1;
+  color: #2563eb;
+  background: transparent;
+  cursor: progress;
+}
+
+/* Disc shrinks by the ring gap so the spinning ring's outer edge lands on the
+   same 36px footprint as the send button instead of growing past it. */
+.composer-mic.transcribing::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.composer-mic.transcribing svg {
+  position: relative;
+  transform: scale(0.78);
+}
+
+.composer-mic.transcribing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(37, 99, 235, 0.2);
+  border-top-color: #2563eb;
+  animation: mic-ring-spin 0.9s linear infinite;
+}
+
+.composer-mic-timer {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #dc2626;
+  min-width: 2.4em;
+  flex-shrink: 0;
+  white-space: nowrap;
+  align-self: flex-end;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+/* Frozen elapsed time after recording stops: dim back to muted grey. */
+.composer-mic-timer.dim {
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+@keyframes mic-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+@keyframes mic-ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+
 .send-button {
   width: 36px;
   height: 36px;
@@ -4385,6 +4463,18 @@ button.settings-row:hover {
 
 .transcript-body p:last-child {
   margin-bottom: 0;
+}
+
+/* End-of-reply indicator: replaces the protocol "DONE" text line with a
+   subtle full-width gray rule — the answer is complete, ready for the next
+   one. Model message bodies already span the chat column, so 100% here means
+   left-to-right across the whole section. */
+.done-rule {
+  width: 100%;
+  height: 1px;
+  margin: 12px 0 4px;
+  background: var(--text-muted);
+  opacity: 0.35;
 }
 
 .process-steps {

@@ -661,9 +661,10 @@ export async function* agentChat(
           cacheWrite: tokens.cache?.write ?? 0,
         }
       : undefined;
-    // Structured Done summary into the text stream (Activity rail may be off).
+    // Structured completion summary into the text stream (Activity rail may
+    // be off). No "Done" header — the client renders a green end-rule.
     {
-      const lines: string[] = ["", "Done"];
+      const lines: string[] = [];
       if (changedFiles.length) {
         lines.push(`- Files changed: ${changedFiles.join(", ")}`);
       }
@@ -672,8 +673,8 @@ export async function* agentChat(
       } else if (buildOk === false) {
         lines.push("- Build: failed");
       }
-      if (lines.length > 1) {
-        yield `${lines.join("\n")}\n`;
+      if (lines.length) {
+        yield `\n${lines.join("\n")}\n`;
       }
     }
     insertCall({

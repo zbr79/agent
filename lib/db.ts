@@ -225,9 +225,24 @@ interface MessageDoc {
 }
 
 const MAX_MESSAGE_TEXT = 100_000;
-// Model messages stream server-side heartbeats while a run is live; a
-// pending doc untouched for this long means the process died mid-run.
-const PENDING_STALE_MS = 3 * 60_000;
+// Model messages stream server-side heartbeats every 10 s while a run is
+// live; a pending doc untouched for this long has missed ~9 beats, so the
+// process that owned it is gone.
+const PENDING_STALE_MS = 90_000;
+
+// A pending doc whose heartbeat went stale has no live handler left. If it
+// streamed an answer, that answer is real — only the finalizer died — so
+// close it as done rather than flagging a complete reply "interrupted".
+function stalePendingOutcome(doc: { text?: string }): {
+  status: "done" | "failed";
+  text: string;
+} {
+  if (doc.text?.trim()) return { status: "done", text: doc.text };
+  return {
+    status: "failed",
+    text: "[Interrupted — the server stopped before finishing this reply.]",
+  };
+}
 
 function toChatSession(doc: SessionDoc): ChatSession {
   return {
@@ -295,20 +310,22 @@ export async function getSessionWithMessages(
     .sort({ createdAt: 1 })
     .toArray();
   // Safety net: a server restart kills detached runs, leaving their pending
-  // docs orphaned. Anything whose heartbeat went stale is interrupted.
+  // docs orphaned. Anything whose heartbeat went stale is closed here — done
+  // when an answer was streamed, failed only when nothing was.
   const cutoff = Date.now() - PENDING_STALE_MS;
   for (const doc of docs) {
     if (doc.status !== "pending") continue;
     if ((doc.updatedAt ?? doc.createdAt).getTime() > cutoff) continue;
-    const text = doc.text?.trim()
-      ? doc.text
-      : "[Interrupted — the server stopped before finishing this reply.]";
+    const outcome = stalePendingOutcome(doc);
     const now = new Date();
     await db
       .collection<MessageDoc>("messages")
-      .updateOne({ _id: doc._id }, { $set: { status: "failed", text, updatedAt: now } });
-    doc.status = "failed";
-    doc.text = text;
+      .updateOne(
+        { _id: doc._id },
+        { $set: { status: outcome.status, text: outcome.text, updatedAt: now } }
+      );
+    doc.status = outcome.status;
+    doc.text = outcome.text;
     doc.updatedAt = now;
   }
   return {
@@ -368,9 +385,16 @@ export async function appendMessage(
     elapsed?: number;
   }
 ): Promise<StoredMessage | null> {
-  if (!ObjectId.isValid(sessionId)) return null;
+  if (!ObjectId.isValid(userId) || !ObjectId.isValid(sessionId)) return null;
   const db = await getDb();
   const now = new Date();
+  const owned = await db
+    .collection<SessionDoc>("sessions")
+    .findOne(
+      { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
+      { projection: { _id: 1 } }
+    );
+  if (!owned) return null;
   const doc: MessageDoc = {
     sessionId: new ObjectId(sessionId),
     role: input.role,
@@ -380,15 +404,18 @@ export async function appendMessage(
     elapsed: input.elapsed,
     createdAt: now,
   };
-  await db.collection<MessageDoc>("messages").insertOne(doc);
+  const inserted = await db.collection<MessageDoc>("messages").insertOne(doc);
   const updated = await db
     .collection<SessionDoc>("sessions")
     .updateOne(
       { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
       { $set: { updatedAt: now } }
     );
-  if (updated.matchedCount === 0) return null;
-  return toStoredMessage(doc);
+  if (updated.matchedCount === 0) {
+    await db.collection<MessageDoc>("messages").deleteOne({ _id: inserted.insertedId });
+    return null;
+  }
+  return toStoredMessage({ ...doc, _id: inserted.insertedId });
 }
 
 // Create the placeholder model message that an in-flight /api/chat run
@@ -482,6 +509,55 @@ export async function finalizeMessage(
   await db
     .collection<MessageDoc>("messages")
     .updateOne({ _id: new ObjectId(messageId) }, { $set: set });
+}
+
+// Client-driven finalize: the browser received a complete answer, so close
+// the placeholder even if the handler died before its own finalizeMessage.
+// Ownership-checked and filtered to status "pending", so it is idempotent
+// against the server-side write and can never revive a failed run. Client
+// text only wins when it is longer than the last heartbeat snapshot (the run
+// can end between two beats).
+export async function finalizePendingMessage(
+  userId: string,
+  sessionId: string,
+  messageId: string,
+  input: { text?: string; elapsed?: number }
+): Promise<boolean> {
+  if (
+    !ObjectId.isValid(userId) ||
+    !ObjectId.isValid(sessionId) ||
+    !ObjectId.isValid(messageId)
+  ) {
+    return false;
+  }
+  const db = await getDb();
+  const owned = await db
+    .collection<SessionDoc>("sessions")
+    .findOne(
+      { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
+      { projection: { _id: 1 } }
+    );
+  if (!owned) return false;
+  const doc = await db
+    .collection<MessageDoc>("messages")
+    .findOne(
+      { _id: new ObjectId(messageId), sessionId: new ObjectId(sessionId), status: "pending" },
+      { projection: { text: 1 } }
+    );
+  if (!doc) return false;
+  const set: Record<string, unknown> = { status: "done", updatedAt: new Date() };
+  if (input.elapsed !== undefined) set.elapsed = input.elapsed;
+  if (
+    typeof input.text === "string" &&
+    input.text.trim() &&
+    input.text.length > (doc.text?.length ?? 0)
+  ) {
+    set.text = input.text.slice(0, MAX_MESSAGE_TEXT);
+  }
+  const result = await db
+    .collection<MessageDoc>("messages")
+    .updateOne({ _id: doc._id, status: "pending" }, { $set: set });
+  return result.matchedCount > 0;
 }
 
 
@@ -608,6 +684,34 @@ export async function finalizeGuestRun(
   await db.collection<GuestRunDoc>("guestRuns").updateOne({ sessionId }, { $set: set });
 }
 
+// Client-driven finalize for guest runs: only touches the "pending" doc, so
+// it cannot clobber a run the server already closed. Client text only wins
+// when it is longer than the last heartbeat snapshot.
+export async function finalizePendingGuestRun(
+  sessionId: string,
+  input: { text?: string; elapsed?: number }
+): Promise<boolean> {
+  if (!isGuestSessionId(sessionId)) return false;
+  const db = await getDb();
+  const col = db.collection<GuestRunDoc>("guestRuns");
+  const doc = await col.findOne(
+    { sessionId, status: "pending" },
+    { projection: { text: 1 } }
+  );
+  if (!doc) return false;
+  const set: Record<string, unknown> = { status: "done", updatedAt: new Date() };
+  if (input.elapsed !== undefined) set.elapsed = input.elapsed;
+  if (
+    typeof input.text === "string" &&
+    input.text.trim() &&
+    input.text.length > (doc.text?.length ?? 0)
+  ) {
+    set.text = input.text.slice(0, MAX_MESSAGE_TEXT);
+  }
+  const result = await col.updateOne({ _id: doc._id, status: "pending" }, { $set: set });
+  return result.matchedCount > 0;
+}
+
 export async function getGuestRun(sessionId: string): Promise<StoredMessage | null> {
   if (!isGuestSessionId(sessionId)) return null;
   const db = await getDb();
@@ -617,13 +721,14 @@ export async function getGuestRun(sessionId: string): Promise<StoredMessage | nu
   if (doc.status === "pending") {
     const cutoff = Date.now() - PENDING_STALE_MS;
     if ((doc.updatedAt ?? doc.createdAt).getTime() <= cutoff) {
-      const text = doc.text?.trim()
-        ? doc.text
-        : "[Interrupted — the server stopped before finishing this reply.]";
+      const outcome = stalePendingOutcome(doc);
       const now = new Date();
-      await col.updateOne({ _id: doc._id }, { $set: { status: "failed", text, updatedAt: now } });
-      doc.status = "failed";
-      doc.text = text;
+      await col.updateOne(
+        { _id: doc._id },
+        { $set: { status: outcome.status, text: outcome.text, updatedAt: now } }
+      );
+      doc.status = outcome.status;
+      doc.text = outcome.text;
       doc.updatedAt = now;
     }
   }
@@ -695,15 +800,16 @@ export async function setSessionPinned(
 }
 
 export async function deleteSession(userId: string, id: string): Promise<boolean> {
-  if (!ObjectId.isValid(id)) return false;
+  if (!ObjectId.isValid(userId) || !ObjectId.isValid(id)) return false;
   const db = await getDb();
-  await db.collection<MessageDoc>("messages").deleteMany({
-    sessionId: new ObjectId(id),
-  });
   const result = await db
     .collection<SessionDoc>("sessions")
     .deleteOne({ _id: new ObjectId(id), userId: new ObjectId(userId) });
-  return result.deletedCount > 0;
+  if (result.deletedCount === 0) return false;
+  await db.collection<MessageDoc>("messages").deleteMany({
+    sessionId: new ObjectId(id),
+  });
+  return true;
 }
 
 interface ShareDoc {
@@ -775,24 +881,28 @@ export async function searchChats(
   q: string,
   limit = 20
 ): Promise<SearchHit[]> {
+  if (!ObjectId.isValid(userId)) return [];
   const db = await getDb();
+  const owned = await db
+    .collection<SessionDoc>("sessions")
+    .find({ userId: new ObjectId(userId) })
+    .project({ _id: 1, title: 1, updatedAt: 1 })
+    .toArray();
+  const ids = owned
+    .map((session) => session._id)
+    .filter((id): id is ObjectId => Boolean(id));
+  if (ids.length === 0) return [];
   const regex = new RegExp(escapeRegex(q), "i");
   const grouped = await db
     .collection<MessageDoc>("messages")
     .aggregate<{ _id: ObjectId; count: number; first: MessageDoc }>([
-      { $match: { text: regex } },
+      { $match: { sessionId: { $in: ids }, text: regex } },
       { $group: { _id: "$sessionId", count: { $sum: 1 }, first: { $first: "$$ROOT" } } },
       { $sort: { count: -1 } },
       { $limit: limit },
     ])
     .toArray();
-  const ids = grouped.map((row) => row._id);
-  if (ids.length === 0) return [];
-  const sessions = await db
-    .collection<SessionDoc>("sessions")
-    .find({ _id: { $in: ids }, userId: new ObjectId(userId) })
-    .toArray();
-  const byId = new Map(sessions.map((s) => [s._id!.toString(), s]));
+  const byId = new Map(owned.map((s) => [s._id!.toString(), s]));
   return grouped.flatMap((row) => {
     const sid = row._id.toString();
     const session = byId.get(sid);

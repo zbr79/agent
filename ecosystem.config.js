@@ -29,6 +29,9 @@ module.exports = {
       script: "node_modules/next/dist/bin/next",
       args: "start -p 3002",
       cwd: __dirname,
+      // Grace window for the SIGINT flush in app/api/chat/route.ts to write
+      // live runs to "done" before pm2 escalates to SIGKILL.
+      kill_timeout: 8000,
       env: {
         NODE_ENV: "production",
         OPENCODE_SERVER_PASSWORD: process.env.OPENCODE_SERVER_PASSWORD || "",

@@ -151,6 +151,7 @@ export default function OpenCodeChat() {
   const [activityLive, setActivityLive] = useState(false);
   const [activityEndHint, setActivityEndHint] = useState<RunEndHint>(null);
   const [activityRailOpen, setActivityRailOpen] = useState(false);
+  const [isAuthed, setIsAuthed] = useState(false);
   const activitiesRef = useRef<ActivityItem[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const userStoppedRef = useRef(false);
@@ -159,6 +160,29 @@ export default function OpenCodeChat() {
   useEffect(() => {
     activitiesRef.current = activities;
   }, [activities]);
+
+
+  useEffect(() => {
+    let alive = true;
+    const check = () =>
+      fetch("/api/auth/me")
+        .then((response) => {
+          if (alive) setIsAuthed(response.status === 200);
+        })
+        .catch(() => {
+          if (alive) setIsAuthed(false);
+        });
+    void check();
+    const onAuth = () => {
+      void check();
+    };
+    window.addEventListener("inschat-auth", onAuth);
+    return () => {
+      alive = false;
+      window.removeEventListener("inschat-auth", onAuth);
+    };
+  }, []);
+
 
   useEffect(() => {
     if (restoredWorkLogRef.current) return;
@@ -453,6 +477,7 @@ export default function OpenCodeChat() {
               onStop={stop}
               disabled={limitReset !== null}
               placeholder={t["composer.placeholder"]}
+              signedIn={isAuthed}
             />
           </main>
         ) : (
@@ -471,6 +496,7 @@ export default function OpenCodeChat() {
               onStop={stop}
               disabled={limitReset !== null}
               placeholder={t["composer.placeholder"]}
+              signedIn={isAuthed}
             />
           </>
         )}
@@ -497,6 +523,7 @@ export default function OpenCodeChat() {
               onStop={stop}
               disabled={limitReset !== null}
               placeholder={t["composer.placeholder"]}
+              signedIn={isAuthed}
             />
           </main>
         ) : (
@@ -515,6 +542,7 @@ export default function OpenCodeChat() {
               onStop={stop}
               disabled={limitReset !== null}
               placeholder={t["composer.placeholder"]}
+              signedIn={isAuthed}
             />
           </>
         )}
