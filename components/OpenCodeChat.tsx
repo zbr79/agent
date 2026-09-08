@@ -99,6 +99,14 @@ function classifyRunEnd(opts: {
   const useful = hasSuccessfulProgress(activities) || hadText;
   const toolErrors = hasToolErrors(activities);
 
+  // Useful work + disconnect/abort after that -> Completed / completed_closed, never Interrupted.
+  if ((aborted || connectionLost) && useful) {
+    return {
+      endHint: "completed_closed",
+      failedMessage: false,
+      finalizeAs: "completed",
+    };
+  }
   if (aborted) {
     return { endHint: "interrupted", failedMessage: false, finalizeAs: "interrupted" };
   }
@@ -106,10 +114,6 @@ function classifyRunEnd(opts: {
     return { endHint: "failed", failedMessage: true, finalizeAs: "error" };
   }
   if (connectionLost) {
-    // Deferred restart disconnect after successful work → Completed (connection closed).
-    if (useful) {
-      return { endHint: "completed_closed", failedMessage: false, finalizeAs: "completed" };
-    }
     return { endHint: "interrupted", failedMessage: false, finalizeAs: "interrupted" };
   }
   if (hardError && !useful) {

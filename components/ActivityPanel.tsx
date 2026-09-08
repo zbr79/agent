@@ -152,9 +152,14 @@ export function hasSuccessfulProgress(items: ActivityItem[]): boolean {
   });
 }
 
-/** True when any tool hard-errored. */
+/** True when any tool hard-errored (ignore deferred-restart bash noise). */
 export function hasToolErrors(items: ActivityItem[]): boolean {
-  return items.some((item) => item.status === "error");
+  return items.some((item) => {
+    if (item.status !== "error") return false;
+    const blob = `${item.detail || ""} ${item.title || ""} ${item.output || ""} ${item.path || ""}`.toLowerCase();
+    if (blob.includes("restart-agent-deferred")) return false;
+    return true;
+  });
 }
 
 function StatusGlyph({ status }: { status: ActivityItem["status"] }) {

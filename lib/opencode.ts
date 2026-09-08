@@ -347,7 +347,7 @@ async function* streamOpenCodeOnce(
   messages: OpenAiMessage[],
   model: string,
   tools: boolean,
-  reasoningLevel: "max" | "medium" | "low" = "max"
+  reasoningLevel: "max" | "medium" = "max"
 ): AsyncGenerator<string, { toolCalls: ToolCall[] }, void> {
   const requestId = Math.random().toString(36).slice(2, 8);
   const hasImageParts = messages.some(
@@ -540,7 +540,7 @@ const MAX_TOOL_ROUNDS = 6;
 export async function* streamChat(
   messages: ChatMessage[],
   language?: "zh" | "en",
-  reasoning: "max" | "medium" | "low" = "max"
+  reasoning: "max" | "medium" = "max"
 ): AsyncGenerator<string> {
   const lastMessage = messages[messages.length - 1];
   const hasImage = (lastMessage?.images?.length ?? 0) > 0;

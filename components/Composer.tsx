@@ -1,11 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { ArrowUp, Plus, Square, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowUp, Check, Plus, Square, X } from "lucide-react";
 import type { ChatImage } from "@/lib/types";
 import { MAX_IMAGES } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
-import { useCompressImages, useReasoningEffort, type ReasoningEffort } from "@/lib/prefs";
+import { useChatMode, useCompressImages, useReasoningEffort, type ChatMode } from "@/lib/prefs";
 import { compressImage } from "@/lib/imageCompress";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -44,16 +44,21 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
   const t = STR[lang];
   const [compressOn] = useCompressImages();
   const [reasoning, setReasoning] = useReasoningEffort();
+  const [mode, setMode] = useChatMode();
   const [text, setText] = useState("");
   const [images, setImages] = useState<ChatImage[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const reasoningLabels: Record<ReasoningEffort, string> = {
-    max: t["composer.reasoning.max"],
-    medium: t["composer.reasoning.medium"],
-    low: t["composer.reasoning.low"],
-  };
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
+
+  const maxOn = reasoning === "max";
 
   const canSend = (text.trim().length > 0 || images.length > 0) && !sending && !disabled;
 
@@ -65,10 +70,35 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
     setImageError(null);
   };
 
+  const insertNewline = () => {
+    const el = textareaRef.current;
+    if (!el) {
+      setText((prev) => `${prev}\n`);
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const next = `${text.slice(0, start)}\n${text.slice(end)}`;
+    setText(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + 1, start + 1);
+    });
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSend();
+      return;
+    }
+    if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      if (event.shiftKey) {
+        insertNewline();
+      } else {
+        setMode(mode === "build" ? "plan" : "build");
+      }
     }
   };
 
@@ -131,7 +161,43 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
           ))}
         </div>
       )}
-      <div className="input-row">
+      <div className="composer-toolbar">
+        <div
+          className="composer-mode"
+          role="group"
+          aria-label={t["composer.mode"]}
+          title={t["composer.mode.tab"]}
+        >
+          {(["build", "plan"] as ChatMode[]).map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={`composer-mode-btn composer-mode-btn-${value}${mode === value ? " active" : ""}`}
+              onClick={() => setMode(value)}
+              disabled={disabled}
+              aria-pressed={mode === value}
+              title={t[`composer.mode.${value}`]}
+            >
+              {t[`composer.mode.${value}`]}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className={`composer-reasoning${maxOn ? " active" : ""}`}
+          onClick={() => setReasoning(maxOn ? "medium" : "max")}
+          aria-pressed={maxOn}
+          aria-label={t["composer.reasoning"]}
+          title={t["composer.reasoning"]}
+          disabled={disabled}
+        >
+          <span className="composer-reasoning-box" aria-hidden="true">
+            {maxOn && <Check size={10} strokeWidth={3.5} />}
+          </span>
+          max
+        </button>
+      </div>
+      <div className={`input-row mode-${mode}`}>
         <input
           ref={fileRef}
           type="file"
@@ -151,6 +217,7 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
           <Plus size={18} />
         </button>
         <textarea
+          ref={textareaRef}
           rows={1}
           value={text}
            placeholder={placeholder ?? t["composer.placeholder"]}
@@ -159,20 +226,6 @@ export default function Composer({ sending, onSend, onStop, disabled = false, pl
           onKeyDown={handleKeyDown}
            aria-label={t["composer.message"]}
         />
-        <select
-          className="composer-reasoning"
-          value={reasoning}
-          onChange={(event) => setReasoning(event.target.value as ReasoningEffort)}
-          aria-label={t["composer.reasoning"]}
-          title={t["composer.reasoning"]}
-          disabled={disabled}
-        >
-          {(Object.keys(reasoningLabels) as ReasoningEffort[]).map((level) => (
-            <option key={level} value={level}>
-              {reasoningLabels[level]}
-            </option>
-          ))}
-        </select>
         {sending ? (
            <button type="button" className="send-button" onClick={onStop} aria-label={t["composer.stop"]}>
             <Square size={15} fill="currentColor" />

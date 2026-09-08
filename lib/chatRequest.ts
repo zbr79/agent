@@ -6,7 +6,9 @@ export interface ChatRequest {
   messages: ChatMessage[];
   timeZone?: string;
   language?: "zh" | "en";
-  reasoning?: "max" | "medium" | "low";
+  reasoning?: "max" | "medium";
+  mode?: "build" | "plan";
+  sessionId?: string;
 }
 
 function parseImage(raw: unknown, index: number): ChatImage {
@@ -77,13 +79,37 @@ export function parseChatBody(body: unknown): ChatRequest {
   }
 
   const rawReasoning = (body as { reasoning?: unknown }).reasoning;
-  let reasoning: "max" | "medium" | "low" | undefined;
+  let reasoning: "max" | "medium" | undefined;
   if (rawReasoning !== undefined) {
-    if (rawReasoning !== "max" && rawReasoning !== "medium" && rawReasoning !== "low") {
-      throw new ChatValidationError('"reasoning" must be "max", "medium" or "low".');
+    // Legacy clients may still send "low" — treat it as "max" like prefs do.
+    if (rawReasoning === "low") {
+      reasoning = "max";
+    } else if (rawReasoning !== "max" && rawReasoning !== "medium") {
+      throw new ChatValidationError('"reasoning" must be "max" or "medium".');
+    } else {
+      reasoning = rawReasoning;
     }
-    reasoning = rawReasoning;
   }
 
-  return { messages, timeZone, language, reasoning };
+  const rawMode = (body as { mode?: unknown }).mode;
+  let mode: "build" | "plan" | undefined;
+  if (rawMode !== undefined) {
+    if (rawMode !== "build" && rawMode !== "plan") {
+      throw new ChatValidationError('"mode" must be "build" or "plan".');
+    }
+    mode = rawMode;
+  }
+
+  const rawSessionId = (body as { sessionId?: unknown }).sessionId;
+  let sessionId: string | undefined;
+  if (rawSessionId !== undefined && rawSessionId !== null) {
+    // Lenient on purpose: guest ids are client-generated UUIDs. Owned
+    // sessions persist on the user; guest ids persist on guestRuns.
+    if (typeof rawSessionId !== "string" || rawSessionId.length > 64) {
+      throw new ChatValidationError('"sessionId" is invalid.');
+    }
+    sessionId = rawSessionId;
+  }
+
+  return { messages, timeZone, language, reasoning, mode, sessionId };
 }
