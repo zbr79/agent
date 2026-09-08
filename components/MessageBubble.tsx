@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -27,6 +27,11 @@ interface Message {
 function dataUrl(image: { mimeType: string; data: string }): string {
   return `data:${image.mimeType};base64,${image.data}`;
 }
+
+// Initial render cap: on load we show only the tail so the window opens at the
+// bottom without scrolling through the whole history. "Load earlier" grows it.
+const INITIAL_WINDOW = 30;
+const WINDOW_STEP = 30;
 
 // Markdown collapses single newlines into spaces; convert them to hard
 // breaks so the model's line-by-line format renders as separate lines.
@@ -118,14 +123,110 @@ export default function MessageBubble({
   onEditCancel?: () => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLElement>(null);
+  const didScrollRef = useRef(false);
+  const pinnedRef = useRef(true);
+  const ignoreScrollUntilRef = useRef(0);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_WINDOW);
+  const hiddenCount = Math.max(0, messages.length - visibleCount);
+  const visible = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
   const [viewer, setViewer] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const lang = useUiLang();
   const t = STR[lang];
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  // The real scrollable ancestor can be .main or .app-center depending on
+  // which one gets stretched; only count it once it actually overflows.
+  const getScroller = (): HTMLElement | null => {
+    let el: HTMLElement | null = containerRef.current?.parentElement ?? null;
+    while (el && el !== document.body) {
+      const style = window.getComputedStyle(el);
+      if (/(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) {
+        return el;
+      }
+      el = el.parentElement;
+    }
+    return null;
+  };
+
+  const scrollToBottom = (smooth: boolean) => {
+    if (smooth) ignoreScrollUntilRef.current = Date.now() + 700;
+    const scroller = getScroller();
+    if (scroller) {
+      scroller.scrollTo({ top: scroller.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    } else {
+      endRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "end" });
+    }
+  };
+
+  useLayoutEffect(() => {
+    // Anchor to the bottom of the newest reply, not the last prompt. Base64
+    // images decode after this first paint, so a ResizeObserver below keeps
+    // re-pinning until the layout settles. Only later appends scroll smoothly.
+    if (pinnedRef.current) scrollToBottom(didScrollRef.current);
+    didScrollRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const metrics = () => {
+      const el = getScroller() ?? document.scrollingElement ?? document.documentElement;
+      return el.scrollHeight - el.scrollTop - el.clientHeight;
+    };
+
+    const onScroll = () => {
+      if (Date.now() < ignoreScrollUntilRef.current) return;
+      pinnedRef.current = metrics() < 160;
+    };
+    // User intent wins immediately, even mid smooth-scroll animation.
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) {
+        ignoreScrollUntilRef.current = 0;
+        pinnedRef.current = false;
+      } else if (metrics() < 160) {
+        pinnedRef.current = true;
+      }
+    };
+    let touchY: number | null = null;
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY ?? null;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const y = event.touches[0]?.clientY ?? null;
+      if (touchY != null && y != null && y > touchY + 4) {
+        ignoreScrollUntilRef.current = 0;
+        pinnedRef.current = false;
+      }
+      touchY = y;
+    };
+    const onResize = () => {
+      if (pinnedRef.current) scrollToBottom(false);
+    };
+
+    // Image decode / font swap / code highlighting grow the layout after the
+    // initial pin; snap straight back to the reply bottom while pinned.
+    const observer = new ResizeObserver(() => {
+      if (pinnedRef.current) scrollToBottom(false);
+    });
+    observer.observe(container);
+    document.addEventListener("scroll", onScroll, { passive: true, capture: true });
+    container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("resize", onResize);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("scroll", onScroll, { capture: true });
+      container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("resize", onResize);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const copy = async (message: Message) => {
     try {
@@ -172,12 +273,21 @@ export default function MessageBubble({
   );
 
   if (messages.length === 0) {
-    return <main className="messages" />;
+    return <main ref={containerRef} className="messages" />;
   }
 
   return (
-    <main className="messages">
-      {messages.map((message) => {
+    <main ref={containerRef} className="messages">
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          className="load-earlier"
+          onClick={() => setVisibleCount((c) => c + WINDOW_STEP)}
+        >
+          {t["messages.loadEarlier"].replace("{count}", String(hiddenCount))}
+        </button>
+      )}
+      {visible.map((message) => {
         const imageUrls = (message.images ?? []).map((image) => dataUrl(image));
         const splitImages =
           message.role === "user" && imageUrls.length > 0 && message.text
