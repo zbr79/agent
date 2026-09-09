@@ -8,6 +8,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Agent",
   description: "General-purpose AI chat with photo analysis and live web research. Previously saved records stay viewable.",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Agent",
+  },
 };
 
 export const viewport: Viewport = {

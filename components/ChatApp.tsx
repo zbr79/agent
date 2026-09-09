@@ -25,7 +25,7 @@ import {
 } from "@/lib/guestStore";
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
 import { STR, useUiLang } from "@/lib/i18n";
-import { useChatMode, useReasoningEffort } from "@/lib/prefs";
+import { useChatMode, useReasoningEffort, useSelectedModel } from "@/lib/prefs";
 
 interface UiMessage {
   id: number;
@@ -317,6 +317,7 @@ export default function ChatApp() {
   const lang = useUiLang();
   const t = STR[lang];
   const [reasoningEffort] = useReasoningEffort();
+  const [selectedModel] = useSelectedModel();
   const [chatMode] = useChatMode();
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
@@ -676,6 +677,7 @@ useEffect(() => {
             language: lang,
             reasoning: reasoningEffort,
             mode: chatMode,
+            model: selectedModel,
             sessionId: sessionIdRef.current ?? undefined,
           }),
           signal: controller.signal,
@@ -1008,6 +1010,9 @@ useEffect(() => {
         }).catch(() => {});
       } else {
         truncateGuestSession(sessionId, keep);
+        // Drop the server-side opencode thread too: the model must not keep
+        // "remembering" turns that were just reverted client-side.
+        fetch(`/api/guest-runs/${sessionId}`, { method: "DELETE" }).catch(() => {});
       }
     },
     [isAuthed]

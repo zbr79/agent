@@ -1,8 +1,10 @@
 import { Db, MongoClient, ObjectId } from "mongodb";
 import { randomBytes } from "node:crypto";
 import type {
+  AgentBinding,
   ApiCall,
   ChatImage,
+  ChatMessage,
   ChatSession,
   SessionConclusion,
   StoredMessage,
@@ -208,6 +210,12 @@ interface SessionDoc {
   pinned?: boolean;
   conclusion?: SessionConclusion | null;
   recordId?: string | null;
+  /** Opencode session that carries the model's real memory for this chat. */
+  opencodeSessionId?: string;
+  opencodePromptTokens?: number;
+  /** Legacy names written by earlier builds; read as a fallback. */
+  agentSessionId?: string;
+  agentTokens?: number;
 }
 
 interface MessageDoc {
@@ -372,6 +380,89 @@ export async function setSessionRecordId(
       { $set: { recordId: recordId ?? null, updatedAt: new Date() } }
     );
   return result.matchedCount > 0;
+}
+
+// ---- Persistent opencode thread bindings ------------------------------
+// One opencode session lives as long as the chat: /api/chat reuses the
+// stored id so the model keeps its real memory (tools, files, decisions)
+// across turns. Passing null unbinds (revert, poisoned turn, chat deleted).
+
+export async function getAgentBinding(
+  userId: string,
+  sessionId: string
+): Promise<AgentBinding | null> {
+  if (!ObjectId.isValid(userId) || !ObjectId.isValid(sessionId)) return null;
+  const db = await getDb();
+  const doc = await db
+    .collection<SessionDoc>("sessions")
+    .findOne(
+      { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
+      { projection: { opencodeSessionId: 1, opencodePromptTokens: 1, agentSessionId: 1, agentTokens: 1 } }
+    );
+  const id = doc?.opencodeSessionId || doc?.agentSessionId;
+  return id
+    ? { sessionId: id, tokens: doc?.opencodePromptTokens ?? doc?.agentTokens ?? 0 }
+    : null;
+}
+
+export async function listAgentTranscript(
+  userId: string,
+  sessionId: string
+): Promise<ChatMessage[]> {
+  if (!ObjectId.isValid(userId) || !ObjectId.isValid(sessionId)) return [];
+  const db = await getDb();
+  const docs = await db
+    .collection<MessageDoc>("messages")
+    .find({ sessionId: new ObjectId(sessionId) })
+    .sort({ createdAt: 1 })
+    .limit(120)
+    .toArray();
+  const out: ChatMessage[] = [];
+  for (const doc of docs) {
+    if (doc.status === "pending") continue;
+    if (doc.status === "failed" && !(doc.text || "").trim()) continue;
+    const text = (doc.text || "").trim();
+    const hasImage = (doc.images?.length ?? 0) > 0;
+    if (!text && !hasImage) continue;
+    out.push({
+      role: doc.role,
+      text: text || "[photo attached]",
+    });
+  }
+  return out.slice(-80);
+}
+
+export async function setAgentBinding(
+  userId: string,
+  sessionId: string,
+  binding: AgentBinding | null
+): Promise<void> {
+  if (!ObjectId.isValid(userId) || !ObjectId.isValid(sessionId)) return;
+  const db = await getDb();
+  const filter = { _id: new ObjectId(sessionId), userId: new ObjectId(userId) };
+  if (binding) {
+    const id = binding.sessionId.slice(0, 64);
+    const tokens = Math.max(0, Math.floor(binding.tokens || 0));
+    await db.collection<SessionDoc>("sessions").updateOne(filter, {
+      $set: {
+        opencodeSessionId: id,
+        opencodePromptTokens: tokens,
+        agentSessionId: id,
+        agentTokens: tokens,
+      },
+    });
+  } else {
+    await db
+      .collection<SessionDoc>("sessions")
+      .updateOne(filter, {
+        $unset: {
+          opencodeSessionId: "",
+          opencodePromptTokens: "",
+          agentSessionId: "",
+          agentTokens: "",
+        },
+      });
+  }
 }
 
 export async function appendMessage(
@@ -578,6 +669,11 @@ interface GuestRunDoc {
   elapsed?: number;
   createdAt: Date;
   updatedAt: Date;
+  /** Persistent opencode thread for this guest chat (survives per-run resets). */
+  opencodeSessionId?: string;
+  opencodePromptTokens?: number;
+  agentSessionId?: string;
+  agentTokens?: number;
 }
 
 function toGuestRun(doc: GuestRunDoc): StoredMessage {
@@ -712,6 +808,71 @@ export async function finalizePendingGuestRun(
   return result.matchedCount > 0;
 }
 
+export async function getGuestAgentBinding(
+  sessionId: string
+): Promise<AgentBinding | null> {
+  if (!isGuestSessionId(sessionId)) return null;
+  const db = await getDb();
+  const doc = await db
+    .collection<GuestRunDoc>("guestRuns")
+    .findOne(
+      { sessionId },
+      { projection: { opencodeSessionId: 1, opencodePromptTokens: 1, agentSessionId: 1, agentTokens: 1 } }
+    );
+  const id = doc?.opencodeSessionId || doc?.agentSessionId;
+  return id
+    ? { sessionId: id, tokens: doc?.opencodePromptTokens ?? doc?.agentTokens ?? 0 }
+    : null;
+}
+
+export async function setGuestAgentBinding(
+  sessionId: string,
+  binding: AgentBinding | null
+): Promise<void> {
+  if (!isGuestSessionId(sessionId)) return;
+  const db = await getDb();
+  const col = db.collection<GuestRunDoc>("guestRuns");
+  if (binding) {
+    // Only bind when a run doc exists (created by startGuestPendingRun during
+    // the same send). No doc = non-persisting client; the transcript-dump
+    // behavior applies to it anyway, so there is nothing to carry over.
+    await col.updateOne(
+      { sessionId },
+      {
+        $set: {
+          opencodeSessionId: binding.sessionId.slice(0, 64),
+          opencodePromptTokens: Math.max(0, Math.floor(binding.tokens || 0)),
+          agentSessionId: binding.sessionId.slice(0, 64),
+          agentTokens: Math.max(0, Math.floor(binding.tokens || 0)),
+        },
+      }
+    );
+  } else {
+    await col.updateOne(
+      { sessionId },
+      { $unset: { opencodeSessionId: "", opencodePromptTokens: "", agentSessionId: "", agentTokens: "" } }
+    );
+  }
+}
+
+// Clear the binding and hand back the removed opencode session id so the
+// caller can dispose of it (guest chat deleted / reverted client-side).
+export async function takeGuestAgentBinding(sessionId: string): Promise<string | null> {
+  if (!isGuestSessionId(sessionId)) return null;
+  const db = await getDb();
+  const col = db.collection<GuestRunDoc>("guestRuns");
+  const doc = await col.findOne(
+    { sessionId },
+    { projection: { opencodeSessionId: 1, agentSessionId: 1 } }
+  );
+  const removed = doc?.opencodeSessionId || doc?.agentSessionId || null;
+  await col.updateOne(
+    { sessionId },
+    { $unset: { opencodeSessionId: "", opencodePromptTokens: "", agentSessionId: "", agentTokens: "" } }
+  );
+  return removed;
+}
+
 export async function getGuestRun(sessionId: string): Promise<StoredMessage | null> {
   if (!isGuestSessionId(sessionId)) return null;
   const db = await getDb();
@@ -762,7 +923,12 @@ export async function truncateMessages(
     .collection<SessionDoc>("sessions")
     .updateOne(
       { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
-      { $set: { updatedAt: new Date(), conclusion: null } }
+      {
+        $set: { updatedAt: new Date(), conclusion: null },
+        // Model memory must not outlive reverted turns: unbind and let the
+        // next send re-seed a fresh opencode session from the kept history.
+        $unset: { opencodeSessionId: "", opencodePromptTokens: "", agentSessionId: "", agentTokens: "" },
+      }
     );
   return removed.length;
 }

@@ -1,5 +1,6 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { isWhisperUp, transcribeAudio, type WhisperLanguage } from "@/lib/whisper";
+import { traditionalToSimplified } from "@/lib/toSimplified";
 import {
   GUEST_MAX_AUDIO_MS,
   MAX_AUDIO_BYTES,
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
   try {
     const wav = new Blob([new Uint8Array(bytes)], { type: mime || "audio/wav" });
     const { text } = await transcribeAudio(wav, parseLanguage(form.get("language")));
-    return Response.json({ text });
+    return Response.json({ text: traditionalToSimplified(text) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Transcription failed.";
     const timedOut = /timeout|aborted/i.test(message);
