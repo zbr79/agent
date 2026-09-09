@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Mic, Plus, Square, X } from "lucide-react";
+import { ArrowUp, Lock, Mic, Plus, Square, X } from "lucide-react";
 import type { ChatImage } from "@/lib/types";
 import { GUEST_MAX_AUDIO_MS, MAX_AUDIO_BYTES, MAX_IMAGES, USER_MAX_AUDIO_MS } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
-import { useChatMode, useCompressImages, useReasoningEffort, type ChatMode } from "@/lib/prefs";
+import {
+  useChatMode,
+  useCompressImages,
+  useDeepSeekPeak,
+  useReasoningEffort,
+  useSelectedModel,
+  type ChatMode,
+  type SelectedModel,
+} from "@/lib/prefs";
 import { compressImage } from "@/lib/imageCompress";
 import {
   isVoiceInputSupported,
@@ -65,6 +73,9 @@ export default function Composer({
   const t = STR[lang];
   const [compressOn] = useCompressImages();
   const [reasoning, setReasoning] = useReasoningEffort();
+  const [model, setModel] = useSelectedModel();
+  const peak = useDeepSeekPeak();
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [mode, setMode] = useChatMode();
   const [text, setText] = useState("");
   const [images, setImages] = useState<ChatImage[]>([]);
@@ -75,8 +86,31 @@ export default function Composer({
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const voiceRef = useRef<VoiceRecordHandle | null>(null);
+  const autoSendRef = useRef(false);
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
+  const pickerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef(text);
   textRef.current = text;
+
+  // Close the picker on outside click / Escape.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPickerOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [pickerOpen]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -91,11 +125,27 @@ export default function Composer({
     };
   }, []);
 
-  const maxOn = reasoning === "max";
+  const modelLocked = peak && model === "deepseek-v4-flash";
   const canSend = (text.trim().length > 0 || images.length > 0) && !sending && !disabled;
+  // During the voice flow the send button stays live: pressing it queues an
+  // auto-send once the transcript lands.
+  const voiceBusy = voiceStatus !== "idle" && !sending && !disabled;
+  const shouldShowSendBusy = voiceStatus === "transcribing" && !sending && !disabled;
   const hint = voiceHint || imageError;
 
   const handleSend = () => {
+    if (disabled || sending) return;
+    if (voiceStatus === "recording") {
+      // One-click flow: stop the mic, transcribe, then send automatically.
+      autoSendRef.current = true;
+      setVoiceStatus("transcribing");
+      voiceRef.current?.stop();
+      return;
+    }
+    if (voiceStatus === "transcribing") {
+      autoSendRef.current = true;
+      return;
+    }
     if (!canSend) return;
     onSend(text.trim(), images.length > 0 ? images : undefined);
     setText("");
@@ -103,9 +153,9 @@ export default function Composer({
     setImageError(null);
   };
 
-  const insertAtCaret = (snippet: string) => {
+  const insertAtCaret = (snippet: string): string => {
     const cleaned = snippet.trim();
-    if (!cleaned) return;
+    if (!cleaned) return textRef.current;
     const el = textareaRef.current;
     const current = textRef.current;
     const start = el?.selectionStart ?? current.length;
@@ -122,6 +172,7 @@ export default function Composer({
       el?.focus();
       el?.setSelectionRange(caret, caret);
     });
+    return next;
   };
 
   const insertNewline = () => {
@@ -204,16 +255,18 @@ export default function Composer({
       return;
     }
     setVoiceStatus("transcribing");
+    const shouldAutoSend = autoSendRef.current;
+    autoSendRef.current = false;
     const body = new FormData();
     body.append("file", blob, "dictation.wav");
-    body.append("language", lang === "zh" ? "zh" : lang === "en" ? "en" : "auto");
+    body.append("language", "auto");
     body.append("durationMs", String(durationMs));
     try {
       const response = await fetch("/api/transcribe", {
         method: "POST",
         body,
         credentials: "same-origin",
-        signal: AbortSignal.timeout(70000),
+        signal: AbortSignal.timeout(240000),
       });
       const payload = (await response.json().catch(() => null)) as { text?: string; error?: string } | null;
       if (response.status === 503) {
@@ -233,8 +286,18 @@ export default function Composer({
         setVoiceHint(t["composer.transcribeFailed"]);
         return;
       }
-      insertAtCaret(transcript);
+      const merged = insertAtCaret(transcript);
       setVoiceHint(null);
+      if (shouldAutoSend) {
+        const imgs = imagesRef.current;
+        const trimmed = merged.trim();
+        if (trimmed || imgs.length > 0) {
+          onSend(trimmed, imgs.length > 0 ? imgs : undefined);
+          setText("");
+          setImages([]);
+          setImageError(null);
+        }
+      }
     } catch {
       setVoiceHint(t["composer.transcribeFailed"]);
     } finally {
@@ -337,17 +400,74 @@ export default function Composer({
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          className={`composer-reasoning${maxOn ? " active" : ""}`}
-          onClick={() => setReasoning(maxOn ? "medium" : "max")}
-          aria-pressed={maxOn}
-          aria-label={t["composer.reasoning"]}
-          title={t["composer.reasoning"]}
-          disabled={disabled}
-        >
-          MAX
-        </button>
+        <div className="composer-picker" ref={pickerRef}>
+          <button
+            type="button"
+            className={`composer-reasoning${pickerOpen ? " open" : ""}${modelLocked ? " locked" : ""}`}
+            onClick={() => setPickerOpen((prev) => !prev)}
+            aria-expanded={pickerOpen}
+            aria-label={t["composer.reasoning"]}
+            title={modelLocked ? t["composer.model.locked"] : t["composer.reasoning"]}
+            disabled={disabled}
+          >
+            <span className="composer-picker-model">
+              {model === "deepseek-v4-flash"
+                ? t["composer.model.ds"]
+                : t["composer.model.qwen"]}
+            </span>
+            <span className="composer-picker-sep">·</span>
+            <span className="composer-picker-effort">
+              {reasoning === "max" ? t["composer.effort.max"] : t["composer.effort.balance"]}
+            </span>
+            {modelLocked && <Lock size={12} />}
+          </button>
+          {pickerOpen && (
+            <div className="composer-picker-menu">
+              {(
+                [
+                  ["deepseek-v4-flash", t["composer.model.ds"]],
+                  ["qwen3.8-flash", t["composer.model.qwen"]],
+                ] as [SelectedModel, string][]
+              ).map(([option, label]) => {
+                const locked = peak && option === "deepseek-v4-flash";
+                const active = model === option;
+                return (
+                  <div
+                    key={option}
+                    className={`picker-model${locked ? " locked" : ""}${active ? " active" : ""}`}
+                    title={locked ? t["composer.model.locked"] : undefined}
+                  >
+                    <span className="picker-model-text">
+                      <span className="picker-model-name">
+                        {label}
+                        {locked && <Lock size={12} />}
+                      </span>
+                    </span>
+                    <span className="picker-efforts">
+                      {(["balance", "max"] as const).map((effort) => (
+                        <button
+                          key={effort}
+                          type="button"
+                          className={`picker-effort${model === option && reasoning === effort ? " active" : ""}`}
+                          disabled={locked || disabled}
+                          onClick={() => {
+                            setModel(option);
+                            setReasoning(effort);
+                            setPickerOpen(false);
+                          }}
+                        >
+                          {effort === "max"
+                            ? t["composer.effort.max"]
+                            : t["composer.effort.balance"]}
+                        </button>
+                      ))}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
       <div className={`input-row mode-${mode}`}>
         <input
@@ -407,7 +527,8 @@ export default function Composer({
             type="button"
             className="send-button"
             onClick={handleSend}
-            disabled={!canSend}
+            disabled={!canSend && !voiceBusy}
+            aria-busy={shouldShowSendBusy}
              aria-label={t["composer.send"]}
           >
             <ArrowUp size={18} />

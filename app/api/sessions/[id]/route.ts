@@ -1,11 +1,13 @@
 import {
   deleteSession,
+  getAgentBinding,
   getSessionWithMessages,
   setSessionConclusion,
   setSessionPinned,
   setSessionRecordId,
   setSessionTitle,
 } from "@/lib/db";
+import { deleteAgentSession } from "@/lib/agent";
 import { requireUser } from "@/lib/auth";
 import type { SessionConclusion } from "@/lib/types";
 
@@ -173,7 +175,10 @@ export async function DELETE(
   if (auth instanceof Response) return auth;
   const { id } = await params;
   try {
+    // The bound opencode thread dies with the chat.
+    const binding = await getAgentBinding(auth._id, id).catch(() => null);
     const deleted = await deleteSession(auth._id, id);
+    if (deleted && binding) deleteAgentSession(binding.sessionId);
     if (!deleted) {
       return Response.json({ error: "Session not found." }, { status: 404 });
     }

@@ -37,19 +37,21 @@ export function useCompressImages(): [boolean, (on: boolean) => void] {
   return [on, setCompressImages];
 }
 
-export type ReasoningEffort = "max" | "medium";
+export type ReasoningEffort = "balance" | "max";
 
 const REASONING_KEY = "inschat_reasoning";
 const REASONING_EVENT = "inschat-reasoning";
 
-// Reasoning effort is MAX by default (unchanged behavior); users can lower it
-// to medium for faster replies (vision + direct-fallback requests only —
-// the opencode agent keeps its own default).
+// Reasoning effort is MAX by default; users can lower it to balance for
+// faster replies (vision + direct-fallback requests only — the opencode
+// agent keeps its own default). The opencode gateway itself still speaks
+// "medium"; the server maps "balance" back to it at the API boundary.
 export function getReasoningEffort(): ReasoningEffort {
   if (typeof window === "undefined") return "max";
   try {
     const value = window.localStorage.getItem(REASONING_KEY);
-    return value === "medium" ? value : "max";
+    if (value === "balance" || value === "medium") return "balance";
+    return "max";
   } catch {
     return "max";
   }
@@ -72,13 +74,74 @@ export function useReasoningEffort(): [
   );
   useEffect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<ReasoningEffort>).detail;
-      setLevel(detail === "medium" ? detail : "max");
+      const detail = (event as CustomEvent<string>).detail;
+      setLevel(detail === "balance" || detail === "medium" ? "balance" : "max");
     };
     window.addEventListener(REASONING_EVENT, handler);
     return () => window.removeEventListener(REASONING_EVENT, handler);
   }, []);
   return [level, setReasoningEffort];
+}
+
+// The two user-selectable text models. Defaults to deepseek-v4-flash (the
+// off-peak primary); qwen3.8-flash (flat pricing) is the peak-hours choice.
+export type SelectedModel = "deepseek-v4-flash" | "qwen3.8-flash";
+
+const MODEL_KEY = "inschat_model";
+const MODEL_EVENT = "inschat-model";
+
+export function getSelectedModel(): SelectedModel {
+  if (typeof window === "undefined") return "deepseek-v4-flash";
+  try {
+    return window.localStorage.getItem(MODEL_KEY) === "qwen3.8-flash"
+      ? "qwen3.8-flash"
+      : "deepseek-v4-flash";
+  } catch {
+    return "deepseek-v4-flash";
+  }
+}
+
+export function setSelectedModel(model: SelectedModel): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MODEL_KEY, model);
+  } catch {}
+  window.dispatchEvent(new CustomEvent(MODEL_EVENT, { detail: model }));
+}
+
+export function useSelectedModel(): [
+  SelectedModel,
+  (model: SelectedModel) => void
+] {
+  const [model, setModel] = useState<SelectedModel>(() => getSelectedModel());
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<SelectedModel>).detail;
+      setModel(detail === "qwen3.8-flash" ? "qwen3.8-flash" : "deepseek-v4-flash");
+    };
+    window.addEventListener(MODEL_EVENT, handler);
+    return () => window.removeEventListener(MODEL_EVENT, handler);
+  }, []);
+  return [model, setSelectedModel];
+}
+
+// DeepSeek peak hours per official docs: 01:00-04:00 and 06:00-10:00 UTC,
+// Monday through Friday. Mirrors lib/models.ts (the client has no node/fs).
+export function isDeepSeekPeak(now: Date = new Date()): boolean {
+  const day = now.getUTCDay();
+  if (day === 0 || day === 6) return false;
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  return (mins >= 60 && mins < 240) || (mins >= 360 && mins < 600);
+}
+
+export function useDeepSeekPeak(): boolean {
+  const [peak, setPeak] = useState<boolean>(() => isDeepSeekPeak());
+  useEffect(() => {
+    const tick = () => setPeak(isDeepSeekPeak());
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  return peak;
 }
 
 export type ChatMode = "build" | "plan";

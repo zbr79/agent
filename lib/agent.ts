@@ -7,8 +7,29 @@ import {
   type ActivityStatus,
 } from "./markers";
 import { insertCall } from "./db";
+import { agentModelId } from "./models";
 import { AGENT_ROOT } from "./pathJail";
-import type { ChatMessage } from "./types";
+import type { AgentBinding, ChatMessage } from "./types";
+import {
+  claimAgentTurn,
+  compactAt,
+  FALLBACK_CONTEXT_TOKENS,
+  inflightSessionFor,
+  noteInflightSession,
+  ownerTurnBusy,
+  releaseAgentTurn,
+  seedFromHistory,
+  sessionTitleFor,
+} from "./agentBind";
+
+export { AgentBusyError } from "./agentBind";
+
+export class AgentImageUnsupported extends Error {
+  constructor() {
+    super("Bound agent model cannot attach images.");
+    this.name = "AgentImageUnsupported";
+  }
+}
 
 const AGENT_URL = "http://127.0.0.1:4096";
 const AGENT_TIMEOUT_MS = 900_000;
@@ -16,21 +37,42 @@ const AGENT_TIMEOUT_MS = 900_000;
 // the subscription is exhausted). Give up sooner so the direct engine path
 // answers instead of the user staring at a silent reply for 3 minutes.
 const AGENT_PROMPT_TIMEOUT_MS = 900_000;
+// Context window comes from GET /config/providers
+// (opencode-go/<model>.limit.context). Compact at 70% of that window by
+// starting a fresh session. If the catalog has no window, use a
+// conservative 24k cap (compact at 16,800).
+const AGENT_PROVIDER_ID = "opencode-go";
+const CONFIGURED_MODEL_ID = "qwen3.8-flash";
 
 interface OpencodeClient {
   session: {
     create: (input: { body: { title?: string } }) => Promise<{
       data: { id: string };
     }>;
+    get: (input: { path: { id: string } }) => Promise<{
+      data?: { id?: string; title?: string };
+    }>;
     prompt: (input: {
       path: { id: string };
       body: {
         system?: string;
         agent?: string;
-        parts: { type: string; text?: string }[];
+        noReply?: boolean;
+        parts: {
+          type: string;
+          text?: string;
+          mime?: string;
+          filename?: string;
+          url?: string;
+        }[];
       };
     }) => Promise<{ data: unknown }>;
     delete: (input: { path: { id: string } }) => Promise<unknown>;
+    abort: (input: { path: { id: string } }) => Promise<unknown>;
+    summarize: (input: {
+      path: { id: string };
+      body: { providerID: string; modelID: string };
+    }) => Promise<unknown>;
     messages: (input: { path: { id: string } }) => Promise<unknown>;
   };
 }
@@ -62,6 +104,101 @@ function getAgentClient(): OpencodeClient {
   return client;
 }
 
+interface ProviderModel {
+  limit?: { context?: number };
+  capabilities?: { attachment?: boolean; input?: { image?: boolean } };
+}
+
+export interface AgentModelWindow {
+  context: number;
+  compactAt: number;
+  image: boolean;
+  /** Where the window number came from. */
+  source: string;
+  modelId: string;
+}
+
+let windowCache: { at: number; key: string; value: AgentModelWindow } | null = null;
+
+function fallbackWindow(modelId: string): AgentModelWindow {
+  return {
+    context: FALLBACK_CONTEXT_TOKENS,
+    compactAt: compactAt(FALLBACK_CONTEXT_TOKENS),
+    image: false,
+    source: "fallback-24k (config/providers did not expose limit.context)",
+    modelId,
+  };
+}
+
+export async function lookupAgentModel(modelId = CONFIGURED_MODEL_ID): Promise<AgentModelWindow> {
+  const key = modelId || CONFIGURED_MODEL_ID;
+  if (windowCache && windowCache.key === key && Date.now() - windowCache.at < 10 * 60_000) {
+    return windowCache.value;
+  }
+  try {
+    const response = await fetch(`${AGENT_URL}/config/providers`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return fallbackWindow(key);
+    const body = (await response.json()) as {
+      providers?: { id?: string; models?: Record<string, ProviderModel> }[];
+    };
+    const provider = (body.providers ?? []).find((item) => item.id === AGENT_PROVIDER_ID);
+    const model = provider?.models?.[key];
+    const context = model?.limit?.context;
+    if (typeof context !== "number" || !(context > 0)) return fallbackWindow(key);
+    const value: AgentModelWindow = {
+      context,
+      compactAt: compactAt(context),
+      image: Boolean(model?.capabilities?.input?.image || model?.capabilities?.attachment),
+      source: `GET /config/providers ${AGENT_PROVIDER_ID}/${key} limit.context`,
+      modelId: key,
+    };
+    windowCache = { at: Date.now(), key, value };
+    return value;
+  } catch {
+    return fallbackWindow(key);
+  }
+}
+
+async function sessionOwnedBy(id: string, ownerKey: string | null): Promise<boolean> {
+  try {
+    const res = await getAgentClient().session.get({ path: { id } });
+    const data = res?.data;
+    if (!data?.id || data.id !== id) return false;
+    const title = typeof data.title === "string" ? data.title : "";
+    if (title.startsWith("inschat:") && ownerKey && title !== sessionTitleFor(ownerKey)) {
+      return false;
+    }
+    if (title.startsWith("inschat:") && !ownerKey) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function imageFileParts(message: ChatMessage | undefined) {
+  return (message?.images ?? []).slice(0, 3).map((image, index) => ({
+    type: "file",
+    mime: image.mimeType,
+    filename: `photo-${index + 1}`,
+    url: `data:${image.mimeType};base64,${image.data}`,
+  }));
+}
+
+export async function ensureBoundSession(
+  ownerKey: string,
+  existingId?: string | null
+): Promise<string | null> {
+  if (ownerTurnBusy(ownerKey)) return inflightSessionFor(ownerKey) ?? existingId ?? null;
+  if (existingId && (await sessionOwnedBy(existingId, ownerKey))) return existingId;
+  const created = await getAgentClient().session.create({
+    body: { title: sessionTitleFor(ownerKey) },
+  });
+  return created.data.id;
+}
+
 export async function isAgentUp(): Promise<boolean> {
   try {
     const response = await fetch(`${AGENT_URL}/global/health`, {
@@ -72,6 +209,74 @@ export async function isAgentUp(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function sessionAlive(id: string): Promise<boolean> {
+  try {
+    const res = await getAgentClient().session.get({ path: { id } });
+    return res?.data?.id === id;
+  } catch {
+    return false;
+  }
+}
+
+// Fire-and-forget cleanup when a chat is deleted: the bound opencode session
+// should die with it. Safe to call with null.
+export async function deleteAgentSession(id: string | null | undefined): Promise<void> {
+  if (!id) return;
+  try {
+    await getAgentClient().session.delete({ path: { id } });
+  } catch {
+    /* opencode restart already dropped it */
+  }
+}
+
+// Photo turns go through the direct vision engine (the agent's bound model
+// path ignores images). Mirror the exchange into the persistent session with
+// a noReply prompt so the next text turn still knows it happened.
+export async function injectVisionExchange(
+  sessionId: string | null | undefined,
+  userText: string,
+  assistantText: string
+): Promise<void> {
+  if (!sessionId || !assistantText.trim()) return;
+  const text =
+    `[Vision turn recap] The user sent a photo with: ${userText.slice(0, 2000)}\n` +
+    `You replied: ${assistantText.slice(0, 8000)}`;
+  try {
+    await getAgentClient().session.prompt({
+      path: { id: sessionId },
+      body: { noReply: true, parts: [{ type: "text", text }] },
+    });
+  } catch {
+    /* best effort: a dead bound session rebuilds from the transcript anyway */
+  }
+}
+
+export interface AgentChatOptions {
+  messages: ChatMessage[];
+  language?: "zh" | "en";
+  agentTools?: boolean;
+  mode?: "build" | "plan";
+  /** Opencode session bound to this chat, if any. */
+  binding?: AgentBinding | null;
+  /** Filled in as the run progresses so the caller can persist it. */
+  out?: AgentRunResult;
+  /** Called once the session id for this turn is settled (created/bound). */
+  onSessionReady?: (sessionId: string) => void;
+  /** u:userId:chatId or g:guestId. Required to reuse a saved session. */
+  ownerKey?: string | null;
+  /** Completed turns before the new user message, for rebuild/compact only. */
+  priorTurns?: ChatMessage[];
+}
+
+export interface AgentRunResult {
+  /** Session that served (or will serve) this turn — persist it as the binding. */
+  agentSessionId?: string;
+  /** Prompt size after this turn (input + cache), the compaction gate. */
+  lastInputTokens?: number;
+  /** True when this turn re-seeded a full transcript (first turn or rebuild). */
+  rebound?: boolean;
 }
 
 function buildTranscript(messages: ChatMessage[]): string {
@@ -221,23 +426,147 @@ function formatProcessLine(opts: {
 // Streams the agent's answer from the opencode server. Throws before the
 // first token if the server is unreachable or the prompt fails — the caller
 // falls back to the direct engine in that case.
-export async function* agentChat(
-  messages: ChatMessage[],
-  language?: "zh" | "en",
-  agentTools = false,
-  mode: "build" | "plan" = "build"
-): AsyncGenerator<string> {
+//
+// The opencode session is PERSISTENT per chat: when `binding.sessionId` is
+// alive we continue that thread with only the new user message (the model
+// keeps its own memory of files, tools and decisions). When the binding is
+// missing or the session died (opencode restart), we re-seed a new session
+// from a short stored-transcript summary once. The session is never deleted at turn end —
+// only deleteAgentSession() (chat deleted) disposes it.
+export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string> {
+  const {
+    messages,
+    language,
+    agentTools = false,
+    mode = "build",
+    binding = null,
+    out = {},
+    onSessionReady,
+  } = opts;
   const agent = getAgentClient();
-  const session = (await agent.session.create({ body: { title: "inschat" } })).data;
   const system = getSystemPrompt(language, agentTools, mode === "plan");
   const requestId = Math.random().toString(36).slice(2, 8);
 
   if (process.env.OPENCODE_TEST_LIMIT === "1") {
-    agent.session.delete({ path: { id: session.id } }).catch(() => {});
     throw new Error(
       "Monthly usage limit reached. Resets in 20 days. (test-limit simulation)"
     );
   }
+
+  const ownerKey = opts.ownerKey ?? null;
+  const prior = opts.priorTurns ?? messages.slice(0, -1);
+  const last = messages[messages.length - 1];
+  const modelWindow = await lookupAgentModel(CONFIGURED_MODEL_ID);
+  // Also consult the peak/off-peak id so a smaller listed window still gates.
+  const activeId = agentModelId();
+  const activeWindow =
+    activeId && activeId !== modelWindow.modelId
+      ? await lookupAgentModel(activeId)
+      : modelWindow;
+  const gate = Math.min(modelWindow.compactAt, activeWindow.compactAt);
+  const wantsImage = (last?.images?.length ?? 0) > 0;
+  if (wantsImage && !modelWindow.image && !activeWindow.image) {
+    throw new AgentImageUnsupported();
+  }
+
+  let claimed = false;
+  if (ownerKey) {
+    claimAgentTurn(ownerKey, AGENT_PROMPT_TIMEOUT_MS);
+    claimed = true;
+  }
+
+  let sessionId: string | null = binding?.sessionId ?? null;
+  let continued = false;
+  let rebound = false;
+  const title = ownerKey ? sessionTitleFor(ownerKey) : "inschat";
+
+  async function createBound(): Promise<string> {
+    const created = (await agent.session.create({ body: { title } })).data.id;
+    if (ownerKey) noteInflightSession(ownerKey, created);
+    return created;
+  }
+
+  async function seedSession(id: string, reason: "rebuild" | "compact", lostWithoutTranscript: boolean) {
+    const seed =
+      seedFromHistory(prior, reason) ??
+      (lostWithoutTranscript ? seedFromHistory([], "rebuild") : null);
+    if (!seed) return;
+    await agent.session.prompt({
+      path: { id },
+      body: {
+        system,
+        noReply: true,
+        parts: [{ type: "text", text: seed }],
+      },
+    });
+  }
+
+  try {
+    if (sessionId) {
+      if (ownerKey) noteInflightSession(ownerKey, sessionId);
+      const owned = await sessionOwnedBy(sessionId, ownerKey);
+      if (owned) {
+        continued = true;
+        if ((binding?.tokens ?? 0) >= gate) {
+          const previous = sessionId;
+          console.log(
+            `[agent:${requestId}] compacting — prompt ${binding?.tokens ?? 0} >= ${gate} (${modelWindow.source})`
+          );
+          sessionId = await createBound();
+          try {
+            await seedSession(sessionId, "compact", false);
+          } catch (error) {
+            console.log(
+              `[agent:${requestId}] compact seed failed → ${String(
+                error instanceof Error ? error.message : error
+              ).slice(0, 120)}`
+            );
+          }
+          deleteAgentSession(previous).catch(() => {});
+          rebound = true;
+        }
+      } else {
+        console.log(`[agent:${requestId}] bound session dead or not owned → rebuild once`);
+        sessionId = null;
+      }
+    }
+    if (!sessionId) {
+      sessionId = await createBound();
+      const hadBinding = Boolean(binding?.sessionId);
+      if (prior.length > 0 || hadBinding) {
+        try {
+          await seedSession(sessionId, "rebuild", hadBinding);
+        } catch (error) {
+          console.log(
+            `[agent:${requestId}] rebuild seed failed → ${String(
+              error instanceof Error ? error.message : error
+            ).slice(0, 120)}`
+          );
+        }
+        rebound = true;
+      }
+    }
+  } catch (error) {
+    if (claimed) releaseAgentTurn(ownerKey);
+    throw error;
+  }
+
+  if (!sessionId) {
+    if (claimed) releaseAgentTurn(ownerKey);
+    throw new Error("Agent session was not created.");
+  }
+  out.agentSessionId = sessionId;
+  out.rebound = rebound || !continued;
+  onSessionReady?.(sessionId);
+  const attachImages = wantsImage && (modelWindow.image || activeWindow.image);
+  const promptText =
+    (last?.text ?? "").trim() || (attachImages ? "Please look at the attached photo." : "");
+  const promptParts = [
+    { type: "text", text: promptText },
+    ...(attachImages ? imageFileParts(last) : []),
+  ];
+  // First turn / rebuild: system + this user message. Later turns: new message only.
+  const promptSystem = continued && !rebound ? undefined : system;
 
   try {
     const sseResponse = await fetch(`${AGENT_URL}/event`, {
@@ -301,7 +630,7 @@ export async function* agentChat(
               continue;
             }
             const props = event.properties ?? {};
-            if (props.sessionID && props.sessionID !== session.id) continue;
+            if (props.sessionID && props.sessionID !== sessionId) continue;
 
             if (event.type === "message.updated") {
               const info = props.info;
@@ -514,12 +843,16 @@ export async function* agentChat(
     // awaited prompt settlement first, which meant TRYING markers and
     // tokens only flushed after tools finished — the UI stuck on
     // "Working…" with no chips for the whole wait.
+    // Timestamp just before the prompt (small skew allowance) — used by the
+    // direct-pull fallback to tell THIS turn's answer from the thread's
+    // history when the event stream stalls mid-run.
+    const turnStartedAt = Date.now() - 1_500;
     const promptPromise = agent.session.prompt({
-      path: { id: session.id },
+      path: { id: sessionId },
       body: {
-        system,
+        system: promptSystem,
         agent: mode === "plan" ? "plan" : undefined,
-        parts: [{ type: "text", text: buildTranscript(messages) }],
+        parts: promptParts,
       },
     });
 
@@ -592,14 +925,16 @@ export async function* agentChat(
     }
 
     // Fallback: if the event stream never delivered the answer, pull the
-    // finished message parts directly from the session.
+    // finished message parts directly from the session. On a persistent
+    // session only accept entries created during THIS turn (the thread
+    // already contains earlier turns' answers).
     if (!produced && promptResult.status === "ok") {
       try {
         const list = (await agent.session.messages({
-          path: { id: session.id },
+          path: { id: sessionId },
         })) as {
           data?: {
-            info?: { role?: string; modelID?: string };
+            info?: { role?: string; modelID?: string; time?: { created?: number } };
             parts?: { type?: string; text?: string }[];
           }[];
         };
@@ -607,6 +942,8 @@ export async function* agentChat(
         for (let i = entries.length - 1; i >= 0; i--) {
           const entry = entries[i];
           if (entry.info?.role !== "assistant") continue;
+          const created = entry.info?.time?.created ?? 0;
+          if (continued && created && created < turnStartedAt) continue;
           const textParts = (entry.parts ?? [])
             .filter((part) => part.type === "text" && part.text)
             .map((part) => part.text as string);
@@ -636,6 +973,10 @@ export async function* agentChat(
       console.log(
         `[agent:${requestId}] prompt failed before first token → ${failure.message.slice(0, 160)}`
       );
+      // Poisoned thread risk: a prompt that died mid-flight can leave the
+      // bound session busy or half-spoken. Best-effort abort; the caller
+      // unbinds on this error so the next turn re-seeds a clean session.
+      agent.session.abort({ path: { id: sessionId } }).catch(() => {});
       insertCall({
         kind: "opencode",
         model: modelName ?? "qwen3.8-flash",
@@ -645,9 +986,11 @@ export async function* agentChat(
       throw failure;
     }
     if (!produced && failed) {
+      agent.session.abort({ path: { id: sessionId } }).catch(() => {});
       throw failed;
     }
     if (!produced) {
+      agent.session.abort({ path: { id: sessionId } }).catch(() => {});
       throw new Error("Agent finished without producing an answer.");
     }
     const info = promptResult.info;
@@ -660,6 +1003,11 @@ export async function* agentChat(
           cacheRead: tokens.cache?.read ?? 0,
           cacheWrite: tokens.cache?.write ?? 0,
         }
+      : undefined;
+    // Total prompt size this turn saw — the caller stores it as the binding's
+    // compaction gate for the next turn.
+    out.lastInputTokens = normalized
+      ? normalized.input + normalized.cacheRead + normalized.cacheWrite
       : undefined;
     // Structured completion summary into the text stream (Activity rail may
     // be off). No "Done" header — the client renders a green end-rule.
@@ -688,6 +1036,10 @@ export async function* agentChat(
       `[agent:${requestId}] done — answered by agent (${info?.modelID ?? modelName ?? "default"}), cost ${info?.cost ?? "n/a"}`
     );
   } finally {
-    agent.session.delete({ path: { id: session.id } }).catch(() => {});
+    // The bound opencode session outlives this turn. It is disposed by
+    // deleteAgentSession() when the chat is deleted. Unbound one-shot
+    // requests (no chat id) are deleted so they cannot be reused.
+    if (claimed) releaseAgentTurn(ownerKey);
+    else if (!ownerKey && sessionId) deleteAgentSession(sessionId).catch(() => {});
   }
 }

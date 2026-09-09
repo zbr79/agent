@@ -9,6 +9,14 @@ export interface ChatMessage {
   images?: ChatImage[];
 }
 
+/** One persistent opencode thread bound to a chat. Stored as
+ * `opencodeSessionId` on the Mongo session or guest run. `tokens` is the
+ * prompt size of the last turn (input + cache), the 70% compaction gate. */
+export interface AgentBinding {
+  sessionId: string;
+  tokens: number;
+}
+
 export interface ConcludeItem {
   name: string;
   value?: string;

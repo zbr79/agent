@@ -6,8 +6,9 @@ export interface ChatRequest {
   messages: ChatMessage[];
   timeZone?: string;
   language?: "zh" | "en";
-  reasoning?: "max" | "medium";
+  reasoning?: "balance" | "max";
   mode?: "build" | "plan";
+  model?: "deepseek-v4-flash" | "qwen3.8-flash";
   sessionId?: string;
 }
 
@@ -79,16 +80,28 @@ export function parseChatBody(body: unknown): ChatRequest {
   }
 
   const rawReasoning = (body as { reasoning?: unknown }).reasoning;
-  let reasoning: "max" | "medium" | undefined;
+  let reasoning: "balance" | "max" | undefined;
   if (rawReasoning !== undefined) {
-    // Legacy clients may still send "low" — treat it as "max" like prefs do.
+    // Legacy clients may still send "medium" (old default label) or "low" —
+    // normalize both: medium → balance, low → max.
     if (rawReasoning === "low") {
       reasoning = "max";
-    } else if (rawReasoning !== "max" && rawReasoning !== "medium") {
-      throw new ChatValidationError('"reasoning" must be "max" or "medium".');
+    } else if (rawReasoning === "medium") {
+      reasoning = "balance";
+    } else if (rawReasoning !== "max" && rawReasoning !== "balance") {
+      throw new ChatValidationError('"reasoning" must be "max" or "balance".');
     } else {
       reasoning = rawReasoning;
     }
+  }
+
+  const rawModel = (body as { model?: unknown }).model;
+  let model: "deepseek-v4-flash" | "qwen3.8-flash" | undefined;
+  if (rawModel !== undefined && rawModel !== null) {
+    if (rawModel !== "deepseek-v4-flash" && rawModel !== "qwen3.8-flash") {
+      throw new ChatValidationError('"model" must be "deepseek-v4-flash" or "qwen3.8-flash".');
+    }
+    model = rawModel;
   }
 
   const rawMode = (body as { mode?: unknown }).mode;
@@ -111,5 +124,5 @@ export function parseChatBody(body: unknown): ChatRequest {
     sessionId = rawSessionId;
   }
 
-  return { messages, timeZone, language, reasoning, mode, sessionId };
+  return { messages, timeZone, language, reasoning, mode, model, sessionId };
 }

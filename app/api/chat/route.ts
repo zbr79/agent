@@ -5,7 +5,15 @@ import {
   quotaResetInfo,
   streamChat,
 } from "@/lib/opencode";
-import { agentChat, isAgentUp } from "@/lib/agent";
+import {
+  AgentBusyError,
+  agentChat,
+  ensureBoundSession,
+  injectVisionExchange,
+  isAgentUp,
+  lookupAgentModel,
+  type AgentRunResult,
+} from "@/lib/agent";
 import { ChatValidationError } from "@/lib/errors";
 import { parseChatBody, type ChatRequest } from "@/lib/chatRequest";
 import { getUserFromRequest } from "@/lib/auth";
@@ -19,11 +27,17 @@ import { AGENT_ROOT } from "@/lib/pathJail";
 import {
   finalizeGuestRun,
   finalizeMessage,
+  getAgentBinding,
+  getGuestAgentBinding,
+  listAgentTranscript,
+  setAgentBinding,
+  setGuestAgentBinding,
   startGuestPendingRun,
   startPendingModelMessage,
   updateGuestRunProgress,
   updateMessageProgress,
 } from "@/lib/db";
+import type { AgentBinding, ChatMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -71,7 +85,7 @@ export async function POST(req: Request) {
         : "Invalid request body.";
     return Response.json({ error: message }, { status: 400 });
   }
-  const { messages, language, reasoning, mode, sessionId } = parsed;
+  const { messages, language, reasoning, mode, model, sessionId } = parsed;
   // Only the latest message decides whether this send is an image request;
   // earlier photos in the history must not re-route text sends to the
   // paid-only vision chain.
@@ -84,10 +98,12 @@ export async function POST(req: Request) {
   // refreshes, tab closes, and client disconnects.
   let runMessageId: string | null = null;
   let guestSessionId: string | null = null;
+  let runUserId: string | null = null;
   if (sessionId) {
     try {
       const user = await getUserFromRequest(req);
       if (user) {
+        runUserId = user._id;
         const pending = await startPendingModelMessage(user._id, sessionId);
         runMessageId = pending?._id ?? null;
       }
@@ -106,6 +122,37 @@ export async function POST(req: Request) {
   // Snapshot before the run can null it out: finishRun resets runMessageId
   // when the stream ends, which may happen before the headers are built.
   const runMessageIdForHeader = runMessageId;
+  const accountBound = runMessageId !== null && runUserId !== null;
+  const guestBound = runMessageId === null && guestSessionId !== null;
+  const ownerKey =
+    accountBound && runUserId && sessionId
+      ? `u:${runUserId}:${sessionId}`
+      : guestBound && sessionId
+        ? `g:${sessionId}`
+        : null;
+
+  // Persistent opencode thread for this chat. The agent path prompts ONLY
+  // the new message into this session (real memory); first turns, rebuilds
+  // after the session died, and the direct-engine fallback keep using the
+  // full transcript the client sends anyway.
+  let binding: AgentBinding | null = null;
+  if (persistedRun && sessionId) {
+    try {
+      binding = accountBound
+        ? await getAgentBinding(runUserId as string, sessionId)
+        : await getGuestAgentBinding(sessionId);
+    } catch {
+      binding = null;
+    }
+  }
+  const saveBinding = (next: AgentBinding | null) => {
+    if (!sessionId || (!accountBound && !guestBound)) return;
+    if (accountBound) {
+      setAgentBinding(runUserId as string, sessionId, next).catch(() => {});
+    } else {
+      setGuestAgentBinding(sessionId, next).catch(() => {});
+    }
+  };
   if (persistedRun) {
     console.log(`[chat] pending ${runMessageId ? "session" : "guest"} ${sessionId}`);
     // Register with the shutdown flush so a restart mid-run still finalizes.
@@ -289,37 +336,106 @@ export async function POST(req: Request) {
 
       try {
         try {
-          if (!hasImage) {
-            // Agent first: this product is the agent site. Prefer local
-            // filesystem tools (read/glob/edit) via opencode serve, matching
-            // /api/opencode. Fall back to the direct zen engine only when the
-            // agent is down or fails before producing any tokens.
-            if (await isAgentUp()) {
-              let produced = false;
+          const modelWindow = await lookupAgentModel().catch(() => null);
+          const attachOnSession = Boolean(hasImage && modelWindow?.image);
+          async function priorTurns(): Promise<ChatMessage[]> {
+            const fromRequest = messages.slice(0, -1).map((message) => ({
+              role: message.role,
+              text: message.text,
+            }));
+            if (accountBound && runUserId && sessionId) {
               try {
-                for await (const text of tapped(
-                  agentChat(messages, language, true, mode)
-                )) {
-                  produced = true;
-                  enqueue(text);
+                const stored = await listAgentTranscript(runUserId, sessionId);
+                if (stored.length) {
+                  const copy = stored.slice();
+                  const tail = copy[copy.length - 1];
+                  const lastReq = messages[messages.length - 1];
+                  if (
+                    tail &&
+                    lastReq &&
+                    tail.role === "user" &&
+                    tail.text === lastReq.text
+                  ) {
+                    copy.pop();
+                  }
+                  return copy;
                 }
-                finishRun("done");
-                return;
-              } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                console.log(
-                  `[chat] agent failed${produced ? " mid-stream" : ""} → ${message.slice(0, 160)}`
-                );
-                if (produced) {
-                  finishRun("done");
-                  return;
-                }
+              } catch {
+                /* request history is enough to rebuild */
               }
             }
+            return fromRequest;
+          }
+          async function runBoundAgent(unbindOnMiss: boolean): Promise<"ok" | "busy" | "fail"> {
+            if (!(await isAgentUp())) return "fail";
+            let produced = false;
+            const out: AgentRunResult = {};
+            try {
+              for await (const text of tapped(
+                agentChat({
+                  messages,
+                  language,
+                  agentTools: true,
+                  mode,
+                  binding,
+                  out,
+                  ownerKey,
+                  priorTurns: await priorTurns(),
+                  onSessionReady: (id) =>
+                    saveBinding({ sessionId: id, tokens: binding?.tokens ?? 0 }),
+                })
+              )) {
+                produced = true;
+                enqueue(text);
+              }
+              if (out.agentSessionId) {
+                saveBinding({
+                  sessionId: out.agentSessionId,
+                  tokens: out.lastInputTokens ?? 0,
+                });
+                binding = { sessionId: out.agentSessionId, tokens: out.lastInputTokens ?? 0 };
+              }
+              finishRun("done");
+              return "ok";
+            } catch (error) {
+              if (error instanceof AgentBusyError) {
+                enqueue(
+                  "\n\n[A reply is already in progress for this chat. Wait for it to finish.]"
+                );
+                finishRun("failed", "\n\n[A reply is already in progress for this chat.]");
+                return "busy";
+              }
+              const message = error instanceof Error ? error.message : String(error);
+              console.log(
+                `[chat] agent failed${produced ? " mid-stream" : ""} → ${message.slice(0, 160)}`
+              );
+              if (produced) {
+                if (out.agentSessionId) {
+                  saveBinding({
+                    sessionId: out.agentSessionId,
+                    tokens: out.lastInputTokens ?? 0,
+                  });
+                }
+                finishRun("done");
+                return "ok";
+              }
+              if (out.agentSessionId) {
+                binding = { sessionId: out.agentSessionId, tokens: binding?.tokens ?? 0 };
+              }
+              if (unbindOnMiss) saveBinding(null);
+              return "fail";
+            }
+          }
+
+          if (!hasImage || attachOnSession) {
+            const ran = await runBoundAgent(!hasImage);
+            if (ran === "ok" || ran === "busy") return;
+          }
+          if (!hasImage) {
             let produced = false;
             try {
               for await (const text of tapped(
-                streamChat(messages, language, reasoning)
+                streamChat(messages, language, reasoning, model)
               )) {
                 produced = true;
                 enqueue(text);
@@ -340,11 +456,29 @@ export async function POST(req: Request) {
             }
           }
           for await (const text of tapped(
-            streamChat(messages, language, reasoning)
+            streamChat(messages, language, reasoning, model)
           )) {
             enqueue(text);
           }
           finishRun("done");
+          // Vision fallback for this one turn. Write the assistant text back
+          // onto the bound opencode session so the next text turn still has it.
+          const assistantText = accText;
+          let sid = binding?.sessionId ?? null;
+          if (ownerKey) {
+            try {
+              const ensured = await ensureBoundSession(ownerKey, sid);
+              if (ensured) {
+                sid = ensured;
+                saveBinding({ sessionId: sid, tokens: binding?.tokens ?? 0 });
+              }
+            } catch {
+              /* keep the text path working even if session create fails */
+            }
+          }
+          if (sid && assistantText.trim()) {
+            injectVisionExchange(sid, lastMessage?.text ?? "", assistantText).catch(() => {});
+          }
         } catch (error) {
           const message =
             error instanceof ChatValidationError

@@ -56,7 +56,7 @@ export default function ModelRoutingTree() {
           </li>
             <li>
               <span className="routing-when">{t["routing.offpeak"]}</span>
-              <Chain models={["qwen3.8-flash", "deepseek-v4-flash"]} />
+              <Chain models={["deepseek-v4-flash", "qwen3.8-flash"]} />
             </li>
           </ul>
         </li>

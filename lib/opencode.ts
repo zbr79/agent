@@ -4,7 +4,7 @@ import path from "node:path";
 import { ChatValidationError } from "./errors";
 import { getSystemPrompt } from "./prompt";
 import { encodeFreeMarker, encodeModelMarker, encodeTryingMarker } from "./markers";
-import { getChatChain } from "./models";
+import { getChatChain, isDeepSeekPeak } from "./models";
 import { insertCall } from "./db";
 import { fetchPageText } from "./webfetch";
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, type ChatMessage } from "./types";
@@ -540,13 +540,23 @@ const MAX_TOOL_ROUNDS = 6;
 export async function* streamChat(
   messages: ChatMessage[],
   language?: "zh" | "en",
-  reasoning: "max" | "medium" = "max"
+  reasoning: "balance" | "max" = "max",
+  modelOverride?: "deepseek-v4-flash" | "qwen3.8-flash"
 ): AsyncGenerator<string> {
   const lastMessage = messages[messages.length - 1];
   const hasImage = (lastMessage?.images?.length ?? 0) > 0;
   const useTools = !hasImage;
   const requestId = Math.random().toString(36).slice(2, 8);
   let chain = getChatChain(hasImage);
+  // A user-pinned text model wins over the auto chain. DeepSeek still can't
+  // be forced during its peak hours (price doubles) — fall back to the chain.
+  if (
+    !hasImage &&
+    modelOverride &&
+    !(modelOverride === "deepseek-v4-flash" && isDeepSeekPeak())
+  ) {
+    chain = [modelOverride];
+  }
   // Text-only sends must not pass earlier photo parts to text models — the
   // free gateway rejects image content (404 "No endpoints for image").
   // Mirror the agent transcript's "[photo attached]" marker so the model
@@ -579,7 +589,12 @@ export async function* streamChat(
         let toolCalls: ToolCall[] = [];
         try {
           yield encodeTryingMarker(model);
-          const gen = streamOpenCodeOnce(working, model, useTools, reasoning);
+          const gen = streamOpenCodeOnce(
+            working,
+            model,
+            useTools,
+            reasoning === "balance" ? "medium" : "max"
+          );
           while (true) {
             const { done, value } = await gen.next();
             if (done) {

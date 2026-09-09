@@ -1433,6 +1433,10 @@ span.conclude-rank-badge {
   text-decoration: none;
 }
 
+.mobile-refresh {
+  margin-left: auto;
+}
+
 .sidebar-backdrop {
   display: none;
 }
@@ -1493,10 +1497,6 @@ span.conclude-rank-badge {
 
   .app {
     min-height: 100%;
-  }
-
-  .session-nav {
-    display: none;
   }
 
   .main {
@@ -2091,7 +2091,7 @@ span.conclude-rank-badge {
   cursor: default;
 }
 
-/* toolbar row: mode pill + standalone max button */
+/* toolbar row: mode pill + model/effort picker */
 .composer-toolbar {
   display: flex;
   align-items: center;
@@ -2099,9 +2099,11 @@ span.conclude-rank-badge {
   margin-bottom: 8px;
 }
 
-/* standalone MAX reasoning toggle pill: white when off, green when on */
+/* model + reasoning-effort picker pill: shows the current pick, opens the
+   popover below. White when closed, highlighted when open. */
 .composer-reasoning {
   flex-shrink: 0;
+  position: relative;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--bg);
@@ -2126,10 +2128,147 @@ span.conclude-rank-badge {
   color: var(--text);
 }
 
-.composer-reasoning.active {
-  background: #16a34a;
-  border-color: #16a34a;
-  color: #ffffff;
+.composer-reasoning.open {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.composer-reasoning.locked {
+  color: #b45309;
+}
+
+.composer-picker-sep {
+  opacity: 0.5;
+}
+
+.composer-picker-effort {
+  opacity: 0.85;
+}
+
+/* Popover listing the selectable models. Each row always shows its
+   Balance/Max buttons (no hover dependency, so it works on touch screens).
+   Opens upward because the composer is pinned to the bottom of the viewport. */
+.composer-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.composer-picker-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  min-width: 230px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.picker-model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.picker-model:hover {
+  background: var(--bg-soft);
+}
+
+.picker-model.active {
+  background: var(--bg-soft);
+}
+
+.picker-model-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.picker-model-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.picker-efforts {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.picker-effort {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  height: 28px;
+  padding: 0 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.picker-effort:hover {
+  border-color: var(--pill);
+  color: var(--text);
+}
+
+.picker-effort.active {
+  background: var(--pill);
+  border-color: var(--pill);
+  color: var(--pill-text);
+}
+
+.picker-model.locked {
+  opacity: 0.55;
+}
+
+.picker-model.locked .picker-model-name {
+  color: var(--text-muted);
+}
+
+.picker-effort:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* touch devices: roomier tap targets for the picker */
+@media (hover: none) {
+  .composer-reasoning {
+    height: 34px;
+    padding: 0 14px;
+  }
+
+  .composer-picker-menu {
+    min-width: 250px;
+    padding: 8px;
+    gap: 4px;
+  }
+
+  .picker-model {
+    padding: 10px;
+  }
+
+  .picker-effort {
+    height: 34px;
+    font-size: 13px;
+    padding: 0 14px;
+  }
 }
 
 /* build/plan segmented toggle pill */

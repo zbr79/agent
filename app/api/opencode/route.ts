@@ -43,12 +43,15 @@ export async function POST(req: Request) {
           enqueue(`\n\n[${msg}]`);
           return;
         }
-        for await (const text of agentChat(
+        // Stateless by design: this UI keeps no chat store, so there is
+        // nothing to bind a persistent opencode session to. Each send gets
+        // the transcript dump (agentChat with no binding).
+        for await (const text of agentChat({
           messages,
           language,
-          true,
-          mode
-        )) {
+          agentTools: true,
+          mode,
+        })) {
           enqueue(text);
         }
       } catch (error) {

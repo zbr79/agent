@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown } from "lucide-react";
+import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown, RotateCw } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
 import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
@@ -75,6 +75,11 @@ export default function Sidebar() {
       return false;
     }
   });
+
+  const refreshApp = () => {
+    setMenuOpen(false);
+    window.location.reload();
+  };
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -169,6 +174,8 @@ export default function Sidebar() {
       } else {
         deleteGuestSession(id);
         setGuestSessions(listGuestSessions());
+        // Dispose of the bound opencode thread for the deleted guest chat.
+        fetch(`/api/guest-runs/${id}`, { method: "DELETE" }).catch(() => {});
       }
       if (currentSession === id) router.replace("/");
     } catch {} finally {
@@ -366,6 +373,15 @@ export default function Sidebar() {
         <Link href="/" className="mobile-brand">
           Agent
         </Link>
+        <button
+          type="button"
+          className="menu-button mobile-refresh"
+          onClick={refreshApp}
+          aria-label={t["nav.refresh"]}
+          title={t["nav.refresh"]}
+        >
+          <RotateCw size={18} />
+        </button>
       </div>
       {menuOpen && (
         <div
@@ -393,6 +409,15 @@ export default function Sidebar() {
             <img src="/icon.svg" width={28} height={28} alt="" />
           </span>
           <span className="brand-name">Agent</span>
+          <button
+            type="button"
+            className="sidebar-hide"
+            onClick={refreshApp}
+            aria-label={t["nav.refresh"]}
+            title={t["nav.refresh"]}
+          >
+            <RotateCw size={16} />
+          </button>
           <button
             type="button"
             className="sidebar-hide"

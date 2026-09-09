@@ -1,4 +1,5 @@
-import { finalizePendingGuestRun, getGuestRun } from "@/lib/db";
+import { finalizePendingGuestRun, getGuestRun, takeGuestAgentBinding } from "@/lib/db";
+import { deleteAgentSession } from "@/lib/agent";
 
 export const runtime = "nodejs";
 
@@ -60,6 +61,24 @@ export async function POST(
     return Response.json({ finalized });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not finalize the run.";
+    return Response.json({ error: message }, { status: 500 });
+  }
+}
+
+// Unbind the persistent opencode thread for a guest chat and dispose of it.
+// Clients call this after local edit/regenerate truncation (model memory
+// must not outlive reverted turns) and after deleting the chat.
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const removed = await takeGuestAgentBinding(id);
+    if (removed) deleteAgentSession(removed);
+    return Response.json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not clear the binding.";
     return Response.json({ error: message }, { status: 500 });
   }
 }

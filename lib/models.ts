@@ -61,14 +61,14 @@ const MODEL_FILE = assertAllowedAgentFile(path.join(DATA_DIR, "model.json"));
 
 export const AUTO_MODEL = "auto";
 
-// Chat chains (opencode-go). Text: qwen3.8-flash is the primary (flat
-// pricing, cheaper than DeepSeek at every hour, fastest on the gateway);
-// deepseek-v4-flash is used only OFF-PEAK as a fallback because DeepSeek's
-// peak prices double it (Mon-Fri 01:00-04:00 & 06:00-10:00 UTC). Images
+// Chat chains (opencode-go). Text OFF-PEAK: deepseek-v4-flash is the
+// primary; qwen3.8-flash (flat pricing) is its fallback. During DeepSeek
+// peak hours (Mon-Fri 01:00-04:00 & 06:00-10:00 UTC) DeepSeek's price
+// doubles, so the chain drops it and qwen3.8-flash leads. Images
 // always go to the Go gateway's only officially image-billed model.
 const TEXT_CHAIN_FULL: string[] = [
-  "qwen3.8-flash",
   "deepseek-v4-flash",
+  "qwen3.8-flash",
   "deepseek-v4-flash-free",
   "mimo-v2.5-free",
   "nemotron-3-ultra-free",
@@ -84,11 +84,20 @@ export const IMAGE_CHAIN: string[] = [
 
 // DeepSeek peak hours per official docs: 01:00-04:00 and 06:00-10:00 UTC,
 // Monday through Friday (= 09:00-12:00 and 14:00-18:00 Beijing, UTC+8).
-function isDeepSeekPeak(now: Date = new Date()): boolean {
+export function isDeepSeekPeak(now: Date = new Date()): boolean {
   const day = now.getUTCDay();
   if (day === 0 || day === 6) return false;
   const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
   return (mins >= 60 && mins < 240) || (mins >= 360 && mins < 600);
+}
+
+// The bound opencode agent thread picks its model per turn: deepseek-v4-flash
+// leads OFF-PEAK (cheaper than Qwen), qwen3.8-flash (flat pricing) takes over
+// during DeepSeek peak hours. AGENT_DEFAULT_MODEL still wins when set.
+export function agentModelId(): string {
+  const override = process.env.AGENT_DEFAULT_MODEL?.trim();
+  if (override) return override;
+  return isDeepSeekPeak() ? "qwen3.8-flash" : "deepseek-v4-flash";
 }
 
 // Vision chain is time-aware too: qwen3.5-plus is flat $0.20/$1.20 —
@@ -101,8 +110,8 @@ function visionChain(): string[] {
 }
 
 // During peak hours deepseek-v4-flash costs 2x (output $1.32 vs $0.47 for
-// qwen3.8-flash) — drop it from the chain; keep it off-peak where it is
-// cheaper than most alternatives.
+// qwen3.8-flash) — drop it entirely and let qwen3.8-flash lead; off-peak it
+// stays at the head of the chain with qwen3.8-flash as fallback.
 function textChain(): string[] {
   return isDeepSeekPeak()
     ? TEXT_CHAIN_FULL.filter((name) => name !== "deepseek-v4-flash")
