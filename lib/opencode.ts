@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { ChatValidationError } from "./errors";
 import { getSystemPrompt } from "./prompt";
 import { encodeFreeMarker, encodeModelMarker, encodeTryingMarker } from "./markers";
@@ -322,6 +323,10 @@ async function postCompletion(
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${getOpenCodeKey()}`,
+      // The Go gateway rejects non-free requests without a session id
+      // ("Request is missing x-opencode-session"). A per-request UUID is a
+      // valid value; it only powers routing affinity.
+      "x-opencode-session": randomUUID(),
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),

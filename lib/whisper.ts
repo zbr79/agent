@@ -33,6 +33,29 @@ export function isEnglishOnlyWhisperModel(modelPath: string): boolean {
 }
 
 /**
+ * Whisper hallucinates short sentinel strings on silent clips (e.g.
+ * "[BLANK_AUDIO]", "(silence)", "Empty audio"). Treat a transcript that is
+ * nothing but such a marker as no speech at all.
+ */
+export function isNoSpeechTranscript(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (!normalized) return true;
+  return [
+    "emptyaudio",
+    "noaudio",
+    "blankaudio",
+    "nospeech",
+    "nospeechdetected",
+    "silence",
+    "silencedetected",
+    "thereisnoaudio",
+    "thereisnospeech",
+    "noaudiowasdetected",
+    "audioblank",
+  ].includes(normalized);
+}
+
+/**
  * zh only if the loaded weights are multilingual.
  * en is always forwarded. auto detects on multilingual models, else en.
  * Unknown model path: honor the request (detect if auto) rather than forcing zh

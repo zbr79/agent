@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown, RotateCw } from "lucide-react";
+import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown, RotateCw, Folder, Check } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
 import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
@@ -17,6 +17,10 @@ interface MeUser {
 }
 
 const COLLAPSED_KEY = "inschat_sidebar_collapsed";
+
+// Workspace/folder path chip in the brand area (desktop + mobile).
+// Kept behind a flag so it can be hidden without deleting the wiring.
+const SHOW_WORKSPACE_PATH: boolean = false;
 
 // DOM-measured truncation: render, then drop whole characters until the
 // real element stops overflowing. Never cuts a letter in half.
@@ -41,7 +45,7 @@ function FitTitle({ title }: { title: string }) {
   );
 }
 
-export default function Sidebar() {
+export default function Sidebar({ workspace }: { workspace?: string }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -60,6 +64,18 @@ export default function Sidebar() {
   const [authOpen, setAuthOpen] = useState(false);
   const [authNonce, setAuthNonce] = useState(0);
   const [compressImages, setCompressImages] = useCompressImages();
+  const [workspaceCopied, setWorkspaceCopied] = useState(false);
+  const workspaceBase = workspace
+    ? workspace.replace(/\/+$/, "").split("/").filter(Boolean).pop() || workspace
+    : "";
+  const copyWorkspace = async () => {
+    if (!workspace) return;
+    try {
+      await navigator.clipboard.writeText(workspace);
+      setWorkspaceCopied(true);
+      window.setTimeout(() => setWorkspaceCopied(false), 1600);
+    } catch {}
+  };
   const [menuFor, setMenuFor] = useState<{
     id: string;
     top: number;
@@ -161,6 +177,13 @@ export default function Sidebar() {
   useEffect(() => {
     load();
   }, [load, currentSession]);
+
+  // ChatApp finished auto-summarizing a new chat's title — re-read the list.
+  useEffect(() => {
+    const onTitles = () => load();
+    window.addEventListener("inschat-titles", onTitles);
+    return () => window.removeEventListener("inschat-titles", onTitles);
+  }, [load]);
 
 
   const remove = async (id: string) => {
@@ -370,8 +393,11 @@ export default function Sidebar() {
         >
           <Menu size={20} />
         </button>
-        <Link href="/" className="mobile-brand">
+        <Link href="/" className="mobile-brand" title={workspace ? t["nav.workspace"] : undefined}>
           Agent
+          {SHOW_WORKSPACE_PATH && workspace && (
+            <span className="mobile-brand-ws">{workspaceBase}</span>
+          )}
         </Link>
         <button
           type="button"
@@ -408,7 +434,21 @@ export default function Sidebar() {
           <span className="brand-mark">
             <img src="/icon.svg" width={28} height={28} alt="" />
           </span>
-          <span className="brand-name">Agent</span>
+          <span className="brand-text">
+            <span className="brand-name">Agent</span>
+            {SHOW_WORKSPACE_PATH && workspace && (
+              <button
+                type="button"
+                className={`brand-workspace${workspaceCopied ? " copied" : ""}`}
+                onClick={copyWorkspace}
+                title={workspace}
+                aria-label={`${t["nav.workspace"]}: ${workspace}`}
+              >
+                {workspaceCopied ? <Check size={12} /> : <Folder size={12} />}
+                <span className="brand-workspace-path">{workspace}</span>
+              </button>
+            )}
+          </span>
           <button
             type="button"
             className="sidebar-hide"
@@ -493,15 +533,6 @@ export default function Sidebar() {
           <div className="account-row">
             <span className="avatar">{user.username.charAt(0).toUpperCase()}</span>
             <span className="account-name">{user.username}</span>
-            <button
-              type="button"
-              className="account-logout"
-              onClick={logout}
-              aria-label={t["nav.signOut"]}
-              title={t["nav.signOut"]}
-            >
-              {t["nav.signOut"]}
-            </button>
             <button
               type="button"
               className="settings-button"
@@ -614,6 +645,22 @@ export default function Sidebar() {
             <span className="settings-label">{t["nav.usage"]}</span>
             <ChevronRight size={16} />
           </button>
+          {user && (
+            <button
+              type="button"
+              className="settings-row settings-link settings-signout"
+              onClick={() => {
+                setSettingsOpen(false);
+                void logout();
+              }}
+              aria-label={t["nav.signOut"]}
+            >
+              <span className="settings-row-icon settings-danger-icon">
+                <LogOut size={16} />
+              </span>
+              <span className="settings-label">{t["nav.signOut"]}</span>
+            </button>
+          )}
           {!user && (
             <div className="settings-row settings-danger">
               <span className="settings-row-icon settings-danger-icon">

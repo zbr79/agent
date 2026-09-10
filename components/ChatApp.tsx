@@ -21,6 +21,7 @@ import {
   appendGuestMessage,
   createGuestSession,
   getGuestSession,
+  renameGuestSession,
   truncateGuestSession,
 } from "@/lib/guestStore";
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
@@ -310,6 +311,41 @@ function titleFrom(text: string, fallback: string): string {
   return clean.length > 60 ? `${clean.slice(0, 60)}…` : clean || fallback;
 }
 
+// First exchange of a brand-new chat is summarized by the model and the
+// result becomes the session name (sidebar). Guests rename localStorage.
+async function autoTitleSession(
+  sessionId: string,
+  userText: string,
+  assistantText: string,
+  language: string,
+  authed: boolean
+): Promise<void> {
+  try {
+    const response = await fetch("/api/title", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userText, assistantText, language }),
+    });
+    if (!response.ok) return;
+    const body = (await response.json()) as { title?: string };
+    const title = body.title?.trim();
+    if (!title) return;
+    if (authed) {
+      await fetch(`/api/sessions/${sessionId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      }).catch(() => {});
+    } else {
+      if (!getGuestSession(sessionId)) return;
+      renameGuestSession(sessionId, title);
+    }
+    window.dispatchEvent(new CustomEvent("inschat-titles"));
+  } catch {
+    /* keep the placeholder title */
+  }
+}
+
 export default function ChatApp() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -388,6 +424,7 @@ export default function ChatApp() {
   );
 
   const savedGuestRunsRef = useRef(new Set<string>());
+  const justCreatedRef = useRef<string | null>(null);
 
   // Guest sessions live in localStorage (UUID). The in-flight model message
   // is on the server; poll it the same way signed-in pending runs are polled.
@@ -862,6 +899,17 @@ useEffect(() => {
             }
           }
         }
+        if (sessionId && justCreatedRef.current === sessionId) {
+          justCreatedRef.current = null;
+          const firstUser = [...base].reverse().find((message) => message.role === "user");
+          void autoTitleSession(
+            sessionId,
+            firstUser?.text ?? "",
+            savedText,
+            lang,
+            Boolean(isAuthed)
+          );
+        }
       } catch (error) {
         const isAbort =
           error instanceof DOMException && error.name === "AbortError";
@@ -962,6 +1010,7 @@ useEffect(() => {
         }
         if (sessionId) {
           sessionIdRef.current = sessionId;
+          justCreatedRef.current = sessionId;
           router.replace(`/?session=${sessionId}`);
         }
       }

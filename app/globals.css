@@ -2,6 +2,14 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* stop the browser's own focus ring/highlight; the UI uses its own
+   hover/active styling instead */
+:focus,
+:focus-visible {
+  outline: none;
 }
 
 :root {
@@ -2091,7 +2099,22 @@ span.conclude-rank-badge {
   cursor: default;
 }
 
-/* toolbar row: mode pill + model/effort picker */
+/* while the mic is recording, send = finish recording & send: pulse to hint */
+.send-button.finish {
+  animation: send-finish-pulse 1.3s ease-in-out infinite;
+}
+
+@keyframes send-finish-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(154, 134, 201, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(154, 134, 201, 0);
+  }
+}
+
+/* toolbar row: model/effort picker left, build/plan mode pill right */
 .composer-toolbar {
   display: flex;
   align-items: center;
@@ -2271,14 +2294,14 @@ span.conclude-rank-badge {
   }
 }
 
-/* build/plan segmented toggle pill */
+/* build/plan segmented toggle pill (toolbar row, right side) */
 .composer-mode {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 2px;
   height: 32px;
-  margin: 0;
+  margin: 0 0 0 auto;
   padding: 3px;
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -3694,8 +3717,13 @@ span.conclude-rank-badge {
   padding: 2px 4px 4px;
 }
 
-.sidebar-brand-row .brand-name {
+.sidebar-brand-row .brand-text {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
 }
 
 .brand-mark {
@@ -3719,6 +3747,59 @@ span.conclude-rank-badge {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+.brand-workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 6px 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.brand-workspace:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.brand-workspace.copied {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.brand-workspace svg {
+  flex-shrink: 0;
+}
+
+.brand-workspace-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-brand-ws {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 /* guest footer row: one control left, one right */
@@ -4094,6 +4175,25 @@ button.settings-row:hover {
 
 .settings-link {
   cursor: pointer;
+}
+
+/* sign out: red row in settings, replacing the footer sign-out button */
+button.settings-row {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font);
+  text-align: left;
+  width: 100%;
+}
+
+.settings-signout .settings-label {
+  color: #ef4444;
+  font-weight: 500;
+}
+
+.settings-signout:hover .settings-label {
+  color: #dc2626;
 }
 
 
@@ -4583,7 +4683,7 @@ button.settings-row:hover {
 
 .transcript-entry {
   width: 100%;
-  padding: 4px 2px 8px;
+  padding: 4px 2px 1px;
   color: var(--bubble-model-text);
   font-size: 14px;
   line-height: 1.55;
@@ -4611,7 +4711,7 @@ button.settings-row:hover {
 .done-rule {
   width: 100%;
   height: 1px;
-  margin: 12px 0 4px;
+  margin: 12px 0 0;
   background: var(--text-muted);
   opacity: 0.35;
 }

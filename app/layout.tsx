@@ -3,6 +3,7 @@
 import { Suspense } from "react";
 import type { Metadata, Viewport } from "next";
 import Sidebar from "@/components/Sidebar";
+import { AGENT_ROOT } from "@/lib/pathJail";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -27,7 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="shell">
           <Suspense>
-            <Sidebar />
+            <Sidebar workspace={AGENT_ROOT} />
           </Suspense>
           <div className="main">{children}</div>
         </div>

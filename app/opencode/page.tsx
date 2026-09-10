@@ -1,10 +1,7 @@
-import { Suspense } from "react";
-import OpenCodeChat from "@/components/OpenCodeChat";
+import { redirect } from "next/navigation";
 
+// Removed: the OpenCode chat was a redundant second chat window (see
+// components/OpenCodeChat). Stale bookmarks redirect home.
 export default function OpenCodePage() {
-  return (
-    <Suspense>
-      <OpenCodeChat />
-    </Suspense>
-  );
+  redirect("/");
 }
