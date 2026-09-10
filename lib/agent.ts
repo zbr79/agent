@@ -7,7 +7,7 @@ import {
   type ActivityStatus,
 } from "./markers";
 import { insertCall } from "./db";
-import { agentModelId } from "./models";
+import { resolveAgentModel, type TextModelPin } from "./models";
 import { AGENT_ROOT } from "./pathJail";
 import type { AgentBinding, ChatMessage } from "./types";
 import {
@@ -58,6 +58,7 @@ interface OpencodeClient {
         system?: string;
         agent?: string;
         noReply?: boolean;
+        model?: { providerID: string; modelID: string };
         parts: {
           type: string;
           text?: string;
@@ -258,6 +259,8 @@ export interface AgentChatOptions {
   language?: "zh" | "en";
   agentTools?: boolean;
   mode?: "build" | "plan";
+  /** UI-pinned text model; undefined = auto (peak-aware/env default). */
+  model?: TextModelPin;
   /** Opencode session bound to this chat, if any. */
   binding?: AgentBinding | null;
   /** Filled in as the run progresses so the caller can persist it. */
@@ -439,6 +442,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
     language,
     agentTools = false,
     mode = "build",
+    model: pinnedModel,
     binding = null,
     out = {},
     onSessionReady,
@@ -456,16 +460,14 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
   const ownerKey = opts.ownerKey ?? null;
   const prior = opts.priorTurns ?? messages.slice(0, -1);
   const last = messages[messages.length - 1];
-  const modelWindow = await lookupAgentModel(CONFIGURED_MODEL_ID);
-  // Also consult the peak/off-peak id so a smaller listed window still gates.
-  const activeId = agentModelId();
-  const activeWindow =
-    activeId && activeId !== modelWindow.modelId
-      ? await lookupAgentModel(activeId)
-      : modelWindow;
-  const gate = Math.min(modelWindow.compactAt, activeWindow.compactAt);
+  // Resolve the actual model once, up front, so the pin, the context-window
+  // gate, and the prompt all agree before we send anything.
+  const modelId = resolveAgentModel(pinnedModel);
+  const promptModel = { providerID: AGENT_PROVIDER_ID, modelID: modelId };
+  const modelWindow = await lookupAgentModel(modelId);
+  const gate = modelWindow.compactAt;
   const wantsImage = (last?.images?.length ?? 0) > 0;
-  if (wantsImage && !modelWindow.image && !activeWindow.image) {
+  if (wantsImage && !modelWindow.image) {
     throw new AgentImageUnsupported();
   }
 
@@ -496,6 +498,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
       body: {
         system,
         noReply: true,
+        model: promptModel,
         parts: [{ type: "text", text: seed }],
       },
     });
@@ -558,7 +561,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
   out.agentSessionId = sessionId;
   out.rebound = rebound || !continued;
   onSessionReady?.(sessionId);
-  const attachImages = wantsImage && (modelWindow.image || activeWindow.image);
+  const attachImages = wantsImage && modelWindow.image;
   const promptText =
     (last?.text ?? "").trim() || (attachImages ? "Please look at the attached photo." : "");
   const promptParts = [
@@ -642,7 +645,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
               if (props.delta && partType === "text") {
                 if (!produced) {
                   produced = true;
-                  yield encodeModelMarker(modelName ?? "qwen3.8-flash");
+                  yield encodeModelMarker(modelName ?? modelId);
                   console.log(`[agent:${requestId}] first token (model ${modelName})`);
                 }
                 yield props.delta;
@@ -677,7 +680,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
                   });
                   if (!produced) {
                     produced = true;
-                    yield encodeModelMarker(modelName ?? "qwen3.8-flash");
+                    yield encodeModelMarker(modelName ?? modelId);
                   }
                   if (!mirroredKeys.has(patchKey)) {
                     mirroredKeys.add(patchKey);
@@ -796,7 +799,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
                     if (activityStatus === "completed" || activityStatus === "error") {
                       if (!produced) {
                         produced = true;
-                        yield encodeModelMarker(modelName ?? "qwen3.8-flash");
+                        yield encodeModelMarker(modelName ?? modelId);
                       }
                       if (!mirroredKeys.has(toolKey)) {
                         mirroredKeys.add(toolKey);
@@ -852,6 +855,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
       body: {
         system: promptSystem,
         agent: mode === "plan" ? "plan" : undefined,
+        model: promptModel,
         parts: promptParts,
       },
     });
@@ -950,7 +954,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
           if (textParts.length === 0) continue;
           modelName = entry.info?.modelID ?? modelName;
           produced = true;
-          yield encodeModelMarker(modelName ?? "qwen3.8-flash");
+          yield encodeModelMarker(modelName ?? modelId);
           for (const partText of textParts) {
             yield partText;
           }
@@ -979,7 +983,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
       agent.session.abort({ path: { id: sessionId } }).catch(() => {});
       insertCall({
         kind: "opencode",
-        model: modelName ?? "qwen3.8-flash",
+        model: modelName ?? modelId,
         ok: false,
         error: failure.message.slice(0, 300),
       }).catch(() => {});
@@ -1027,7 +1031,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
     }
     insertCall({
       kind: "opencode",
-      model: info?.modelID ?? modelName ?? "qwen3.8-flash",
+      model: info?.modelID ?? modelName ?? modelId,
       ok: true,
       cost: info?.cost,
       tokens: normalized,

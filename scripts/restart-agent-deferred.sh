@@ -8,7 +8,10 @@
 set -euo pipefail
 export PATH=/home/ubuntu/.nvm/versions/node/v22.21.1/bin:/usr/bin:/bin
 
-DELAY_SEC="${RESTART_DELAY_SEC:-1}"
+# Delay the pm2 recycle long enough for the agent's closing summary to stream
+# out after this tool call (the old 1s default cut off the conclusion, and the
+# SIGTERM flush persisted a reply truncated at the restart line).
+DELAY_SEC="${RESTART_DELAY_SEC:-25}"
 LOG=/tmp/agent-deferred-restart.log
 
 nohup bash -c "echo \"[\$(date -Is)] Restart of pm2 app agent in ${DELAY_SEC}s...\"; sleep ${DELAY_SEC}; pm2 restart agent; echo \"[\$(date -Is)] pm2 restart agent done\"" >>"$LOG" 2>&1 &

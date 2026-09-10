@@ -278,12 +278,13 @@ export default function Composer({
         return;
       }
       if (!response.ok) {
-        setVoiceHint(t["composer.transcribeFailed"]);
+        setVoiceHint(null);
         return;
       }
       const transcript = payload?.text?.trim() ?? "";
       if (!transcript) {
-        setVoiceHint(t["composer.transcribeFailed"]);
+        // Silent / no-speech recording: show nothing, send nothing.
+        setVoiceHint(null);
         return;
       }
       const merged = insertAtCaret(transcript);
@@ -299,7 +300,7 @@ export default function Composer({
         }
       }
     } catch {
-      setVoiceHint(t["composer.transcribeFailed"]);
+      setVoiceHint(null);
     } finally {
       setVoiceStatus("idle");
     }
@@ -338,7 +339,7 @@ export default function Composer({
           setVoiceHint(t["composer.micDenied"]);
           return;
         }
-        setVoiceHint(t["composer.transcribeFailed"]);
+        setVoiceHint(null);
       });
   };
 
@@ -380,26 +381,6 @@ export default function Composer({
         </div>
       )}
       <div className="composer-toolbar">
-        <div
-          className="composer-mode"
-          role="group"
-          aria-label={t["composer.mode"]}
-          title={t["composer.mode.tab"]}
-        >
-          {(["build", "plan"] as ChatMode[]).map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`composer-mode-btn composer-mode-btn-${value}${mode === value ? " active" : ""}`}
-              onClick={() => setMode(value)}
-              disabled={disabled}
-              aria-pressed={mode === value}
-              title={t[`composer.mode.${value}`]}
-            >
-              {t[`composer.mode.${value}`]}
-            </button>
-          ))}
-        </div>
         <div className="composer-picker" ref={pickerRef}>
           <button
             type="button"
@@ -468,6 +449,26 @@ export default function Composer({
             </div>
           )}
         </div>
+        <div
+          className="composer-mode"
+          role="group"
+          aria-label={t["composer.mode"]}
+          title={t["composer.mode.tab"]}
+        >
+          {(["build", "plan"] as ChatMode[]).map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={`composer-mode-btn composer-mode-btn-${value}${mode === value ? " active" : ""}`}
+              onClick={() => setMode(value)}
+              disabled={disabled}
+              aria-pressed={mode === value}
+              title={t[`composer.mode.${value}`]}
+            >
+              {t[`composer.mode.${value}`]}
+            </button>
+          ))}
+        </div>
       </div>
       <div className={`input-row mode-${mode}`}>
         <input
@@ -525,11 +526,12 @@ export default function Composer({
         ) : (
           <button
             type="button"
-            className="send-button"
+            className={`send-button${voiceStatus === "recording" ? " finish" : ""}`}
             onClick={handleSend}
             disabled={!canSend && !voiceBusy}
             aria-busy={shouldShowSendBusy}
-             aria-label={t["composer.send"]}
+             aria-label={voiceStatus === "recording" ? t["composer.finishAndSend"] : t["composer.send"]}
+            title={voiceStatus === "recording" ? t["composer.finishAndSend"] : undefined}
           >
             <ArrowUp size={18} />
           </button>

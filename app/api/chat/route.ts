@@ -377,6 +377,7 @@ export async function POST(req: Request) {
                   language,
                   agentTools: true,
                   mode,
+                  model,
                   binding,
                   out,
                   ownerKey,

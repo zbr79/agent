@@ -100,6 +100,18 @@ export function agentModelId(): string {
   return isDeepSeekPeak() ? "qwen3.8-flash" : "deepseek-v4-flash";
 }
 
+// Effective model for the bound opencode agent. A UI-pinned model wins, with
+// the same DeepSeek peak-hours cost guard the direct chain uses (peak doubles
+// DeepSeek's price, so a deepseek pin falls back to qwen). No pin = auto.
+export type TextModelPin = "deepseek-v4-flash" | "qwen3.8-flash";
+
+export function resolveAgentModel(pinned?: TextModelPin): string {
+  if (pinned === "qwen3.8-flash") return "qwen3.8-flash";
+  if (pinned === "deepseek-v4-flash")
+    return isDeepSeekPeak() ? "qwen3.8-flash" : "deepseek-v4-flash";
+  return agentModelId();
+}
+
 // Vision chain is time-aware too: qwen3.5-plus is flat $0.20/$1.20 —
 // slightly cheaper than vision-exp's PEAK price ($0.44/$1.32) — so it goes
 // first during peak; off-peak vision-exp (only $0.66 output) goes first.
