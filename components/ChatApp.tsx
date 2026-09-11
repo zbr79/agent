@@ -720,8 +720,12 @@ useEffect(() => {
           signal: controller.signal,
         });
         if (!response.ok || !response.body) {
-          await response.text();
-          throw new Error(t["chat.requestFailed"]);
+          let detail = "";
+          try {
+            const data = (await response.json()) as { error?: unknown };
+            if (typeof data?.error === "string") detail = data.error;
+          } catch {}
+          throw new Error(detail || t["chat.requestFailed"]);
         }
         // When the server owns the model-message persistence it replies with
         // this header; the client must not POST a second copy at the end.

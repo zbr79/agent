@@ -83,19 +83,35 @@ export function useReasoningEffort(): [
   return [level, setReasoningEffort];
 }
 
-// The two user-selectable text models. Defaults to deepseek-v4-flash (the
-// off-peak primary); qwen3.8-flash (flat pricing) is the peak-hours choice.
-export type SelectedModel = "deepseek-v4-flash" | "qwen3.8-flash";
+// The three user-selectable text models. DeepSeek V4 Flash is off-peak and
+// text-only (no image input); Qwen3.8 Flash is flat-priced and accepts images
+// (poorly); GLM-5.3-Flash is flat-priced and natively multimodal. Selection is
+// strict — the chosen model runs as-is; the only exception is DeepSeek peak
+// hours (price doubles), where a DeepSeek pin is not available at all: the
+// selection auto-switches to Qwen3.8 Flash before the user ever opens the
+// picker, and DeepSeek is locked in the menu until peak ends.
+export type SelectedModel = "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash";
 
 const MODEL_KEY = "inschat_model";
 const MODEL_EVENT = "inschat-model";
 
+function normalizeModel(value: unknown): SelectedModel {
+  if (value === "qwen3.8-flash" || value === "glm-5.3-flash") return value;
+  return "deepseek-v4-flash";
+}
+
+// Peak-hours guard: DeepSeek V4 Flash is unavailable while its price is
+// doubled, so the effective selection becomes Qwen3.8 Flash instead.
+function effectiveModel(value: SelectedModel): SelectedModel {
+  return value === "deepseek-v4-flash" && isDeepSeekPeak()
+    ? "qwen3.8-flash"
+    : value;
+}
+
 export function getSelectedModel(): SelectedModel {
   if (typeof window === "undefined") return "deepseek-v4-flash";
   try {
-    return window.localStorage.getItem(MODEL_KEY) === "qwen3.8-flash"
-      ? "qwen3.8-flash"
-      : "deepseek-v4-flash";
+    return effectiveModel(normalizeModel(window.localStorage.getItem(MODEL_KEY)));
   } catch {
     return "deepseek-v4-flash";
   }
@@ -116,11 +132,26 @@ export function useSelectedModel(): [
   const [model, setModel] = useState<SelectedModel>(() => getSelectedModel());
   useEffect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<SelectedModel>).detail;
-      setModel(detail === "qwen3.8-flash" ? "qwen3.8-flash" : "deepseek-v4-flash");
+      setModel(effectiveModel(normalizeModel((event as CustomEvent<unknown>).detail)));
     };
     window.addEventListener(MODEL_EVENT, handler);
     return () => window.removeEventListener(MODEL_EVENT, handler);
+  }, []);
+  useEffect(() => {
+    // Persist the auto-downgrade: if the stored pick is DeepSeek while peak
+    // is on (fresh load, or peak just started), switch the selection to
+    // Qwen3.8 Flash so the pill shows it before the picker is ever opened.
+    const sync = () => {
+      if (!isDeepSeekPeak()) return;
+      try {
+        if (window.localStorage.getItem(MODEL_KEY) === "deepseek-v4-flash") {
+          setSelectedModel("qwen3.8-flash");
+        }
+      } catch {}
+    };
+    sync();
+    const id = window.setInterval(sync, 60_000);
+    return () => window.clearInterval(id);
   }, []);
   return [model, setSelectedModel];
 }

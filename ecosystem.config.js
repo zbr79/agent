@@ -38,7 +38,7 @@ module.exports = {
         OPENCODE_API_KEY: process.env.OPENCODE_API_KEY || "",
         OPENCODE_API_KEY_FORCE: process.env.OPENCODE_API_KEY_FORCE || "",
         MONGODB_URI: process.env.MONGODB_URI || "",
-        MONGODB_DB: process.env.MONGODB_DB || "",
+        AGENT_DB: process.env.AGENT_DB || "",
         GEMINI_API_KEY: process.env.GEMINI_API_KEY || "",
         GEMINI_MODEL: process.env.GEMINI_MODEL || "",
         CONCLUDE_MODEL: process.env.CONCLUDE_MODEL || "",

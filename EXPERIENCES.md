@@ -1132,3 +1132,4 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 - Add-card buttons rely on visible text for their name (no aria-label) — acceptable for screen readers.
 ### Disproved
 - The modal cannot be audited by Lighthouse directly (it audits page navigations, not client-side state) — Playwright probing is the correct tool.
+

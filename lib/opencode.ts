@@ -13,7 +13,7 @@ import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, type ChatMessage } from "./types"
 export const OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const OPENCODE_FREE_BASE_URL = "https://opencode.ai/zen/v1";
 export const OPENCODE_MODEL = "deepseek-v4-pro";
-export const OPENCODE_VISION_MODEL = "deepseek-v4-flash-vision-exp";
+export const OPENCODE_VISION_MODEL = "glm-5.3-flash";
 
 // The opencode CLI stores the current subscription key here; it changes when
 // the user rotates/reconnects the key in the TUI. Prefer it over .env so the
@@ -342,9 +342,11 @@ function errorFromResponse(status: number, text: string): Error {
   return new Error(message);
 }
 
-// Qwen models on the Go gateway 400 when reasoning_effort is sent together
-// with image content — skip it for those image requests.
-const NO_REASONING_WITH_IMAGES = new Set(["qwen3.5-plus"]);
+// The Go gateway 400s reasoning_effort when it is sent together with image
+// content (observed on the Qwen family), so image turns never carry it.
+// Text-only turns are unaffected: streamChat strips prior image parts and
+// replaces them with a "[photo attached]" marker, so hasImageParts is true
+// only when this request actually uploads image bytes.
 
 // One streaming round: yields content tokens and returns accumulated tool
 // calls (via the generator return value).
@@ -360,7 +362,7 @@ async function* streamOpenCodeOnce(
       Array.isArray(message.content) &&
       message.content.some((part) => part.type === "image_url")
   );
-  const skipReasoning = hasImageParts && NO_REASONING_WITH_IMAGES.has(model);
+  const skipReasoning = hasImageParts;
   const body: Record<string, unknown> = {
     model,
     messages,
@@ -371,7 +373,9 @@ async function* streamOpenCodeOnce(
   if (tools) body.tools = [WEB_FETCH_TOOL];
   const startedAt = Date.now();
   console.log(
-    `[opencode:${requestId}] start — model ${model}, ${messages.length} messages${tools ? ", tools on" : ""}`
+    `[opencode:${requestId}] start — model ${model}, ${messages.length} messages${tools ? ", tools on" : ""}${
+      skipReasoning ? ", image (reasoning off)" : ""
+    }`
   );
 
   if (process.env.OPENCODE_TEST_LIMIT === "1") {
@@ -546,21 +550,22 @@ export async function* streamChat(
   messages: ChatMessage[],
   language?: "zh" | "en",
   reasoning: "balance" | "max" = "max",
-  modelOverride?: "deepseek-v4-flash" | "qwen3.8-flash"
+  modelOverride?: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash"
 ): AsyncGenerator<string> {
   const lastMessage = messages[messages.length - 1];
   const hasImage = (lastMessage?.images?.length ?? 0) > 0;
   const useTools = !hasImage;
   const requestId = Math.random().toString(36).slice(2, 8);
+  // Strict selection: the pinned model runs as-is, for text AND images — no
+  // auto chain, no cross-model fallback. The one substitution is DeepSeek peak
+  // hours (price doubles), where a DeepSeek send is served by Qwen instead.
   let chain = getChatChain(hasImage);
-  // A user-pinned text model wins over the auto chain. DeepSeek still can't
-  // be forced during its peak hours (price doubles) — fall back to the chain.
-  if (
-    !hasImage &&
-    modelOverride &&
-    !(modelOverride === "deepseek-v4-flash" && isDeepSeekPeak())
-  ) {
-    chain = [modelOverride];
+  if (modelOverride) {
+    const effective =
+      modelOverride === "deepseek-v4-flash" && isDeepSeekPeak()
+        ? "qwen3.8-flash"
+        : modelOverride;
+    chain = [effective];
   }
   // Text-only sends must not pass earlier photo parts to text models — the
   // free gateway rejects image content (404 "No endpoints for image").
