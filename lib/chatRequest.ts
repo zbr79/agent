@@ -8,7 +8,7 @@ export interface ChatRequest {
   language?: "zh" | "en";
   reasoning?: "balance" | "max";
   mode?: "build" | "plan";
-  model?: "deepseek-v4-flash" | "qwen3.8-flash";
+  model?: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash";
   sessionId?: string;
 }
 
@@ -96,12 +96,28 @@ export function parseChatBody(body: unknown): ChatRequest {
   }
 
   const rawModel = (body as { model?: unknown }).model;
-  let model: "deepseek-v4-flash" | "qwen3.8-flash" | undefined;
+  let model: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash" | undefined;
   if (rawModel !== undefined && rawModel !== null) {
-    if (rawModel !== "deepseek-v4-flash" && rawModel !== "qwen3.8-flash") {
-      throw new ChatValidationError('"model" must be "deepseek-v4-flash" or "qwen3.8-flash".');
+    if (
+      rawModel !== "deepseek-v4-flash" &&
+      rawModel !== "qwen3.8-flash" &&
+      rawModel !== "glm-5.3-flash"
+    ) {
+      throw new ChatValidationError(
+        '"model" must be "deepseek-v4-flash", "qwen3.8-flash", or "glm-5.3-flash".'
+      );
     }
     model = rawModel;
+  }
+  // Selection is strict: DeepSeek V4 Flash has no vision, so an image send on
+  // it is rejected here (and pre-blocked in the composer) rather than silently
+  // rerouted to another model.
+  if (model === "deepseek-v4-flash" && (messages[messages.length - 1]?.images?.length ?? 0) > 0) {
+    throw new ChatValidationError(
+      language === "zh"
+        ? "DeepSeek V4 Flash 无法识别图片，请移除图片，或改用 Qwen / GLM。"
+        : "DeepSeek V4 Flash cannot read images — remove the image or switch to Qwen / GLM."
+    );
   }
 
   const rawMode = (body as { mode?: unknown }).mode;

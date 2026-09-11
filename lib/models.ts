@@ -20,7 +20,7 @@ export interface ModelInfo {
 export const CHAT_MODELS: ModelInfo[] = [
   { name: "deepseek-v4-pro", label: "DeepSeek V4 Pro", tier: "pro", vision: false, retired: true },
   { name: "deepseek-v4-flash", label: "DeepSeek V4 Flash", tier: "flash", vision: false },
-  { name: "qwen3.8-flash", label: "Qwen3.8 Flash", tier: "flash", vision: false },
+  { name: "qwen3.8-flash", label: "Qwen3.8 Flash", tier: "flash", vision: true },
   { name: "deepseek-v4-flash-free", label: "DeepSeek V4 Flash (Free)", tier: "flash", vision: false },
   { name: "mimo-v2.5-free", label: "MiMo-V2.5 (Free)", tier: "flash", vision: false },
   { name: "big-pickle", label: "Big Pickle (Free)", tier: "flash", vision: false },
@@ -28,7 +28,6 @@ export const CHAT_MODELS: ModelInfo[] = [
   { name: "nemotron-3.5-lightning-free", label: "Nemotron 3.5 Lightning (Free)", tier: "flash", vision: false },
   { name: "ling-3.0-flash-fin-free", label: "Ling 3.0 Flash (Free)", tier: "flash", vision: false },
   { name: "laguna-s-2.1-free", label: "Laguna S 2.1 (Free)", tier: "flash", vision: false },
-  { name: "deepseek-v4-flash-vision-exp", label: "DeepSeek V4 Flash Vision Exp", tier: "flash", vision: true },
   { name: "glm-5.3", label: "GLM-5.3", tier: "pro", vision: false },
   { name: "glm-5.3-flash", label: "GLM-5.3 Flash", tier: "flash", vision: true },
   { name: "glm-5.2", label: "GLM-5.2", tier: "pro", vision: false },
@@ -46,7 +45,6 @@ export const CHAT_MODELS: ModelInfo[] = [
   { name: "qwen3.7-max", label: "Qwen3.7 Max", tier: "pro", vision: true },
   { name: "qwen3.7-plus", label: "Qwen3.7 Plus", tier: "pro", vision: true },
   { name: "qwen3.6-plus", label: "Qwen3.6 Plus", tier: "pro", vision: true },
-  { name: "qwen3.5-plus", label: "Qwen3.5 Plus", tier: "pro", vision: true },
   { name: "hy4-preview", label: "Hy4 Preview", tier: "pro", vision: false },
   { name: "hy3", label: "Hy3", tier: "flash", vision: false },
   { name: "hy3-preview", label: "Hy3 Preview", tier: "flash", vision: false },
@@ -64,8 +62,9 @@ export const AUTO_MODEL = "auto";
 // Chat chains (opencode-go). Text OFF-PEAK: deepseek-v4-flash is the
 // primary; qwen3.8-flash (flat pricing) is its fallback. During DeepSeek
 // peak hours (Mon-Fri 01:00-04:00 & 06:00-10:00 UTC) DeepSeek's price
-// doubles, so the chain drops it and qwen3.8-flash leads. Images
-// always go to the Go gateway's only officially image-billed model.
+// doubles, so the chain drops it and qwen3.8-flash leads. Images always go to
+// GLM-5.3-Flash — the Go gateway's natively multimodal flash model, flat
+// priced with no DeepSeek peak-hours penalty.
 const TEXT_CHAIN_FULL: string[] = [
   "deepseek-v4-flash",
   "qwen3.8-flash",
@@ -77,10 +76,10 @@ const TEXT_CHAIN_FULL: string[] = [
   "laguna-s-2.1-free",
   "big-pickle",
 ];
-export const IMAGE_CHAIN: string[] = [
-  "deepseek-v4-flash-vision-exp",
-  "qwen3.5-plus",
-];
+// Images always route to GLM-5.3-Flash: native vision, flat $0.15/$0.50 (no
+// peak penalty), and the largest Go image allowance. No fallback — a single,
+// strong multimodal model by design.
+export const IMAGE_CHAIN: string[] = ["glm-5.3-flash"];
 
 // DeepSeek peak hours per official docs: 01:00-04:00 and 06:00-10:00 UTC,
 // Monday through Friday (= 09:00-12:00 and 14:00-18:00 Beijing, UTC+8).
@@ -103,23 +102,17 @@ export function agentModelId(): string {
 // Effective model for the bound opencode agent. A UI-pinned model wins, with
 // the same DeepSeek peak-hours cost guard the direct chain uses (peak doubles
 // DeepSeek's price, so a deepseek pin falls back to qwen). No pin = auto.
-export type TextModelPin = "deepseek-v4-flash" | "qwen3.8-flash";
+export type TextModelPin = "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash";
 
 export function resolveAgentModel(pinned?: TextModelPin): string {
-  if (pinned === "qwen3.8-flash") return "qwen3.8-flash";
+  if (pinned === "qwen3.8-flash" || pinned === "glm-5.3-flash") return pinned;
   if (pinned === "deepseek-v4-flash")
     return isDeepSeekPeak() ? "qwen3.8-flash" : "deepseek-v4-flash";
   return agentModelId();
 }
 
-// Vision chain is time-aware too: qwen3.5-plus is flat $0.20/$1.20 —
-// slightly cheaper than vision-exp's PEAK price ($0.44/$1.32) — so it goes
-// first during peak; off-peak vision-exp (only $0.66 output) goes first.
-function visionChain(): string[] {
-  return isDeepSeekPeak()
-    ? ["qwen3.5-plus", "deepseek-v4-flash-vision-exp"]
-    : ["deepseek-v4-flash-vision-exp", "qwen3.5-plus"];
-}
+// The Go gateway is billed per token and GLM-5.3-Flash is flat-priced, so the
+// image chain no longer needs peak-hours branching.
 
 // During peak hours deepseek-v4-flash costs 2x (output $1.32 vs $0.47 for
 // qwen3.8-flash) — drop it entirely and let qwen3.8-flash lead; off-peak it
@@ -165,7 +158,7 @@ export function setActiveModel(model: string): void {
 // Images always route to the vision chain; a manually pinned model applies
 // to text-only requests. In auto mode, text uses the time-aware chain.
 export function getChatChain(hasImage: boolean): string[] {
-  if (hasImage) return filterChain(visionChain());
+  if (hasImage) return filterChain(IMAGE_CHAIN);
   const selected = getActiveModel();
   if (selected === AUTO_MODEL) return filterChain(textChain());
   return [selected];

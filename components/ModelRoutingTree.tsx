@@ -12,8 +12,7 @@ const SHORT_NAMES: Record<string, string> = {
   "ling-3.0-flash-fin-free": "Ling 3.0",
   "laguna-s-2.1-free": "Laguna S 2.1",
   "big-pickle": "Big Pickle",
-  "deepseek-v4-flash-vision-exp": "Vision Exp",
-  "qwen3.5-plus": "Qwen3.5 Plus",
+  "glm-5.3-flash": "GLM-5.3 Flash",
 };
 
 const FREE_MODELS = [
@@ -63,7 +62,7 @@ export default function ModelRoutingTree() {
 
         <li>
           <span className="routing-node">{t["routing.images"]}</span>
-          <Chain models={["deepseek-v4-flash-vision-exp", "qwen3.5-plus"]} />
+          <Chain models={["glm-5.3-flash"]} />
           <span className="routing-tag">{t["routing.imagesTag"]}</span>
         </li>
 

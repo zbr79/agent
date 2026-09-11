@@ -10,7 +10,10 @@ import type {
   StoredMessage,
 } from "./types";
 
-const DB_NAME = process.env.MONGODB_DB || "inschat";
+// Own database inside the shared MongoDB cluster, so accounts/sessions/tokens
+// never collide with the inschat app (which uses the "inschat" db). Override
+// with AGENT_DB if needed.
+const DB_NAME = process.env.AGENT_DB || "agent";
 
 let clientPromise: Promise<MongoClient> | null = null;
 

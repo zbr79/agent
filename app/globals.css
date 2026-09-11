@@ -1550,6 +1550,7 @@ span.conclude-rank-badge {
 
 .message {
   display: flex;
+  min-width: 0;
 }
 
 .message.user {
@@ -2114,7 +2115,7 @@ span.conclude-rank-badge {
   }
 }
 
-/* toolbar row: model/effort picker left, build/plan mode pill right */
+/* toolbar row: model picker + effort picker left, build/plan mode pill right */
 .composer-toolbar {
   display: flex;
   align-items: center;
@@ -2122,8 +2123,8 @@ span.conclude-rank-badge {
   margin-bottom: 8px;
 }
 
-/* model + reasoning-effort picker pill: shows the current pick, opens the
-   popover below. White when closed, highlighted when open. */
+/* picker pill: shows the current pick, opens the popover below. White when
+   closed, highlighted when open. */
 .composer-reasoning {
   flex-shrink: 0;
   position: relative;
@@ -2160,17 +2161,23 @@ span.conclude-rank-badge {
   color: #b45309;
 }
 
-.composer-picker-sep {
-  opacity: 0.5;
+/* model pill is the long one: name left, chevron right */
+.composer-model-pill {
+  min-width: 136px;
+  justify-content: space-between;
 }
 
 .composer-picker-effort {
   opacity: 0.85;
 }
 
-/* Popover listing the selectable models. Each row always shows its
-   Balance/Max buttons (no hover dependency, so it works on touch screens).
-   Opens upward because the composer is pinned to the bottom of the viewport. */
+.composer-reasoning:hover .composer-picker-effort,
+.composer-reasoning.open .composer-picker-effort {
+  opacity: 1;
+}
+
+/* Popovers for the model and effort pickers. Opens upward because the
+   composer is pinned to the bottom of the viewport. */
 .composer-picker {
   position: relative;
   flex-shrink: 0;
@@ -2193,13 +2200,27 @@ span.conclude-rank-badge {
   gap: 2px;
 }
 
+.composer-model-menu {
+  min-width: 152px;
+}
+
+.composer-effort-menu {
+  min-width: 130px;
+}
+
 .picker-model {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  width: 100%;
   padding: 8px 10px;
+  border: none;
   border-radius: 8px;
+  background: transparent;
+  font-family: var(--font);
+  text-align: left;
+  cursor: pointer;
 }
 
 .picker-model:hover {
@@ -2226,37 +2247,6 @@ span.conclude-rank-badge {
   color: var(--text);
 }
 
-.picker-efforts {
-  display: inline-flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.picker-effort {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg);
-  color: var(--text-muted);
-  font-family: var(--font);
-  font-size: 12px;
-  font-weight: 500;
-  height: 28px;
-  padding: 0 10px;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-
-.picker-effort:hover {
-  border-color: var(--pill);
-  color: var(--text);
-}
-
-.picker-effort.active {
-  background: var(--pill);
-  border-color: var(--pill);
-  color: var(--pill-text);
-}
-
 .picker-model.locked {
   opacity: 0.55;
 }
@@ -2265,12 +2255,16 @@ span.conclude-rank-badge {
   color: var(--text-muted);
 }
 
-.picker-effort:disabled {
+.picker-model:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* touch devices: roomier tap targets for the picker */
+.picker-model.locked:disabled {
+  opacity: 0.55;
+}
+
+/* touch devices: roomier tap targets for the pickers */
 @media (hover: none) {
   .composer-reasoning {
     height: 34px;
@@ -2278,19 +2272,12 @@ span.conclude-rank-badge {
   }
 
   .composer-picker-menu {
-    min-width: 250px;
     padding: 8px;
     gap: 4px;
   }
 
   .picker-model {
     padding: 10px;
-  }
-
-  .picker-effort {
-    height: 34px;
-    font-size: 13px;
-    padding: 0 14px;
   }
 }
 
@@ -4683,10 +4670,13 @@ button.settings-row {
 
 .transcript-entry {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 4px 2px 1px;
   color: var(--bubble-model-text);
   font-size: 14px;
   line-height: 1.55;
+  overflow-wrap: break-word;
 }
 
 .transcript-body {
@@ -4694,6 +4684,9 @@ button.settings-row {
   font-size: 12.5px;
   line-height: 1.5;
   white-space: normal;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
 }
 
 .transcript-body p {
@@ -4702,6 +4695,72 @@ button.settings-row {
 
 .transcript-body p:last-child {
   margin-bottom: 0;
+}
+
+/* Transcript replies render outside .bubble, so they need the same width
+   containment: long <pre>/<table>/<code> lines otherwise force the chat
+   column to scroll sideways (big empty space on the right on phones). */
+.transcript-body pre {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  padding: 10px;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.transcript-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+.transcript-body code:not(pre code) {
+  background: rgba(0, 0, 0, 0.07);
+  border-radius: 4px;
+  padding: 1px 5px;
+  overflow-wrap: anywhere;
+}
+
+.transcript-body pre code {
+  background: transparent;
+  padding: 0;
+  white-space: pre;
+}
+
+.transcript-body table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 14px;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.transcript-body th,
+.transcript-body td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.transcript-body th {
+  background: rgba(0, 0, 0, 0.05);
+  font-weight: 600;
+}
+
+.transcript-body ul,
+.transcript-body ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.transcript-body blockquote {
+  border-left: 3px solid var(--border);
+  margin: 8px 0;
+  padding: 2px 0 2px 12px;
+  color: var(--text-muted);
 }
 
 /* End-of-reply indicator: replaces the protocol "DONE" text line with a
