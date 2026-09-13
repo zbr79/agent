@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, Lock, Mic, Plus, Square, X } from "lucide-react";
+import {
+  ArrowUp,
+  ChevronDown,
+  GitCommitHorizontal,
+  Lock,
+  Mic,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Square,
+  X,
+} from "lucide-react";
 import type { ChatImage } from "@/lib/types";
 import { GUEST_MAX_AUDIO_MS, MAX_AUDIO_BYTES, MAX_IMAGES, USER_MAX_AUDIO_MS } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
@@ -31,6 +42,20 @@ interface ComposerProps {
   disabled?: boolean;
   placeholder?: string;
   signedIn?: boolean;
+}
+
+interface GitFile {
+  path: string;
+  status: string;
+  safe: boolean;
+}
+
+interface GitStatus {
+  branch: string;
+  upstream: string | null;
+  files: GitFile[];
+  clean: boolean;
+  skipped: string[];
 }
 
 function readImage(
@@ -84,6 +109,11 @@ export default function Composer({
   const [voiceHint, setVoiceHint] = useState<string | null>(null);
   const [voiceStatus, setVoiceStatus] = useState<"idle" | "recording" | "transcribing">("idle");
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [gitOpen, setGitOpen] = useState(false);
+  const [gitBusy, setGitBusy] = useState(false);
+  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const [gitMessage, setGitMessage] = useState("");
+  const [gitHint, setGitHint] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const voiceRef = useRef<VoiceRecordHandle | null>(null);
@@ -139,6 +169,73 @@ export default function Composer({
   const voiceBusy = voiceStatus !== "idle" && !sending && !disabled;
   const shouldShowSendBusy = voiceStatus === "transcribing" && !sending && !disabled;
   const hint = voiceHint || imageError;
+
+  const fetchGitMessage = async () => {
+    setGitBusy(true);
+    setGitHint(null);
+    try {
+      const statusResponse = await fetch("/api/git/status", { credentials: "same-origin" });
+      const statusBody = (await statusResponse.json().catch(() => null)) as
+        | (GitStatus & { error?: string })
+        | null;
+      if (!statusResponse.ok) throw new Error(statusBody?.error || t["git.error"]);
+      if (!statusBody || statusBody.clean) {
+        setGitOpen(false);
+        setGitHint(t["git.empty"]);
+        return;
+      }
+      setGitStatus(statusBody);
+      const messageResponse = await fetch("/api/git/message", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const messageBody = (await messageResponse.json().catch(() => null)) as
+        | { message?: string; error?: string; skipped?: string[] }
+        | null;
+      if (!messageResponse.ok || !messageBody?.message) {
+        throw new Error(messageBody?.error || t["git.generateFailed"]);
+      }
+      setGitMessage(messageBody.message);
+      setGitOpen(true);
+    } catch (error) {
+      setGitHint(error instanceof Error ? error.message : t["git.error"]);
+    } finally {
+      setGitBusy(false);
+    }
+  };
+
+  const commitGit = async (push: boolean) => {
+    if (!gitMessage.trim()) {
+      setGitHint(t["git.messageRequired"]);
+      return;
+    }
+    setGitBusy(true);
+    setGitHint(null);
+    try {
+      const response = await fetch("/api/git/commit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ message: gitMessage, push }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { sha?: string; pushed?: boolean; error?: string }
+        | null;
+      if (!response.ok) throw new Error(body?.error || t["git.commitFailed"]);
+      setGitOpen(false);
+      setGitStatus(null);
+      setGitMessage("");
+      setGitHint(
+        body?.pushed
+          ? t["git.pushed"].replace("{sha}", body.sha || "")
+          : t["git.committed"].replace("{sha}", body?.sha || "")
+      );
+    } catch (error) {
+      setGitHint(error instanceof Error ? error.message : t["git.commitFailed"]);
+    } finally {
+      setGitBusy(false);
+    }
+  };
 
   const handleSend = () => {
     if (disabled || sending) return;
@@ -375,6 +472,73 @@ export default function Composer({
 
   return (
     <div className="composer">
+      {signedIn && gitOpen && gitStatus ? (
+        <section className="git-sheet" aria-live="polite">
+          <div className="git-sheet-header">
+            <div>
+              <strong>{t["git.title"]}</strong>
+              <span>{gitStatus.branch}</span>
+            </div>
+            <button
+              type="button"
+              className="git-sheet-close"
+              onClick={() => setGitOpen(false)}
+              disabled={gitBusy}
+              aria-label={t["actions.cancel"]}
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="git-file-list">
+            {gitStatus.files.map((file) => (
+              <div className={`git-file${file.safe ? "" : " skipped"}`} key={`${file.status}:${file.path}`}>
+                <code>{file.status}</code>
+                <span>{file.path}</span>
+                {!file.safe ? <em>{t["git.skipped"]}</em> : null}
+              </div>
+            ))}
+          </div>
+          <label className="git-message-label" htmlFor="git-commit-message">
+            {t["git.message"]}
+          </label>
+          <textarea
+            id="git-commit-message"
+            className="git-message-input"
+            value={gitMessage}
+            maxLength={500}
+            disabled={gitBusy}
+            onChange={(event) => setGitMessage(event.target.value)}
+          />
+          <div className="git-sheet-actions">
+            <button
+              type="button"
+              className="git-secondary-button"
+              onClick={() => void fetchGitMessage()}
+              disabled={gitBusy}
+            >
+              <RefreshCw size={14} className={gitBusy ? "spin" : ""} />
+              {t["git.regenerate"]}
+            </button>
+            <button
+              type="button"
+              className="git-secondary-button"
+              onClick={() => void commitGit(false)}
+              disabled={gitBusy}
+            >
+              {t["git.commit"]}
+            </button>
+            <button
+              type="button"
+              className="git-primary-button"
+              onClick={() => void commitGit(true)}
+              disabled={gitBusy}
+            >
+              <GitCommitHorizontal size={14} />
+              {t["git.commitPush"]}
+            </button>
+          </div>
+        </section>
+      ) : null}
       {images.length > 0 && (
         <div className="preview-grid">
           {images.map((image, index) => (
@@ -506,6 +670,18 @@ export default function Composer({
             </button>
           ))}
         </div>
+        {signedIn ? (
+          <button
+            type="button"
+            className="composer-git-button"
+            onClick={() => void fetchGitMessage()}
+            disabled={disabled || sending || gitBusy}
+            title={t["git.button"]}
+          >
+            {gitBusy ? <RefreshCw size={14} className="spin" /> : <Sparkles size={14} />}
+            <span>{t["git.button"]}</span>
+          </button>
+        ) : null}
       </div>
       <div className={`input-row mode-${mode}`}>
         <input
@@ -574,7 +750,7 @@ export default function Composer({
           </button>
         )}
       </div>
-      {hint && <p className="hint">{hint}</p>}
+      {(hint || gitHint) && <p className="hint">{hint || gitHint}</p>}
     </div>
   );
 }
