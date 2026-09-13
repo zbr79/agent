@@ -23,15 +23,27 @@ export class AgentBusyError extends Error {
   }
 }
 
-const inflightOwners = new Map<string, { sessionId: string | null; at: number }>();
+const inflightOwners = new Map<
+  string,
+  { sessionId: string | null; at: number; hold?: boolean }
+>();
 const inflightSessions = new Map<string, string>();
 
 export function claimAgentTurn(ownerKey: string, timeoutMs: number): void {
   const existing = inflightOwners.get(ownerKey);
-  if (existing && Date.now() - existing.at < timeoutMs) {
+  if (existing && (existing.hold || Date.now() - existing.at < timeoutMs)) {
     throw new AgentBusyError();
   }
   inflightOwners.set(ownerKey, { sessionId: null, at: Date.now() });
+}
+
+/** Freeze the busy timeout while the agent is waiting on a question card. */
+export function holdAgentTurn(ownerKey: string | null | undefined, hold: boolean): void {
+  if (!ownerKey) return;
+  const current = inflightOwners.get(ownerKey);
+  if (!current) return;
+  current.hold = hold;
+  if (!hold) current.at = Date.now();
 }
 
 export function noteInflightSession(ownerKey: string, sessionId: string): void {

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import MessageBubble from "./MessageBubble";
 import Composer from "./Composer";
+import QuestionCard from "./QuestionCard";
 import ActivityPanel, {
   finalizeRunningActivities,
   hasSuccessfulProgress,
@@ -15,7 +16,7 @@ import ActivityPanel, {
   upsertActivity,
   type ActivityItem,
 } from "./ActivityPanel";
-import type { ChatImage, ChatMessage } from "@/lib/types";
+import type { ChatImage, ChatMessage, PendingQuestion } from "@/lib/types";
 import { ModelMarkerParser } from "@/lib/markers";
 import {
   appendGuestMessage,
@@ -53,6 +54,7 @@ interface StoredLike {
   elapsed?: number;
   status?: "pending" | "done" | "failed";
   processSteps?: string[];
+  pendingQuestion?: PendingQuestion | null;
 }
 
 function trailKey(item: string): string {
@@ -167,6 +169,15 @@ function latestModelPending(list: StoredLike[]): boolean {
     if (list[i].role === "model") return (list[i].status ?? "done") === "pending";
   }
   return false;
+}
+
+function pendingQuestionFrom(list: StoredLike[]): PendingQuestion | null {
+  for (let i = list.length - 1; i >= 0; i--) {
+    const message = list[i];
+    if (message.role !== "model" || (message.status ?? "done") !== "pending") continue;
+    return message.pendingQuestion ?? null;
+  }
+  return null;
 }
 
 let nextId = 1;
@@ -358,6 +369,11 @@ export default function ChatApp() {
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
+  const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
+  const [questionBusy, setQuestionBusy] = useState(false);
+  const [questionError, setQuestionError] = useState<string | null>(null);
+  const pendingQuestionRef = useRef<PendingQuestion | null>(null);
+  pendingQuestionRef.current = pendingQuestion;
   const [loading, setLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -409,6 +425,7 @@ export default function ChatApp() {
             setMessages((prev) => mapStoredMessages(list, prev));
             setSending(stillPending);
             setActivityLive(stillPending);
+            setPendingQuestion(stillPending ? pendingQuestionFrom(list) : null);
           }
           if (!stillPending) stopResume();
         } catch {
@@ -448,6 +465,7 @@ export default function ChatApp() {
           const stillPending = (run.status ?? "done") === "pending";
           setSending(stillPending);
           setActivityLive(stillPending);
+          setPendingQuestion(stillPending ? run.pendingQuestion ?? null : null);
           if (!stillPending) {
             rememberGuestRun(id, run, savedGuestRunsRef.current);
             stopResume();
@@ -543,6 +561,8 @@ useEffect(() => {
     }
     setMessages([]);
     stopResume();
+    setPendingQuestion(null);
+    setQuestionError(null);
     if (!id) {
       sessionIdRef.current = null;
       setActivities([]);
@@ -569,10 +589,12 @@ useEffect(() => {
             if (hasPending) {
               setSending(true);
               setActivityLive(true);
+              setPendingQuestion(pendingQuestionFrom(body.messages ?? []));
               startResume(id);
             } else {
               setSending(false);
               setActivityLive(false);
+              setPendingQuestion(null);
             }
           }
         )
@@ -618,11 +640,13 @@ useEffect(() => {
             if ((run.status ?? "done") === "pending") {
               setSending(true);
               setActivityLive(true);
+              setPendingQuestion(run.pendingQuestion ?? null);
               startGuestResume(id);
             } else {
               rememberGuestRun(id, run, savedGuestRunsRef.current);
               setSending(false);
               setActivityLive(false);
+              setPendingQuestion(null);
             }
           } catch {
             /* local user prompt still shows */
@@ -700,6 +724,7 @@ useEffect(() => {
       abortRef.current = controller;
       const history = toApiMessages(base);
       let aborted = false;
+      let keepQuestion = false;
 
       let modelText = "";
       let runPersisted = false;
@@ -741,9 +766,27 @@ useEffect(() => {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const { text, model, trying, tryings, free, activities: incomingActivities } = parser.push(
-            decoder.decode(value, { stream: true })
-          );
+          const {
+            text,
+            model,
+            trying,
+            tryings,
+            free,
+            activities: incomingActivities,
+            questions,
+            questionClear,
+          } = parser.push(decoder.decode(value, { stream: true }));
+          if (questions) {
+            setPendingQuestion(questions);
+            setQuestionError(null);
+          }
+          if (questionClear) {
+            setPendingQuestion((current) =>
+              !current || current.requestId === questionClear || !questionClear
+                ? null
+                : current
+            );
+          }
           if (incomingActivities?.length) {
             setActivities((prev) => {
               const next = upsertActivity(prev, incomingActivities);
@@ -923,6 +966,7 @@ useEffect(() => {
         aborted = Boolean(isAbort && userStoppedRef.current);
         const connectionLost =
           !aborted && (isConnectionLossError(error) || isAbort);
+        keepQuestion = Boolean(connectionLost && pendingQuestionRef.current);
         const hardError = !aborted && !connectionLost;
         const classification = classifyRunEnd({
           aborted,
@@ -980,18 +1024,36 @@ useEffect(() => {
           )
         );
       } finally {
-        setSending(false);
-        setActivityLive(false);
         abortRef.current = null;
+        if (keepQuestion) {
+          const id = sessionIdRef.current;
+          setSending(true);
+          setActivityLive(true);
+          if (id) {
+            if (isAuthed) startResume(id);
+            else startGuestResume(id);
+          }
+        } else {
+          setSending(false);
+          setActivityLive(false);
+          setPendingQuestion(null);
+          setQuestionBusy(false);
+        }
       }
     },
-    [isAuthed, lang, reasoningEffort, chatMode, stopResume]
+    [isAuthed, lang, reasoningEffort, chatMode, stopResume, startResume, startGuestResume]
   );
 
   const send = useCallback(
     async (text: string, images?: ChatImage[]) => {
       const trimmed = text.trim();
-      if ((!trimmed && (images?.length ?? 0) === 0) || sending || isAuthed === null) return;
+      if (
+        (!trimmed && (images?.length ?? 0) === 0) ||
+        sending ||
+        pendingQuestionRef.current ||
+        isAuthed === null
+      )
+        return;
       const authed = isAuthed;
 
       let sessionId = sessionIdRef.current;
@@ -1168,10 +1230,59 @@ useEffect(() => {
   }, [messages, createShare]);
 */
 
+  const postQuestion = useCallback(
+    async (action: "reply" | "reject", answers?: string[][], abort = false) => {
+      const pending = pendingQuestionRef.current;
+      const sessionId = sessionIdRef.current;
+      if (!pending || !sessionId) return false;
+      setQuestionBusy(true);
+      setQuestionError(null);
+      try {
+        const response = await fetch("/api/chat/question", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            requestId: pending.requestId,
+            action,
+            answers,
+            abort: abort || undefined,
+          }),
+        });
+        if (response.status === 410) {
+          setPendingQuestion(null);
+          setQuestionError(t["question.expired"]);
+          return false;
+        }
+        if (!response.ok) {
+          let detail = "";
+          try {
+            const data = (await response.json()) as { error?: unknown };
+            if (typeof data?.error === "string") detail = data.error;
+          } catch {}
+          setQuestionError(detail || t["question.failed"]);
+          return false;
+        }
+        setPendingQuestion(null);
+        return true;
+      } catch {
+        setQuestionError(t["question.failed"]);
+        return false;
+      } finally {
+        setQuestionBusy(false);
+      }
+    },
+    [t]
+  );
+
   const stop = useCallback(() => {
     userStoppedRef.current = true;
+    const pending = pendingQuestionRef.current;
+    if (pending && sessionIdRef.current) {
+      void postQuestion("reject", undefined, true);
+    }
     abortRef.current?.abort();
-  }, []);
+  }, [postQuestion]);
 
 /* Revert feature commented out (2026-08-30) — edit/regenerate replaced it.
   // Revert: drop everything after the chosen message (locally + persisted).
@@ -1208,6 +1319,35 @@ useEffect(() => {
   const showActivityRail =
     SHOW_ACTIVITY_RAIL && (activityLive || sending || activities.length > 0);
 
+  const composerDock = (
+    <>
+      {pendingQuestion ? (
+        <QuestionCard
+          key={pendingQuestion.requestId}
+          pending={pendingQuestion}
+          busy={questionBusy}
+          error={questionError}
+          onReply={(answers) => {
+            void postQuestion("reply", answers);
+          }}
+          onReject={() => {
+            void postQuestion("reject");
+          }}
+        />
+      ) : null}
+      <Composer
+        onSend={send}
+        onStop={stop}
+        sending={sending}
+        disabled={Boolean(pendingQuestion)}
+        placeholder={
+          pendingQuestion ? t["question.composerLocked"] : t["composer.placeholder"]
+        }
+        signedIn={isAuthed === true}
+      />
+    </>
+  );
+
   // Full-width chat when rail is off (no app-workspace grid / activity-rail).
   if (!showActivityRail) {
     return (
@@ -1219,13 +1359,7 @@ useEffect(() => {
         ) : messages.length === 0 ? (
           <main className="welcome">
             <h2>{t["welcome.title"]}</h2>
-            <Composer
-              onSend={send}
-              onStop={stop}
-              sending={sending}
-              placeholder={t["composer.placeholder"]}
-              signedIn={isAuthed === true}
-            />
+            {composerDock}
           </main>
         ) : (
           <MessageBubble
@@ -1242,15 +1376,7 @@ useEffect(() => {
             onEditCancel={() => setEditingId(null)}
           />
         )}
-        {messages.length > 0 && (
-          <Composer
-            onSend={send}
-            onStop={stop}
-            sending={sending}
-            placeholder={t["composer.placeholder"]}
-            signedIn={isAuthed === true}
-          />
-        )}
+        {messages.length > 0 && composerDock}
         {freeNotice && (
           <p className="free-note-overlay" onClick={() => setFreeNotice(false)}>
             {t["free.notice"]}
@@ -1270,13 +1396,7 @@ useEffect(() => {
         ) : messages.length === 0 ? (
           <main className="welcome">
             <h2>{t["welcome.title"]}</h2>
-            <Composer
-              onSend={send}
-              onStop={stop}
-              sending={sending}
-              placeholder={t["composer.placeholder"]}
-              signedIn={isAuthed === true}
-            />
+            {composerDock}
           </main>
         ) : (
           <MessageBubble
@@ -1293,15 +1413,7 @@ useEffect(() => {
             onEditCancel={() => setEditingId(null)}
           />
         )}
-        {messages.length > 0 && (
-          <Composer
-            onSend={send}
-            onStop={stop}
-            sending={sending}
-            placeholder={t["composer.placeholder"]}
-            signedIn={isAuthed === true}
-          />
-        )}
+        {messages.length > 0 && composerDock}
         {freeNotice && (
           <p className="free-note-overlay" onClick={() => setFreeNotice(false)}>
             {t["free.notice"]}

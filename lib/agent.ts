@@ -3,6 +3,8 @@ import { getSystemPrompt } from "./prompt";
 import {
   encodeActivityMarker,
   encodeModelMarker,
+  encodeQuestionClearMarker,
+  encodeQuestionMarker,
   encodeTryingMarker,
   type ActivityStatus,
 } from "./markers";
@@ -14,6 +16,7 @@ import {
   claimAgentTurn,
   compactAt,
   FALLBACK_CONTEXT_TOKENS,
+  holdAgentTurn,
   inflightSessionFor,
   noteInflightSession,
   ownerTurnBusy,
@@ -21,6 +24,8 @@ import {
   seedFromHistory,
   sessionTitleFor,
 } from "./agentBind";
+import { parseQuestionEvent, parseQuestionToolInput } from "./question";
+import type { PendingQuestion } from "./question";
 
 export { AgentBusyError } from "./agentBind";
 
@@ -32,10 +37,9 @@ export class AgentImageUnsupported extends Error {
 }
 
 const AGENT_URL = "http://127.0.0.1:4096";
-const AGENT_TIMEOUT_MS = 900_000;
-// The opencode server can hang on a prompt instead of erroring (e.g. when
-// the subscription is exhausted). Give up sooner so the direct engine path
-// answers instead of the user staring at a silent reply for 3 minutes.
+// Event stream stays open for the whole turn, including pauses on a question card.
+const AGENT_EVENT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+// Frozen while a question card is waiting so a long pause does not fail the turn.
 const AGENT_PROMPT_TIMEOUT_MS = 900_000;
 // Context window comes from GET /config/providers
 // (opencode-go/<model>.limit.context). Compact at 70% of that window by
@@ -230,6 +234,80 @@ export async function deleteAgentSession(id: string | null | undefined): Promise
   } catch {
     /* opencode restart already dropped it */
   }
+}
+
+export async function abortAgentSession(id: string | null | undefined): Promise<void> {
+  if (!id) return;
+  try {
+    await getAgentClient().session.abort({ path: { id } });
+  } catch {
+    /* already gone */
+  }
+}
+
+export class QuestionExpiredError extends Error {
+  constructor(message = "This question expired.") {
+    super(message);
+    this.name = "QuestionExpiredError";
+  }
+}
+
+function questionActionUrls(
+  requestId: string,
+  action: "reply" | "reject",
+  sessionId?: string
+): string[] {
+  const id = encodeURIComponent(requestId);
+  const dir = `directory=${encodeURIComponent(AGENT_ROOT)}`;
+  const urls = [`${AGENT_URL}/question/${id}/${action}?${dir}`];
+  if (sessionId) {
+    const sid = encodeURIComponent(sessionId);
+    urls.push(`${AGENT_URL}/session/${sid}/question/${id}/${action}?${dir}`);
+    urls.push(`${AGENT_URL}/api/session/${sid}/question/${id}/${action}?${dir}`);
+  }
+  return urls;
+}
+
+async function postQuestionAction(
+  requestId: string,
+  action: "reply" | "reject",
+  sessionId: string | undefined,
+  body?: unknown
+): Promise<void> {
+  for (const url of questionActionUrls(requestId, action, sessionId)) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (response.ok) return;
+    if (response.status !== 404) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `Question ${action} failed (HTTP ${response.status}). ${text.slice(0, 160)}`
+      );
+    }
+  }
+  throw new QuestionExpiredError();
+}
+
+export async function replyAgentQuestion(
+  requestId: string,
+  answers: string[][],
+  opencodeSessionId?: string
+): Promise<void> {
+  await postQuestionAction(requestId, "reply", opencodeSessionId, { answers });
+}
+
+export async function rejectAgentQuestion(
+  requestId: string,
+  opencodeSessionId?: string
+): Promise<void> {
+  await postQuestionAction(requestId, "reject", opencodeSessionId);
 }
 
 // Photo turns go through the direct vision engine (the agent's bound model
@@ -571,10 +649,11 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
   // First turn / rebuild: system + this user message. Later turns: new message only.
   const promptSystem = continued && !rebound ? undefined : system;
 
+  let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   try {
     const sseResponse = await fetch(`${AGENT_URL}/event`, {
       headers: authHeaders(),
-      signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(AGENT_EVENT_TIMEOUT_MS),
     });
     if (!sseResponse.ok || !sseResponse.body) {
       throw new Error(`Agent event stream failed (HTTP ${sseResponse.status}).`);
@@ -595,6 +674,32 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
     let failed: Error | null = null;
     let promptSettled = false;
     const partTypes = new Map<string, string>();
+    let awaitingQuestion = false;
+    const askedIds = new Set<string>();
+    let promptDeadline = Date.now() + AGENT_PROMPT_TIMEOUT_MS;
+
+    const bumpPromptDeadline = () => {
+      promptDeadline = Date.now() + AGENT_PROMPT_TIMEOUT_MS;
+    };
+
+    const noteQuestionAsked = function* (asked: PendingQuestion, fromEvent = false) {
+      if (!fromEvent && awaitingQuestion) return;
+      if (askedIds.has(asked.requestId) && awaitingQuestion) return;
+      askedIds.add(asked.requestId);
+      awaitingQuestion = true;
+      if (ownerKey) holdAgentTurn(ownerKey, true);
+      yield encodeQuestionMarker(asked);
+      const header = asked.questions[0]?.header;
+      if (header) yield encodeTryingMarker(header.slice(0, 60));
+      console.log(`[agent:${requestId}] question asked ${asked.requestId}`);
+    };
+
+    const noteQuestionClosed = function* (closedId: string) {
+      awaitingQuestion = false;
+      if (ownerKey) holdAgentTurn(ownerKey, false);
+      bumpPromptDeadline();
+      if (closedId) yield encodeQuestionClearMarker(closedId);
+    };
 
     const readEvents = (async function* () {
       try {
@@ -605,7 +710,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
           const readPromise = reader.read();
           let value: Uint8Array | undefined;
           let done = false;
-          if (promptSettled) {
+          if (promptSettled && !awaitingQuestion) {
             const result = await Promise.race([
               readPromise,
               new Promise<"stalled">((resolve) =>
@@ -634,6 +739,30 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
             }
             const props = event.properties ?? {};
             if (props.sessionID && props.sessionID !== sessionId) continue;
+
+            const asked = parseQuestionEvent(
+              event.type,
+              props as Record<string, unknown>,
+              sessionId
+            );
+            if (asked) {
+              yield* noteQuestionAsked(asked, true);
+              continue;
+            }
+            const typeLower = event.type.toLowerCase();
+            if (
+              typeLower.includes("question") &&
+              (typeLower.includes("replied") || typeLower.includes("rejected"))
+            ) {
+              const rec = props as Record<string, unknown>;
+              const closedId =
+                (typeof rec.requestID === "string" && rec.requestID) ||
+                (typeof rec.requestId === "string" && rec.requestId) ||
+                (typeof rec.id === "string" && rec.id) ||
+                "";
+              yield* noteQuestionClosed(closedId);
+              continue;
+            }
 
             if (event.type === "message.updated") {
               const info = props.info;
@@ -710,6 +839,25 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
                 const pathish = toolPathFromInput(input);
                 const command = toolCommandFromInput(input);
                 const toolName = (part.tool || "tool").toLowerCase();
+                if (toolName === "question") {
+                  if (activityStatus === "running") {
+                    const meta = part.state?.metadata ?? {};
+                    const toolRequestId =
+                      (typeof meta.requestID === "string" && meta.requestID) ||
+                      (typeof meta.requestId === "string" && meta.requestId) ||
+                      (typeof input.requestID === "string" && input.requestID) ||
+                      (typeof input.requestId === "string" && input.requestId) ||
+                      part.id ||
+                      "";
+                    const fromTool = parseQuestionToolInput(
+                      input,
+                      toolRequestId,
+                      sessionId
+                    );
+                    if (fromTool) yield* noteQuestionAsked(fromTool);
+                  }
+                  continue;
+                }
                 const isDeferredRestart =
                   (toolName === "bash" || toolName === "shell") &&
                   /restart-agent-deferred\.sh/.test(command);
@@ -831,8 +979,10 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
                 }
               }
             } else if (event.type === "session.idle") {
-              idle = true;
-              break;
+              if (!awaitingQuestion) {
+                idle = true;
+                break;
+              }
             }
           }
           if (idle) break;
@@ -879,17 +1029,25 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
     let promptResult: PromptResult | null = null;
     const promptResultPromise: Promise<PromptResult> = Promise.race([
       promptPromise,
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
+      new Promise<never>((_, reject) => {
+        const tick = () => {
+          if (awaitingQuestion) {
+            timeoutTimer = setTimeout(tick, 10_000);
+            return;
+          }
+          const left = promptDeadline - Date.now();
+          if (left <= 0) {
             reject(
               new Error(
                 `Agent prompt timed out after ${AGENT_PROMPT_TIMEOUT_MS / 1000}s.`
               )
-            ),
-          AGENT_PROMPT_TIMEOUT_MS
-        )
-      ),
+            );
+            return;
+          }
+          timeoutTimer = setTimeout(tick, Math.min(left, 10_000));
+        };
+        timeoutTimer = setTimeout(tick, 10_000);
+      }),
     ])
       .then(
         (result) =>
@@ -1040,6 +1198,8 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
       `[agent:${requestId}] done — answered by agent (${info?.modelID ?? modelName ?? "default"}), cost ${info?.cost ?? "n/a"}`
     );
   } finally {
+    if (timeoutTimer) clearTimeout(timeoutTimer);
+    if (ownerKey) holdAgentTurn(ownerKey, false);
     // The bound opencode session outlives this turn. It is disposed by
     // deleteAgentSession() when the chat is deleted. Unbound one-shot
     // requests (no chat id) are deleted so they cannot be reused.

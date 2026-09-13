@@ -1,3 +1,6 @@
+import type { PendingQuestion } from "./question";
+import { sanitizeQuestionPayload } from "./question";
+
 // Sentinel markers embedded in the plain-text chat stream so the client
 // can show which model is answering / live activity. They use U+2400
 // (SYMBOL FOR NULL) as a delimiter because real assistant text never
@@ -8,6 +11,8 @@ const TRYING_PREFIX = `${MARK}TRYING:`;
 const LIMIT_PREFIX = `${MARK}LIMIT:`;
 const FREE_PREFIX = `${MARK}FREE:`;
 const ACTIVITY_PREFIX = `${MARK}ACTIVITY:`;
+const QUESTION_PREFIX = `${MARK}QUESTION:`;
+const QUESTION_CLEAR_PREFIX = `${MARK}QUESTION_CLEAR:`;
 // No-op chunk pushed down the stream while tools run silently, so proxies
 // never see an idle connection and drop it. Stripped by the parser.
 const KEEP_PREFIX = `${MARK}KEEP:`;
@@ -53,6 +58,18 @@ export function encodeActivityMarker(event: ActivityEvent): string {
 
 export function encodeKeepMarker(): string {
   return `${KEEP_PREFIX}${MARK}`;
+}
+
+function stripMark(value: string): string {
+  return value.replaceAll(MARK, "");
+}
+
+export function encodeQuestionMarker(question: PendingQuestion): string {
+  return `${QUESTION_PREFIX}${stripMark(JSON.stringify(question))}${MARK}`;
+}
+
+export function encodeQuestionClearMarker(requestId: string): string {
+  return `${QUESTION_CLEAR_PREFIX}${stripMark(requestId)}${MARK}`;
 }
 
 /** Transcript trail label (no leading arrow) matching Ran/Read/Edited lines. */
@@ -101,6 +118,8 @@ interface Parsed {
   free?: boolean;
   /** All ACTIVITY markers seen in this push (order preserved). */
   activities?: ActivityEvent[];
+  questions?: PendingQuestion;
+  questionClear?: string;
 }
 
 function parseActivityJson(raw: string): ActivityEvent | null {
@@ -147,18 +166,36 @@ function parseActivityJson(raw: string): ActivityEvent | null {
   }
 }
 
+function parseQuestionJson(raw: string): PendingQuestion | null {
+  try {
+    return sanitizeQuestionPayload(JSON.parse(raw), "");
+  } catch {
+    return null;
+  }
+}
+
 function markerValue(inner: string): {
   model?: string;
   trying?: string;
   limit?: string;
   free?: boolean;
   activity?: ActivityEvent;
+  questions?: PendingQuestion;
+  questionClear?: string;
 } {
   if (inner.startsWith("MODEL:")) return { model: inner.slice(6) };
   if (inner.startsWith("TRYING:")) return { trying: inner.slice(7) };
   if (inner.startsWith("LIMIT:")) return { limit: inner.slice(6) };
   if (inner.startsWith("FREE:")) return { free: true };
   if (inner.startsWith("KEEP:")) return {};
+  if (inner.startsWith("QUESTION_CLEAR:")) {
+    const requestId = inner.slice("QUESTION_CLEAR:".length).trim();
+    return requestId ? { questionClear: requestId } : {};
+  }
+  if (inner.startsWith("QUESTION:")) {
+    const questions = parseQuestionJson(inner.slice("QUESTION:".length));
+    return questions ? { questions } : {};
+  }
   if (inner.startsWith("ACTIVITY:")) {
     const activity = parseActivityJson(inner.slice(9));
     return activity ? { activity } : {};
@@ -172,6 +209,8 @@ const KNOWN_PREFIXES = [
   LIMIT_PREFIX,
   FREE_PREFIX,
   ACTIVITY_PREFIX,
+  QUESTION_CLEAR_PREFIX,
+  QUESTION_PREFIX,
   KEEP_PREFIX,
 ];
 
@@ -189,6 +228,8 @@ export class ModelMarkerParser {
     let limit: string | undefined;
     let free: boolean | undefined;
     const activities: ActivityEvent[] = [];
+    let questions: PendingQuestion | undefined;
+    let questionClear: string | undefined;
 
     const takeTrying = (value: string | undefined) => {
       if (!value) return;
@@ -202,21 +243,27 @@ export class ModelMarkerParser {
       if (parsed.limit !== undefined) limit = parsed.limit;
       if (parsed.free !== undefined) free = parsed.free;
       if (parsed.activity) activities.push(parsed.activity);
+      if (parsed.questions) questions = parsed.questions;
+      if (parsed.questionClear) questionClear = parsed.questionClear;
     };
+
+    const pack = (): Parsed => ({
+      text,
+      model,
+      trying,
+      tryings: tryings.length ? tryings : undefined,
+      limit,
+      free,
+      activities: activities.length ? activities : undefined,
+      questions,
+      questionClear,
+    });
 
     while (this.buffer) {
       if (this.inMarker) {
         const close = this.buffer.indexOf(MARK, 1);
         if (close === -1) {
-          return {
-            text,
-            model,
-            trying,
-            tryings: tryings.length ? tryings : undefined,
-            limit,
-            free,
-            activities: activities.length ? activities : undefined,
-          };
+          return pack();
         }
         const inner = this.buffer.slice(1, close);
         this.buffer = this.buffer.slice(close + 1);
@@ -228,15 +275,7 @@ export class ModelMarkerParser {
       if (start === -1) {
         text += this.buffer;
         this.buffer = "";
-        return {
-          text,
-          model,
-          trying,
-          tryings: tryings.length ? tryings : undefined,
-          limit,
-          free,
-          activities: activities.length ? activities : undefined,
-        };
+        return pack();
       }
       text += this.buffer.slice(0, start);
       const tail = this.buffer.slice(start);
@@ -245,15 +284,7 @@ export class ModelMarkerParser {
         if (close === -1) {
           this.buffer = tail;
           this.inMarker = true;
-          return {
-            text,
-            model,
-            trying,
-            tryings: tryings.length ? tryings : undefined,
-            limit,
-            free,
-            activities: activities.length ? activities : undefined,
-          };
+          return pack();
         }
         const inner = tail.slice(1, close);
         this.buffer = tail.slice(close + 1);
@@ -264,28 +295,12 @@ export class ModelMarkerParser {
         // Partial marker start split across chunks — wait for more.
         this.buffer = tail;
         this.inMarker = true;
-        return {
-          text,
-          model,
-          trying,
-          tryings: tryings.length ? tryings : undefined,
-          limit,
-          free,
-          activities: activities.length ? activities : undefined,
-        };
+        return pack();
       }
       // Unknown marker — drop the delimiter, keep the rest.
       this.buffer = tail.slice(1);
     }
-    return {
-      text,
-      model,
-      trying,
-      tryings: tryings.length ? tryings : undefined,
-      limit,
-      free,
-      activities: activities.length ? activities : undefined,
-    };
+    return pack();
   }
 
   flush(): string {
