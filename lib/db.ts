@@ -6,6 +6,7 @@ import type {
   ChatImage,
   ChatMessage,
   ChatSession,
+  PendingQuestion,
   SessionConclusion,
   StoredMessage,
 } from "./types";
@@ -233,6 +234,7 @@ interface MessageDoc {
   status?: "pending" | "done" | "failed";
   updatedAt?: Date;
   processSteps?: string[];
+  pendingQuestion?: PendingQuestion;
 }
 
 const MAX_MESSAGE_TEXT = 100_000;
@@ -278,6 +280,7 @@ function toStoredMessage(doc: MessageDoc): StoredMessage {
     status: doc.status ?? "done",
     updatedAt: doc.updatedAt?.toISOString(),
     processSteps: doc.processSteps,
+    pendingQuestion: doc.pendingQuestion,
   };
 }
 
@@ -333,11 +336,12 @@ export async function getSessionWithMessages(
       .collection<MessageDoc>("messages")
       .updateOne(
         { _id: doc._id },
-        { $set: { status: outcome.status, text: outcome.text, updatedAt: now } }
+        { $set: { status: outcome.status, text: outcome.text, updatedAt: now }, $unset: { pendingQuestion: "" } }
       );
     doc.status = outcome.status;
     doc.text = outcome.text;
     doc.updatedAt = now;
+    doc.pendingQuestion = undefined;
   }
   return {
     session: toChatSession(session),
@@ -560,13 +564,30 @@ function sanitizeProcessSteps(steps: string[] | undefined): string[] | undefined
   return out.length ? out : undefined;
 }
 
+type ProgressInput = {
+  text?: string;
+  model?: string;
+  elapsed?: number;
+  processSteps?: string[];
+  pendingQuestion?: PendingQuestion | null;
+};
+
+function pendingQuestionWrite(
+  value: PendingQuestion | null | undefined
+): { set?: PendingQuestion; unset: boolean } {
+  if (value === undefined) return { unset: false };
+  if (value === null) return { unset: true };
+  return { set: value, unset: false };
+}
+
 export async function updateMessageProgress(
   messageId: string,
-  input: { text?: string; model?: string; elapsed?: number; processSteps?: string[] }
+  input: ProgressInput
 ): Promise<void> {
   if (!ObjectId.isValid(messageId)) return;
   const db = await getDb();
   const set: Record<string, unknown> = { updatedAt: new Date() };
+  const unset: Record<string, string> = {};
   if (input.text !== undefined) set.text = input.text.slice(0, MAX_MESSAGE_TEXT);
   if (input.model !== undefined) set.model = input.model;
   if (input.elapsed !== undefined) set.elapsed = input.elapsed;
@@ -574,9 +595,14 @@ export async function updateMessageProgress(
     const steps = sanitizeProcessSteps(input.processSteps);
     if (steps) set.processSteps = steps;
   }
+  const question = pendingQuestionWrite(input.pendingQuestion);
+  if (question.unset) unset.pendingQuestion = "";
+  else if (question.set) set.pendingQuestion = question.set;
+  const update: Record<string, unknown> = { $set: set };
+  if (Object.keys(unset).length) update.$unset = unset;
   await db
     .collection<MessageDoc>("messages")
-    .updateOne({ _id: new ObjectId(messageId), status: "pending" }, { $set: set });
+    .updateOne({ _id: new ObjectId(messageId), status: "pending" }, update);
 }
 
 export async function finalizeMessage(
@@ -602,7 +628,10 @@ export async function finalizeMessage(
   if (steps) set.processSteps = steps;
   await db
     .collection<MessageDoc>("messages")
-    .updateOne({ _id: new ObjectId(messageId) }, { $set: set });
+    .updateOne(
+      { _id: new ObjectId(messageId) },
+      { $set: set, $unset: { pendingQuestion: "" } }
+    );
 }
 
 // Client-driven finalize: the browser received a complete answer, so close
@@ -650,7 +679,10 @@ export async function finalizePendingMessage(
   }
   const result = await db
     .collection<MessageDoc>("messages")
-    .updateOne({ _id: doc._id, status: "pending" }, { $set: set });
+    .updateOne(
+      { _id: doc._id, status: "pending" },
+      { $set: set, $unset: { pendingQuestion: "" } }
+    );
   return result.matchedCount > 0;
 }
 
@@ -668,6 +700,7 @@ interface GuestRunDoc {
   text: string;
   status: "pending" | "done" | "failed";
   processSteps?: string[];
+  pendingQuestion?: PendingQuestion;
   model?: string;
   elapsed?: number;
   createdAt: Date;
@@ -691,6 +724,7 @@ function toGuestRun(doc: GuestRunDoc): StoredMessage {
     status: doc.status,
     updatedAt: doc.updatedAt.toISOString(),
     processSteps: doc.processSteps,
+    pendingQuestion: doc.pendingQuestion,
   };
 }
 
@@ -713,7 +747,7 @@ export async function startGuestPendingRun(sessionId: string): Promise<StoredMes
           createdAt: now,
           updatedAt: now,
         },
-        $unset: { processSteps: "", model: "", elapsed: "" },
+        $unset: { processSteps: "", model: "", elapsed: "", pendingQuestion: "" },
       }
     );
     return toGuestRun({
@@ -722,6 +756,7 @@ export async function startGuestPendingRun(sessionId: string): Promise<StoredMes
       text: "",
       status: "pending",
       processSteps: undefined,
+      pendingQuestion: undefined,
       model: undefined,
       elapsed: undefined,
       createdAt: now,
@@ -742,11 +777,12 @@ export async function startGuestPendingRun(sessionId: string): Promise<StoredMes
 
 export async function updateGuestRunProgress(
   sessionId: string,
-  input: { text?: string; model?: string; elapsed?: number; processSteps?: string[] }
+  input: ProgressInput
 ): Promise<void> {
   if (!isGuestSessionId(sessionId)) return;
   const db = await getDb();
   const set: Record<string, unknown> = { updatedAt: new Date() };
+  const unset: Record<string, string> = {};
   if (input.text !== undefined) set.text = input.text.slice(0, MAX_MESSAGE_TEXT);
   if (input.model !== undefined) set.model = input.model;
   if (input.elapsed !== undefined) set.elapsed = input.elapsed;
@@ -754,9 +790,14 @@ export async function updateGuestRunProgress(
     const steps = sanitizeProcessSteps(input.processSteps);
     if (steps) set.processSteps = steps;
   }
+  const question = pendingQuestionWrite(input.pendingQuestion);
+  if (question.unset) unset.pendingQuestion = "";
+  else if (question.set) set.pendingQuestion = question.set;
+  const update: Record<string, unknown> = { $set: set };
+  if (Object.keys(unset).length) update.$unset = unset;
   await db
     .collection<GuestRunDoc>("guestRuns")
-    .updateOne({ sessionId, status: "pending" }, { $set: set });
+    .updateOne({ sessionId, status: "pending" }, update);
 }
 
 export async function finalizeGuestRun(
@@ -780,7 +821,9 @@ export async function finalizeGuestRun(
   if (input.elapsed !== undefined) set.elapsed = input.elapsed;
   const steps = sanitizeProcessSteps(input.processSteps);
   if (steps) set.processSteps = steps;
-  await db.collection<GuestRunDoc>("guestRuns").updateOne({ sessionId }, { $set: set });
+  await db
+    .collection<GuestRunDoc>("guestRuns")
+    .updateOne({ sessionId }, { $set: set, $unset: { pendingQuestion: "" } });
 }
 
 // Client-driven finalize for guest runs: only touches the "pending" doc, so
@@ -807,7 +850,10 @@ export async function finalizePendingGuestRun(
   ) {
     set.text = input.text.slice(0, MAX_MESSAGE_TEXT);
   }
-  const result = await col.updateOne({ _id: doc._id, status: "pending" }, { $set: set });
+  const result = await col.updateOne(
+    { _id: doc._id, status: "pending" },
+    { $set: set, $unset: { pendingQuestion: "" } }
+  );
   return result.matchedCount > 0;
 }
 
@@ -889,16 +935,72 @@ export async function getGuestRun(sessionId: string): Promise<StoredMessage | nu
       const now = new Date();
       await col.updateOne(
         { _id: doc._id },
-        { $set: { status: outcome.status, text: outcome.text, updatedAt: now } }
+        { $set: { status: outcome.status, text: outcome.text, updatedAt: now }, $unset: { pendingQuestion: "" } }
       );
       doc.status = outcome.status;
       doc.text = outcome.text;
       doc.updatedAt = now;
+      doc.pendingQuestion = undefined;
     }
   }
   return toGuestRun(doc);
 }
 
+export async function findOwnedPendingQuestion(
+  sessionId: string,
+  requestId: string,
+  userId: string | null
+): Promise<{ pending: PendingQuestion; guest: boolean } | null> {
+  if (!requestId || requestId.length > 80) return null;
+  const db = await getDb();
+  if (userId && ObjectId.isValid(userId) && ObjectId.isValid(sessionId)) {
+    const owned = await db.collection<SessionDoc>("sessions").findOne(
+      { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
+      { projection: { _id: 1 } }
+    );
+    if (!owned) return null;
+    const doc = await db.collection<MessageDoc>("messages").findOne({
+      sessionId: new ObjectId(sessionId),
+      status: "pending",
+      "pendingQuestion.requestId": requestId,
+    });
+    return doc?.pendingQuestion ? { pending: doc.pendingQuestion, guest: false } : null;
+  }
+  if (!userId && isGuestSessionId(sessionId)) {
+    const doc = await db.collection<GuestRunDoc>("guestRuns").findOne({
+      sessionId,
+      status: "pending",
+      "pendingQuestion.requestId": requestId,
+    });
+    return doc?.pendingQuestion ? { pending: doc.pendingQuestion, guest: true } : null;
+  }
+  return null;
+}
+
+export async function clearOwnedPendingQuestion(
+  sessionId: string,
+  requestId: string,
+  userId: string | null
+): Promise<void> {
+  const db = await getDb();
+  if (userId && ObjectId.isValid(userId) && ObjectId.isValid(sessionId)) {
+    await db.collection<MessageDoc>("messages").updateOne(
+      {
+        sessionId: new ObjectId(sessionId),
+        status: "pending",
+        "pendingQuestion.requestId": requestId,
+      },
+      { $unset: { pendingQuestion: "" }, $set: { updatedAt: new Date() } }
+    );
+    return;
+  }
+  if (!userId && isGuestSessionId(sessionId)) {
+    await db.collection<GuestRunDoc>("guestRuns").updateOne(
+      { sessionId, status: "pending", "pendingQuestion.requestId": requestId },
+      { $unset: { pendingQuestion: "" }, $set: { updatedAt: new Date() } }
+    );
+  }
+}
 
 // Revert: keep the first `keep` messages of the session, delete the rest.
 export async function truncateMessages(

@@ -37,7 +37,7 @@ import {
   updateGuestRunProgress,
   updateMessageProgress,
 } from "@/lib/db";
-import type { AgentBinding, ChatMessage } from "@/lib/types";
+import type { AgentBinding, ChatMessage, PendingQuestion } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -164,6 +164,7 @@ export async function POST(req: Request) {
   const parser = new ModelMarkerParser();
   let accText = "";
   let accModel: string | undefined;
+  let accQuestion: PendingQuestion | null = null;
   let lastProgressAt = 0;
   const trail: { id: string; label: string }[] = [];
 
@@ -241,6 +242,7 @@ export async function POST(req: Request) {
       model: accModel,
       elapsed: elapsedSeconds(),
       processSteps: snapshotSteps(),
+      pendingQuestion: accQuestion,
     };
     if (runMessageId) updateMessageProgress(runMessageId, payload).catch(() => {});
     if (guestSessionId) updateGuestRunProgress(guestSessionId, payload).catch(() => {});
@@ -288,6 +290,14 @@ export async function POST(req: Request) {
         }
         if (out.activities?.length) {
           for (const event of out.activities) noteActivity(event);
+          meaningful = true;
+        }
+        if (out.questions) {
+          accQuestion = out.questions;
+          meaningful = true;
+        }
+        if (out.questionClear) {
+          accQuestion = null;
           meaningful = true;
         }
         if (out.text) {

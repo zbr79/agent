@@ -130,6 +130,11 @@ export const EXTRA_STR = {
     "routing.pinned": "固定模型：始终使用所选模型",
     "routing.freeFallback": "免费模型（在额度耗尽时使用）",
     "message.finishedIn": "用时",
+    "question.other": "其他",
+    "question.reject": "跳过",
+    "question.expired": "这个问题已过期，请发送新消息。",
+    "question.failed": "无法提交回答。",
+    "question.composerLocked": "请先回答上面的问题…",
   },
   en: {
     "time.minute": "minute",
@@ -261,5 +266,10 @@ export const EXTRA_STR = {
     "routing.pinned": "Pinned: always the selected model",
     "routing.freeFallback": "Free models (used when quota is exhausted)",
     "message.finishedIn": "Finished in",
+    "question.other": "Other",
+    "question.reject": "Skip",
+    "question.expired": "This question expired. Send a new message.",
+    "question.failed": "Could not send the answer.",
+    "question.composerLocked": "Answer the question above first…",
   },
 } as const;

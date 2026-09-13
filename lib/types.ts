@@ -1,3 +1,5 @@
+import type { PendingQuestion } from "./question";
+
 export interface ChatImage {
   mimeType: string;
   data: string;
@@ -76,6 +78,8 @@ export interface ChatSession {
   pinned?: boolean;
 }
 
+export type { PendingQuestion, QuestionItem, QuestionOption } from "./question";
+
 export interface StoredMessage {
   _id: string;
   sessionId: string;
@@ -90,6 +94,8 @@ export interface StoredMessage {
   updatedAt?: string;
   /** Transcript trail (Ran/Read/Edited labels, no leading arrow). */
   processSteps?: string[];
+  /** Open question from the agent; only set while the model message is pending. */
+  pendingQuestion?: PendingQuestion | null;
 }
 
 export const MAX_MESSAGES = 20;
