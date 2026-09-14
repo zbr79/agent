@@ -13,7 +13,7 @@ import {
   Square,
   X,
 } from "lucide-react";
-import type { ChatImage } from "@/lib/types";
+import type { ChatImage, WorkspaceId } from "@/lib/types";
 import { GUEST_MAX_AUDIO_MS, MAX_AUDIO_BYTES, MAX_IMAGES, USER_MAX_AUDIO_MS } from "@/lib/types";
 import { STR, useUiLang } from "@/lib/i18n";
 import {
@@ -43,6 +43,7 @@ interface ComposerProps {
   placeholder?: string;
   signedIn?: boolean;
   onRequireAuth?: () => void;
+  workspaceId?: WorkspaceId;
 }
 
 interface GitFile {
@@ -95,6 +96,7 @@ export default function Composer({
   placeholder,
   signedIn = false,
   onRequireAuth,
+  workspaceId = "agent",
 }: ComposerProps) {
   const lang = useUiLang();
   const t = STR[lang];
@@ -177,7 +179,10 @@ export default function Composer({
     setGitBusy(true);
     setGitHint(null);
     try {
-      const statusResponse = await fetch("/api/git/status", { credentials: "same-origin" });
+      const statusResponse = await fetch(
+        `/api/git/status?workspaceId=${encodeURIComponent(workspaceId)}`,
+        { credentials: "same-origin" }
+      );
       const statusBody = (await statusResponse.json().catch(() => null)) as
         | (GitStatus & { error?: string })
         | null;
@@ -191,6 +196,8 @@ export default function Composer({
       const messageResponse = await fetch("/api/git/message", {
         method: "POST",
         credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId }),
       });
       const messageBody = (await messageResponse.json().catch(() => null)) as
         | { message?: string; error?: string; skipped?: string[] }
@@ -219,7 +226,7 @@ export default function Composer({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ message: gitMessage, push }),
+        body: JSON.stringify({ message: gitMessage, push, workspaceId }),
       });
       const body = (await response.json().catch(() => null)) as
         | { sha?: string; pushed?: boolean; error?: string }

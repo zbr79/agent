@@ -178,7 +178,7 @@ export async function DELETE(
     // The bound opencode thread dies with the chat.
     const binding = await getAgentBinding(auth._id, id).catch(() => null);
     const deleted = await deleteSession(auth._id, id);
-    if (deleted && binding) deleteAgentSession(binding.sessionId);
+    if (deleted && binding) deleteAgentSession(binding.sessionId, binding.workspaceId);
     if (!deleted) {
       return Response.json({ error: "Session not found." }, { status: 404 });
     }

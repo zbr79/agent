@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { commitAndMaybePush } from "@/lib/git";
+import { getWorkspaceDefinition } from "@/lib/workspaces";
 
 export const runtime = "nodejs";
 
@@ -11,11 +12,19 @@ export async function POST(req: Request) {
     if (!body || typeof body !== "object") {
       return Response.json({ error: "Request body must be an object." }, { status: 400 });
     }
-    const { message, push } = body as { message?: unknown; push?: unknown };
+    const { message, push, workspaceId } = body as {
+      message?: unknown;
+      push?: unknown;
+      workspaceId?: unknown;
+    };
     if (typeof push !== "boolean") {
       return Response.json({ error: '"push" must be a boolean.' }, { status: 400 });
     }
-    return Response.json(await commitAndMaybePush(message, push));
+    const workspace = getWorkspaceDefinition(workspaceId ?? "agent");
+    if (!workspace) {
+      return Response.json({ error: '"workspaceId" is invalid.' }, { status: 400 });
+    }
+    return Response.json(await commitAndMaybePush(message, push, workspace.id));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not commit changes.";
     const status =

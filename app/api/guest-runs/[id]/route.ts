@@ -75,7 +75,7 @@ export async function DELETE(
   const { id } = await params;
   try {
     const removed = await takeGuestAgentBinding(id);
-    if (removed) deleteAgentSession(removed);
+    if (removed) deleteAgentSession(removed.sessionId, removed.workspaceId);
     return Response.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not clear the binding.";

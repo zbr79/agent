@@ -5,6 +5,14 @@ export interface ChatImage {
   data: string;
 }
 
+export const WORKSPACE_IDS = ["agent", "profile", "inschat", "rencipe"] as const;
+export type WorkspaceId = (typeof WORKSPACE_IDS)[number];
+
+export interface WorkspaceInfo {
+  id: WorkspaceId;
+  label: string;
+}
+
 export interface ChatMessage {
   role: "user" | "model";
   text: string;
@@ -17,6 +25,7 @@ export interface ChatMessage {
 export interface AgentBinding {
   sessionId: string;
   tokens: number;
+  workspaceId?: WorkspaceId;
 }
 
 export interface ConcludeItem {
@@ -75,6 +84,7 @@ export interface ChatSession {
   title: string;
   createdAt: string;
   updatedAt: string;
+  workspaceId: WorkspaceId;
   pinned?: boolean;
 }
 

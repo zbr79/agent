@@ -1,6 +1,13 @@
 import { ChatValidationError } from "./errors";
 import { isValidTimeZone } from "./prompt";
-import { MAX_IMAGES, MAX_MESSAGES, type ChatImage, type ChatMessage } from "./types";
+import {
+  MAX_IMAGES,
+  MAX_MESSAGES,
+  WORKSPACE_IDS,
+  type ChatImage,
+  type ChatMessage,
+  type WorkspaceId,
+} from "./types";
 
 export interface ChatRequest {
   messages: ChatMessage[];
@@ -10,6 +17,7 @@ export interface ChatRequest {
   mode?: "build" | "plan";
   model?: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash";
   sessionId?: string;
+  workspaceId?: WorkspaceId;
 }
 
 function parseImage(raw: unknown, index: number): ChatImage {
@@ -140,5 +148,17 @@ export function parseChatBody(body: unknown): ChatRequest {
     sessionId = rawSessionId;
   }
 
-  return { messages, timeZone, language, reasoning, mode, model, sessionId };
+  const rawWorkspaceId = (body as { workspaceId?: unknown }).workspaceId;
+  let workspaceId: WorkspaceId | undefined;
+  if (rawWorkspaceId !== undefined) {
+    if (
+      typeof rawWorkspaceId !== "string" ||
+      !WORKSPACE_IDS.includes(rawWorkspaceId as WorkspaceId)
+    ) {
+      throw new ChatValidationError('"workspaceId" is invalid.');
+    }
+    workspaceId = rawWorkspaceId as WorkspaceId;
+  }
+
+  return { messages, timeZone, language, reasoning, mode, model, sessionId, workspaceId };
 }

@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown, RotateCw, Folder, Check } from "lucide-react";
-import type { ChatSession } from "@/lib/types";
-import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession } from "@/lib/guestStore";
+import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown, RotateCw, Folder, Check, Plus, AppWindow } from "lucide-react";
+import type { ChatSession, WorkspaceId, WorkspaceInfo } from "@/lib/types";
+import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession, type GuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
 import SearchModal from "./SearchModal";
 import AuthModal from "./AuthModal";
@@ -55,7 +55,9 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   const [user, setUser] = useState<MeUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[] | null>(null);
-  const [guestSessions, setGuestSessions] = useState<{ id: string; title: string; pinned?: boolean }[]>([]);
+  const [guestSessions, setGuestSessions] = useState<GuestSession[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -68,6 +70,18 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   const workspaceBase = workspace
     ? workspace.replace(/\/+$/, "").split("/").filter(Boolean).pop() || workspace
     : "";
+  const currentWorkspaceId = (() => {
+    const raw = searchParams.get("workspace");
+    if (!user && raw && raw !== "agent") return "agent" as WorkspaceId;
+    if (raw === "profile" || raw === "inschat" || raw === "rencipe") return raw;
+    const owned = sessions?.find((session) => session._id === currentSession)?.workspaceId;
+    const guest = guestSessions.find((session) => session.id === currentSession)?.workspaceId;
+    return (owned ?? guest ?? "agent") as WorkspaceId;
+  })();
+  const currentWorkspace = workspaces.find((item) => item.id === currentWorkspaceId) ?? {
+    id: currentWorkspaceId,
+    label: currentWorkspaceId === "agent" ? "Agent" : currentWorkspaceId,
+  };
   const copyWorkspace = async () => {
     if (!workspace) return;
     try {
@@ -118,6 +132,7 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
       setMenuOpen(false);
       setMenuFor(null);
       setRenamingId(null);
+      setWorkspaceOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -150,6 +165,16 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
       alive = false;
     };
   }, [pathname, authNonce]);
+
+  useEffect(() => {
+    if (!authChecked) return;
+    fetch("/api/workspaces")
+      .then((response) => response.json())
+      .then((body: { workspaces?: WorkspaceInfo[] }) => {
+        if (Array.isArray(body.workspaces)) setWorkspaces(body.workspaces);
+      })
+      .catch(() => {});
+  }, [authChecked, user]);
 
   // Deep link /?auth=1 (redirect target of the old /login page) opens the
   // auth modal automatically.
@@ -268,17 +293,30 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
     }
   };
 
+  const selectWorkspace = (id: WorkspaceId) => {
+    setWorkspaceOpen(false);
+    setMenuOpen(false);
+    router.push(`/?workspace=${encodeURIComponent(id)}`);
+  };
+
   const ownerList = (sessions ?? []).sort(
     (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false)
   );
   const guestList = guestSessions.sort(
     (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false)
   );
+  const activeOwnerList = ownerList.filter(
+    (session) => session.workspaceId === currentWorkspaceId
+  );
+  const activeGuestList = guestList.filter(
+    (session) => session.workspaceId === currentWorkspaceId
+  );
 
   const renderSessionRow = (
     id: string,
     title: string,
-    pinned: boolean
+    pinned: boolean,
+    workspaceId: WorkspaceId = "agent"
   ) => (
     <div key={id} className={`session-row${pinned ? " pinned" : ""}`}>
       {renamingId === id ? (
@@ -301,7 +339,7 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
         />
       ) : (
         <Link
-          href={`/?session=${id}`}
+          href={`/?session=${id}&workspace=${encodeURIComponent(workspaceId)}`}
           className={`session-link${id === currentSession ? " active" : ""}`}
           title={title}
           onClick={() => setMenuOpen(false)}
@@ -484,55 +522,89 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
           </button>
         </div>
         <div className="sidebar-scroll">
-        <Link
-            href="/"
-            className={`sidebar-new${pathname === "/" && !currentSession ? " active" : ""}`}
-            onClick={() => setMenuOpen(false)}
-          >
-            <SquarePen size={16} />
-            {t["nav.newChat"]}
-          </Link>
-      {authChecked && (
-        <div className="session-nav">
-          <div className="session-label-row">
-            <span className="sidebar-label">{t["nav.chats"]}</span>
-            <button
-              type="button"
-              className="session-new-btn"
-              onClick={() => {
-                setMenuOpen(false);
-                router.push("/");
-              }}
-              aria-label={t["nav.newChat"]}
-              title={t["nav.newChat"]}
-            >
-              <SquarePen size={13} />
-            </button>
+          <div className="workspace-tree">
+            <div className="workspace-root-row">
+              <button
+                type="button"
+                className="workspace-root-button"
+                onClick={() => setWorkspaceOpen(true)}
+                aria-expanded={workspaceOpen}
+                aria-haspopup="dialog"
+              >
+                <Folder size={16} />
+                <span>{t["workspace.root"]}</span>
+                <img src="/icon.svg" width={17} height={17} alt="" className="workspace-app-icon" />
+              </button>
+              <button
+                type="button"
+                className="workspace-add-button"
+                onClick={() => setWorkspaceOpen(true)}
+                aria-label={t["workspace.add"]}
+                title={t["workspace.add"]}
+              >
+                <Plus size={15} />
+              </button>
+            </div>
+            <div className="workspace-child">
+              <div className="workspace-child-row">
+                <button
+                  type="button"
+                  className="workspace-child-button"
+                  onClick={() => setWorkspaceOpen(true)}
+                  aria-haspopup="dialog"
+                >
+                  <AppWindow size={14} />
+                  <span>{currentWorkspace.label}</span>
+                </button>
+                <button
+                  type="button"
+                  className="workspace-child-new"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    router.push(`/?workspace=${encodeURIComponent(currentWorkspaceId)}`);
+                  }}
+                  aria-label={t["nav.newChat"]}
+                  title={t["nav.newChat"]}
+                >
+                  <SquarePen size={13} />
+                </button>
+              </div>
+              {authChecked && (
+                <div className="workspace-child-sessions">
+                  {user ? (
+                    <>
+                      {sessions === null && <p className="session-hint">{t["nav.loading"]}</p>}
+                      {sessions !== null && activeOwnerList.length === 0 && (
+                        <p className="session-hint">{t["nav.noSessions"]}</p>
+                      )}
+                      {activeOwnerList.map((session) =>
+                        renderSessionRow(
+                          session._id,
+                          session.title,
+                          Boolean(session.pinned),
+                          session.workspaceId
+                        )
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {activeGuestList.length === 0 && (
+                        <p className="session-hint">{t["nav.guestHint"]}</p>
+                      )}
+                      {activeGuestList.map((session) =>
+                        renderSessionRow(
+                          session.id,
+                          session.title,
+                          Boolean(session.pinned),
+                          session.workspaceId
+                        )
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="session-list">
-            {user ? (
-              <>
-                {sessions === null && <p className="session-hint">{t["nav.loading"]}</p>}
-                {sessions !== null && ownerList.length === 0 && (
-                  <p className="session-hint">{t["nav.noSessions"]}</p>
-                )}
-                {ownerList.map((session) =>
-                  renderSessionRow(session._id, session.title, Boolean(session.pinned))
-                )}
-              </>
-            ) : (
-              <>
-                {guestList.length === 0 && (
-                  <p className="session-hint">{t["nav.guestHint"]}</p>
-                )}
-                {guestList.map((session) =>
-                  renderSessionRow(session.id, session.title, Boolean(session.pinned))
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
         </div>
       <div className="sidebar-foot">
         {user ? (
@@ -576,6 +648,54 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
         )}
       </div>
     </aside>
+    {workspaceOpen && (
+      <>
+        <div
+          className="workspace-modal-backdrop"
+          onClick={() => setWorkspaceOpen(false)}
+          aria-hidden="true"
+        />
+        <div className="workspace-modal" role="dialog" aria-modal="true" aria-labelledby="workspace-modal-title">
+          <div className="workspace-modal-head">
+            <div>
+              <span className="workspace-modal-kicker">{t["workspace.root"]}</span>
+              <h2 id="workspace-modal-title">{t["workspace.selectFolder"]}</h2>
+            </div>
+            <button
+              type="button"
+              className="workspace-modal-close"
+              onClick={() => setWorkspaceOpen(false)}
+              aria-label={t["actions.cancel"]}
+            >
+              <X size={17} />
+            </button>
+          </div>
+          <div className="workspace-modal-list">
+            {workspaces.length === 0 ? (
+              <p className="session-hint">{t["nav.loading"]}</p>
+            ) : (
+              workspaces.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`workspace-modal-option${item.id === currentWorkspaceId ? " active" : ""}`}
+                  onClick={() => selectWorkspace(item.id)}
+                >
+                  <span className="workspace-modal-option-icon">
+                    <Folder size={18} />
+                  </span>
+                  <span className="workspace-modal-option-copy">
+                    <strong>{item.label}</strong>
+                    <small>{t["workspace.approvedProject"]}</small>
+                  </span>
+                  {item.id === currentWorkspaceId && <Check size={16} />}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </>
+    )}
     <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} authed={!!user} />
     <AuthModal
       open={authOpen}

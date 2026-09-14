@@ -38,8 +38,8 @@ function realOrResolve(target: string): string {
   }
 }
 
-function rootReal(): string {
-  return realOrResolve(AGENT_ROOT);
+function rootReal(root = AGENT_ROOT): string {
+  return realOrResolve(root);
 }
 
 function isInsideRoot(realPath: string, root: string): boolean {
@@ -53,7 +53,7 @@ function isInsideRoot(realPath: string, root: string): boolean {
  * Rejects `..` escapes, absolute paths outside the root, and symlink escapes.
  * Returns the canonical absolute path.
  */
-export function assertInsideAgentRoot(userPath: string): string {
+export function assertInsideAgentRoot(userPath: string, workspaceRoot = AGENT_ROOT): string {
   if (typeof userPath !== "string" || userPath.length === 0) {
     throw new PathJailError("Path jail: path required");
   }
@@ -61,7 +61,7 @@ export function assertInsideAgentRoot(userPath: string): string {
     throw new PathJailError("Path jail: invalid path");
   }
 
-  const root = rootReal();
+  const root = rootReal(workspaceRoot);
   const candidate = path.isAbsolute(userPath)
     ? path.resolve(userPath)
     : path.resolve(root, userPath);
@@ -69,7 +69,7 @@ export function assertInsideAgentRoot(userPath: string): string {
 
   if (!isInsideRoot(real, root)) {
     throw new PathJailError(
-      `Path jail: path escapes agent workspace (${AGENT_ROOT})`
+      `Path jail: path escapes agent workspace (${workspaceRoot})`
     );
   }
   return real;
@@ -101,8 +101,11 @@ function isDenylisted(resolvedPath: string): boolean {
 /**
  * Inside AGENT_ROOT AND not on the inner denylist (.env*, .server-env, private keys).
  */
-export function assertAllowedAgentFile(userPath: string): string {
-  const inside = assertInsideAgentRoot(userPath);
+export function assertAllowedAgentFile(
+  userPath: string,
+  workspaceRoot = AGENT_ROOT
+): string {
+  const inside = assertInsideAgentRoot(userPath, workspaceRoot);
   if (isDenylisted(inside)) {
     throw new PathJailError(
       "Path jail: file is denylisted inside agent workspace"
@@ -112,16 +115,16 @@ export function assertAllowedAgentFile(userPath: string): string {
 }
 
 /** Lightweight startup / health check: root must exist and be a directory. */
-export function assertAgentWorkspaceReady(): string {
-  const root = rootReal();
+export function assertAgentWorkspaceReady(workspaceRoot = AGENT_ROOT): string {
+  const root = rootReal(workspaceRoot);
   let st: fs.Stats;
   try {
     st = fs.statSync(/*turbopackIgnore: true*/ root);
   } catch {
-    throw new PathJailError(`Path jail: AGENT_WORKSPACE missing (${AGENT_ROOT})`);
+    throw new PathJailError(`Path jail: workspace missing (${workspaceRoot})`);
   }
   if (!st.isDirectory()) {
-    throw new PathJailError(`Path jail: AGENT_WORKSPACE is not a directory (${AGENT_ROOT})`);
+    throw new PathJailError(`Path jail: workspace is not a directory (${workspaceRoot})`);
   }
   return root;
 }
