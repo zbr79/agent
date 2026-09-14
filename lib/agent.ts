@@ -458,6 +458,48 @@ function countDiffLines(text: string): { additions?: number; deletions?: number 
   return { additions, deletions };
 }
 
+/** opencode ≥1.18 edit/write tools return a boilerplate output string; the
+ *  real per-edit counts live in state.metadata.filediff{additions,deletions}
+ *  (or the unified patch in metadata.diff). Extract them so the UI can show
+ *  +N/−N at all. */
+function editCountsFromMetadata(
+  metadata: Record<string, unknown> | undefined
+): { additions?: number; deletions?: number } {
+  if (!metadata) return {};
+  const num = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  const filediff = metadata.filediff;
+  if (filediff && typeof filediff === "object") {
+    const record = filediff as Record<string, unknown>;
+    const added = num(record.additions);
+    if (added != null) return { additions: added, deletions: num(record.deletions) ?? 0 };
+  }
+  if (Array.isArray(metadata.filediffs)) {
+    let added = 0;
+    let removed = 0;
+    let seen = false;
+    for (const entry of metadata.filediffs) {
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as Record<string, unknown>;
+      const a = num(record.additions);
+      const d = num(record.deletions);
+      if (a == null && d == null) continue;
+      seen = true;
+      added += a ?? 0;
+      removed += d ?? 0;
+    }
+    if (seen) return { additions: added, deletions: removed };
+  }
+  const patch =
+    typeof metadata.diff === "string" && metadata.diff
+      ? metadata.diff
+      : typeof metadata.patch === "string"
+        ? metadata.patch
+        : "";
+  if (patch) return countDiffLines(patch);
+  return {};
+}
+
 function toolPathFromInput(input: Record<string, unknown>): string {
   return (
     (typeof input.path === "string" && input.path) ||
@@ -683,10 +725,13 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
 
   let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   try {
-    const sseResponse = await fetch(`${AGENT_URL}/event`, {
+    const sseResponse = await fetch(
+      `${AGENT_URL}/event?${new URLSearchParams(directory).toString()}`,
+      {
       headers: authHeaders(),
       signal: AbortSignal.timeout(AGENT_EVENT_TIMEOUT_MS),
-    });
+      }
+    );
     if (!sseResponse.ok || !sseResponse.body) {
       throw new Error(`Agent event stream failed (HTTP ${sseResponse.status}).`);
     }
@@ -936,9 +981,15 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
                 let deletions: number | undefined;
                 if (activityStatus === "completed" || activityStatus === "error") {
                   const body = activityStatus === "error" ? errorRaw || outputRaw : outputRaw;
+                  const bodyIsPatch =
+                    Boolean(body) &&
+                    (body.includes("\n+") ||
+                      body.includes("\n-") ||
+                      body.startsWith("---") ||
+                      body.startsWith("@@"));
                   if (body) {
-                    output = truncateDetail(body, isEditTool ? 1200 : 600);
-                    if (isEditTool || body.includes("\n+") || body.includes("\n-")) {
+                    output = truncateDetail(body, isEditTool ? 6000 : 600);
+                    if (isEditTool || bodyIsPatch) {
                       const counts = countDiffLines(body);
                       additions = counts.additions;
                       deletions = counts.deletions;
@@ -951,6 +1002,34 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
                     }
                   } else if (isEditTool && pathish) {
                     detail = `edited ${pathish}`;
+                  }
+                  if (isEditTool && activityStatus === "completed") {
+                    const meta = part.state?.metadata;
+                    if (additions == null && deletions == null) {
+                      const counts = editCountsFromMetadata(meta);
+                      additions = counts.additions;
+                      deletions = counts.deletions;
+                    }
+                    // The write tool exposes no diff; for brand-new files the
+                    // whole content counts as added lines.
+                    if (
+                      additions == null &&
+                      deletions == null &&
+                      toolName === "write" &&
+                      meta?.exists === false &&
+                      typeof input.content === "string" &&
+                      input.content
+                    ) {
+                      const lines = input.content.split("\n");
+                      if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+                      additions = lines.length;
+                      deletions = 0;
+                    }
+                    // "Edit applied successfully." is noise — show the real diff
+                    // in the expandable detail when the output had none.
+                    if (!bodyIsPatch && typeof meta?.diff === "string" && meta.diff) {
+                      output = truncateDetail(meta.diff, 6000);
+                    }
                   }
                 }
                 if (activityStatus) {

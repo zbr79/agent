@@ -1,15 +1,36 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Children,
+  Fragment,
+  isValidElement,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { Check, ChevronDown, Copy, Pencil, RefreshCw } from "lucide-react";
 import "highlight.js/styles/github.css";
 import ImageViewer from "./ImageViewer";
+import ToolCallGroup, {
+  buildActivityQueues,
+  fileTarget,
+  takeMatchedActivities,
+} from "./ToolCallCards";
+import ChangesSummary from "./ChangesSummary";
+import {
+  toolVerb,
+  type ActivityItem,
+} from "./ActivityPanel";
 import { STR, useUiLang } from "@/lib/i18n";
 import { modelLabel } from "@/lib/modelLabels";
 import { formatElapsed, stripDoneLines } from "@/lib/format";
+import { toWorkspaceRelative } from "@/lib/workspacePath";
+import type { ActivityEvent } from "@/lib/markers";
 
 interface Message {
   id: number;
@@ -21,6 +42,7 @@ interface Message {
   model?: string;
   trying?: string;
   processSteps?: string[];
+  activities?: ActivityEvent[];
   elapsed?: number;
 }
 
@@ -48,6 +70,23 @@ function preserveLineBreaks(text: string): string {
 // human-readable prose appears the wave commits as a single line and the next
 // wave starts fresh below it.
 const TRAIL_RE = /^\s*→\s+(.+)$/;
+
+/** Legacy trail lines: file paths collapse to their basename (folder stays
+ *  in the tooltip); URLs and non-path text are left untouched. */
+function shortenTrailLine(label: string): string {
+  return label.replace(
+    /[\w.@+~\-/]*\/[\w.@+~\-/]*/g,
+    (token: string, index: number, whole: string) => {
+      const before = whole[index - 1] ?? "";
+      if (before === ":" || token.includes("://")) return token;
+      const core = token.replace(/\/+$/, "");
+      if (!core.includes("/")) return token;
+      const base = core.slice(core.lastIndexOf("/") + 1);
+      if (!base) return token;
+      return base + token.slice(core.length);
+    }
+  );
+}
 
 type Segment =
   | { type: "prose"; text: string }
@@ -82,15 +121,150 @@ function TrailWave({ items, active }: { items: string[]; active?: boolean }) {
       aria-expanded={expandable ? open : undefined}
     >
       <span className="trail-lines">
-        {shown.map((item, index) => (
-          <span key={`${index}-${item}`} className="trail-line">{`→ ${item}`}</span>
-        ))}
+        {shown.map((item, index) => {
+          const clean = toWorkspaceRelative(item);
+          return (
+            <span
+              key={`${index}-${item}`}
+              className="trail-line"
+              title={clean === shortenTrailLine(clean) ? undefined : clean}
+            >{`→ ${shortenTrailLine(clean)}`}</span>
+          );
+        })}
       </span>
       {expandable && (
         <ChevronDown size={13} className="trail-chevron" aria-hidden="true" />
       )}
     </button>
   );
+}
+
+function langFromChildren(children: ReactNode): string {
+  for (const child of Children.toArray(children)) {
+    if (isValidElement<{ className?: string }>(child)) {
+      const match = /language-([\w-]+)/.exec(child.props.className || "");
+      if (match) return match[1];
+    }
+  }
+  return "";
+}
+
+function MarkdownPre({ children }: { children?: ReactNode }) {
+  const preRef = useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = useState(false);
+  const lang = langFromChildren(children);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(preRef.current?.innerText ?? "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {}
+  };
+  return (
+    <div className="md-pre">
+      <div className="md-pre-bar">
+        <span className="md-pre-lang">{lang || "text"}</span>
+        <button
+          type="button"
+          className={`md-pre-copy${copied ? " copied" : ""}`}
+          onClick={copy}
+          aria-label="Copy code"
+          title="Copy"
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+        </button>
+      </div>
+      <pre ref={preRef}>{children}</pre>
+    </div>
+  );
+}
+
+const MARKDOWN_COMPONENTS = { pre: MarkdownPre };
+
+function phaseLabel(
+  activities: ActivityItem[] | null | undefined,
+  lang: Parameters<typeof toolVerb>[1],
+  fallback: string
+): string {
+  const running = (activities ?? [])
+    .filter((item) => item.status === "running")
+    .pop();
+  if (!running) return fallback;
+  const verb = toolVerb(running.tool, lang);
+  const target = fileTarget(running);
+  return target ? `${verb} ${target}` : `${verb}…`;
+}
+
+// The agent's own "Files changed: a.ts, b.ts" manifest line — redundant next
+// to the ChangesSummary card, so it is dropped from the rendered prose.
+function normalizedHeader(line: string): { hit: boolean; tail: string } | null {
+  const unbold = line
+    .trim()
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^>+\s*/, "")
+    .replace(/^\d+[.)]\s+/, "")
+    .replace(/^[-*+•]\s+/, "")
+    .replace(/[*`_]/g, "");
+  const match =
+    /^\s*(files?\s+changed|changed\s+files|modified\s+files|files?\s+edited|edited\s+files|修改的文件|变更的文件|已修改文件(?:列表)?|文件(?:改动|变更|修改)情况?)\s*[:：]?\s*(.*)$/i.exec(
+      unbold
+    );
+  if (!match) return null;
+  return { hit: true, tail: match[2].trim() };
+}
+
+function isPathListLine(line: string): boolean {
+  const cleaned = line
+    .trim()
+    .replace(/^[-*+•]\s+/, "")
+    .replace(/[*`_]/g, "")
+    .replace(/[,;]\s*$/, "");
+  if (!cleaned) return false;
+  const tokens = cleaned
+    .split(/[,;、]|\s+and\s+/i)
+    .map((token) =>
+      // allow a trailing note: "lib/db.ts — added persistence"
+      token.replace(/\s*[-–—:]\s*.*$/, "").trim()
+    )
+    .filter(Boolean);
+  if (!tokens.length) return false;
+  return tokens.every(
+    (token) =>
+      /^[\w\-./\\~+]+$/.test(token) && (token.includes("/") || /\.[\w-]{1,8}$/.test(token))
+  );
+}
+
+export function stripChangesManifest(text: string): string {
+  const lines = text.split("\n");
+  const keep: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const header = normalizedHeader(lines[i]);
+    const tail = header?.tail ?? "";
+    if (header?.hit && (!tail || isPathListLine(tail))) {
+      i += 1;
+      while (i < lines.length) {
+        if (!lines[i].trim()) {
+          let ahead = i + 1;
+          while (ahead < lines.length && !lines[ahead].trim()) ahead += 1;
+          if (ahead < lines.length && isPathListLine(lines[ahead])) {
+            i = ahead;
+            continue;
+          }
+          break;
+        }
+        if (isPathListLine(lines[i])) {
+          i += 1;
+          continue;
+        }
+        break;
+      }
+      continue;
+    }
+    keep.push(lines[i]);
+    i += 1;
+  }
+  return keep.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
 export default function MessageBubble({
@@ -102,6 +276,8 @@ export default function MessageBubble({
   onShare,
   canAct = true,
   flashId = null,
+  activities = null,
+  activityMessageId = null,
   editingId = null,
   editingText = "",
   onEditingText,
@@ -116,6 +292,8 @@ export default function MessageBubble({
   onShare?: (id: number) => void;
   canAct?: boolean;
   flashId?: number | null;
+  activities?: ActivityItem[] | null;
+  activityMessageId?: number | null;
   editingId?: number | null;
   editingText?: string;
   onEditingText?: (text: string) => void;
@@ -294,6 +472,17 @@ export default function MessageBubble({
             ? imageUrls
             : null;
         const isEditing = editingId === message.id;
+        // Live run's global activity list wins for the in-flight message;
+        // every other message reads its own persisted activities, so cards
+        // and the changes summary survive refreshes.
+        const liveActivities =
+          message.id === activityMessageId && activities?.length ? activities : null;
+        const effectiveActivities =
+          liveActivities ?? (message.activities?.length ? message.activities : null);
+        // Rebuilt every render; consumed in deterministic segment order below.
+        const activityQueues = effectiveActivities
+          ? buildActivityQueues(effectiveActivities)
+          : null;
         const segments = splitSegments(
           message.role === "model"
             ? stripDoneLines(message.text ?? "")
@@ -358,6 +547,7 @@ export default function MessageBubble({
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     rehypePlugins={[rehypeHighlight]}
+                    components={MARKDOWN_COMPONENTS}
                   >
                     {preserveLineBreaks(message.text)}
                   </ReactMarkdown>
@@ -377,7 +567,11 @@ export default function MessageBubble({
                   <div className="process-panel" aria-live="polite">
                     <span className="thinking">
                       <span className="thinking-label">
-                        {t["process.working"] || t["thinking"]}
+                        {phaseLabel(
+                          activities,
+                          lang,
+                          t["process.working"] || t["thinking"]
+                        )}
                       </span>
                       <span className="thinking-dots" aria-hidden="true">
                         <i />
@@ -387,25 +581,45 @@ export default function MessageBubble({
                     </span>
                   </div>
                 )}
-                {segments.map((segment, index) =>
-                  segment.type === "wave" ? (
-                    <TrailWave
-                      key={`w${index}`}
-                      items={segment.items}
-                      active={message.streaming && index === segments.length - 1}
-                    />
-                  ) : (
+                {segments.map((segment, index) => {
+                  if (segment.type === "wave") {
+                    let matched: ActivityItem[] = [];
+                    let rest = segment.items;
+                    if (activityQueues) {
+                      const taken = takeMatchedActivities(activityQueues, segment.items);
+                      matched = taken.matched;
+                      rest = taken.unmatched;
+                    }
+                    const waveActive = message.streaming && index === segments.length - 1;
+                    return (
+                      <Fragment key={`w${index}`}>
+                        {matched.length ? (
+                          <ToolCallGroup items={matched} active={waveActive} />
+                        ) : null}
+                        {rest.length ? (
+                          <TrailWave items={rest} active={waveActive} />
+                        ) : null}
+                      </Fragment>
+                    );
+                  }
+                  return (
                     <div key={`p${index}`} className="transcript-body">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeHighlight]}
+                        components={MARKDOWN_COMPONENTS}
                       >
-                        {preserveLineBreaks(segment.text)}
+                        {preserveLineBreaks(
+                          stripChangesManifest(toWorkspaceRelative(segment.text))
+                        )}
                       </ReactMarkdown>
                     </div>
-                  )
-                )}
+                  );
+                })}
                 {message.streaming && segments.length > 0 && <span className="cursor" />}
+                {effectiveActivities && !processWaiting ? (
+                  <ChangesSummary items={effectiveActivities} />
+                ) : null}
                 {!message.streaming &&
                   !message.failed &&
                   !processWaiting &&
@@ -427,6 +641,7 @@ export default function MessageBubble({
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     rehypePlugins={[rehypeHighlight]}
+                    components={MARKDOWN_COMPONENTS}
                   >
                     {preserveLineBreaks(message.text)}
                   </ReactMarkdown>

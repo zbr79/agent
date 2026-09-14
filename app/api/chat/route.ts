@@ -201,6 +201,9 @@ export async function POST(req: Request) {
   let accQuestion: PendingQuestion | null = null;
   let lastProgressAt = 0;
   const trail: { id: string; label: string }[] = [];
+  // Insertion-ordered final state per activity id, persisted with the
+  // message so tool cards + the changes summary survive a refresh.
+  const activityById = new Map<string, ActivityEvent>();
 
   const trailKey = (item: string) =>
     item
@@ -216,6 +219,8 @@ export async function POST(req: Request) {
   };
 
   const snapshotSteps = () => trail.map((step) => step.label);
+  const snapshotActivities = (): ActivityEvent[] =>
+    Array.from(activityById.values()).slice(-120);
 
   const upsertTrail = (id: string, label: string) => {
     const clean = label.replace(/^\s*→\s+/, "").trim().slice(0, 180);
@@ -246,6 +251,17 @@ export async function POST(req: Request) {
       path: shortTarget(event.path),
       title: shortTarget(event.title),
     };
+    const prev = activityById.get(event.id);
+    activityById.set(event.id, prev ? { ...prev, ...shortened } : shortened);
+    if (activityById.size > 200) {
+      const drop = activityById.size - 160;
+      let dropped = 0;
+      for (const key of activityById.keys()) {
+        if (dropped >= drop) break;
+        activityById.delete(key);
+        dropped += 1;
+      }
+    }
     const label = activityTrailLabel(shortened);
     if (!label) return;
     const target = (shortened.path || shortened.title || "").trim().toLowerCase();
@@ -276,6 +292,7 @@ export async function POST(req: Request) {
       model: accModel,
       elapsed: elapsedSeconds(),
       processSteps: snapshotSteps(),
+      activities: snapshotActivities(),
       pendingQuestion: accQuestion,
     };
     if (runMessageId) updateMessageProgress(runMessageId, payload).catch(() => {});
@@ -294,6 +311,7 @@ export async function POST(req: Request) {
       elapsed: elapsedSeconds(),
       status,
       processSteps: snapshotSteps(),
+      activities: snapshotActivities(),
     };
     if (runMessageId) finalizeMessage(runMessageId, payload).catch(() => {});
     if (guestSessionId) finalizeGuestRun(guestSessionId, payload).catch(() => {});
@@ -423,6 +441,7 @@ export async function POST(req: Request) {
                   mode,
                   model,
                   binding,
+                  workspaceId,
                   out,
                   ownerKey,
                   priorTurns: await priorTurns(),
@@ -445,7 +464,6 @@ export async function POST(req: Request) {
                 binding = { sessionId: out.agentSessionId, tokens: out.lastInputTokens ?? 0 };
               }
               finishRun("done");
-                  workspaceId,
               return "ok";
             } catch (error) {
               if (error instanceof AgentBusyError) {

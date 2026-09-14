@@ -1,4 +1,5 @@
 import type { PendingQuestion } from "./question";
+import type { ActivityEvent } from "./markers";
 
 export interface ChatImage {
   mimeType: string;
@@ -104,6 +105,8 @@ export interface StoredMessage {
   updatedAt?: string;
   /** Transcript trail (Ran/Read/Edited labels, no leading arrow). */
   processSteps?: string[];
+  /** Structured tool/patch activity so cards and the changes summary survive refreshes. */
+  activities?: ActivityEvent[];
   /** Open question from the agent; only set while the model message is pending. */
   pendingQuestion?: PendingQuestion | null;
 }

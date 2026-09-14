@@ -11,6 +11,7 @@ import type {
   StoredMessage,
   WorkspaceId,
 } from "./types";
+import type { ActivityEvent } from "./markers";
 import { DEFAULT_WORKSPACE_ID } from "./workspaces";
 
 // Own database inside the shared MongoDB cluster, so accounts/sessions/tokens
@@ -237,6 +238,7 @@ interface MessageDoc {
   status?: "pending" | "done" | "failed";
   updatedAt?: Date;
   processSteps?: string[];
+  activities?: ActivityEvent[];
   pendingQuestion?: PendingQuestion;
 }
 
@@ -284,6 +286,7 @@ function toStoredMessage(doc: MessageDoc): StoredMessage {
     status: doc.status ?? "done",
     updatedAt: doc.updatedAt?.toISOString(),
     processSteps: doc.processSteps,
+    activities: doc.activities,
     pendingQuestion: doc.pendingQuestion,
   };
 }
@@ -596,6 +599,62 @@ export async function startPendingModelMessage(
 // status "pending" so it can never clobber a finalized message.
 const MAX_PROCESS_STEPS = 80;
 const MAX_PROCESS_STEP_LEN = 180;
+const MAX_ACTIVITIES = 120;
+const MAX_ACTIVITY_OUTPUT = 800;
+const MAX_ACTIVITY_TEXT = 180;
+
+/** Persist a compact, bounded copy of the streamed activity events so tool
+ *  cards and the changes summary re-render after a refresh, not just while
+ *  the run is live in the tab that started it. */
+function sanitizeActivities(items: unknown): ActivityEvent[] | undefined {
+  if (!Array.isArray(items)) return undefined;
+  const out: ActivityEvent[] = [];
+  const seen = new Set<string>();
+  for (const raw of items) {
+    if (out.length >= MAX_ACTIVITIES) break;
+    if (!raw || typeof raw !== "object") continue;
+    const event = raw as Partial<ActivityEvent>;
+    if (typeof event.id !== "string" || !event.id || seen.has(event.id)) continue;
+    seen.add(event.id);
+    if (event.kind === "text") continue;
+    const clean: ActivityEvent = {
+      id: event.id.slice(0, 64),
+      kind:
+        event.kind === "patch"
+          ? "patch"
+          : event.kind === "step"
+            ? "step"
+            : "tool",
+      status:
+        event.status === "error" ||
+        event.status === "interrupted" ||
+        event.status === "running"
+          ? event.status
+          : "completed",
+    };
+    if (typeof event.tool === "string") clean.tool = event.tool.slice(0, 40);
+    if (typeof event.title === "string") {
+      clean.title = event.title.slice(0, MAX_ACTIVITY_TEXT);
+    }
+    if (typeof event.path === "string") {
+      clean.path = event.path.slice(0, MAX_ACTIVITY_TEXT);
+    }
+    if (typeof event.detail === "string") {
+      clean.detail = event.detail.slice(0, MAX_ACTIVITY_TEXT);
+    }
+    if (typeof event.output === "string") {
+      clean.output = event.output.slice(0, MAX_ACTIVITY_OUTPUT);
+    }
+    if (typeof event.additions === "number" && Number.isFinite(event.additions)) {
+      clean.additions = event.additions;
+    }
+    if (typeof event.deletions === "number" && Number.isFinite(event.deletions)) {
+      clean.deletions = event.deletions;
+    }
+    out.push(clean);
+  }
+  return out.length ? out : undefined;
+}
 
 function sanitizeProcessSteps(steps: string[] | undefined): string[] | undefined {
   if (!steps?.length) return undefined;
@@ -617,6 +676,7 @@ type ProgressInput = {
   model?: string;
   elapsed?: number;
   processSteps?: string[];
+  activities?: ActivityEvent[];
   pendingQuestion?: PendingQuestion | null;
 };
 
@@ -643,6 +703,10 @@ export async function updateMessageProgress(
     const steps = sanitizeProcessSteps(input.processSteps);
     if (steps) set.processSteps = steps;
   }
+  if (input.activities !== undefined) {
+    const acts = sanitizeActivities(input.activities);
+    if (acts) set.activities = acts;
+  }
   const question = pendingQuestionWrite(input.pendingQuestion);
   if (question.unset) unset.pendingQuestion = "";
   else if (question.set) set.pendingQuestion = question.set;
@@ -661,6 +725,7 @@ export async function finalizeMessage(
     elapsed?: number;
     status: "done" | "failed";
     processSteps?: string[];
+    activities?: ActivityEvent[];
   }
 ): Promise<void> {
   if (!ObjectId.isValid(messageId)) return;
@@ -674,6 +739,8 @@ export async function finalizeMessage(
   if (input.elapsed !== undefined) set.elapsed = input.elapsed;
   const steps = sanitizeProcessSteps(input.processSteps);
   if (steps) set.processSteps = steps;
+  const acts = sanitizeActivities(input.activities);
+  if (acts) set.activities = acts;
   await db
     .collection<MessageDoc>("messages")
     .updateOne(
@@ -749,6 +816,7 @@ interface GuestRunDoc {
   text: string;
   status: "pending" | "done" | "failed";
   processSteps?: string[];
+  activities?: ActivityEvent[];
   pendingQuestion?: PendingQuestion;
   model?: string;
   elapsed?: number;
@@ -773,6 +841,7 @@ function toGuestRun(doc: GuestRunDoc): StoredMessage {
     status: doc.status,
     updatedAt: doc.updatedAt.toISOString(),
     processSteps: doc.processSteps,
+    activities: doc.activities,
     pendingQuestion: doc.pendingQuestion,
   };
 }
@@ -800,7 +869,7 @@ export async function startGuestPendingRun(
           updatedAt: now,
           workspaceId,
         },
-        $unset: { processSteps: "", model: "", elapsed: "", pendingQuestion: "" },
+        $unset: { processSteps: "", activities: "", model: "", elapsed: "", pendingQuestion: "" },
       }
     );
     return toGuestRun({
@@ -809,6 +878,7 @@ export async function startGuestPendingRun(
       text: "",
       status: "pending",
       processSteps: undefined,
+      activities: undefined,
       pendingQuestion: undefined,
       model: undefined,
       elapsed: undefined,
@@ -844,6 +914,10 @@ export async function updateGuestRunProgress(
     const steps = sanitizeProcessSteps(input.processSteps);
     if (steps) set.processSteps = steps;
   }
+  if (input.activities !== undefined) {
+    const acts = sanitizeActivities(input.activities);
+    if (acts) set.activities = acts;
+  }
   const question = pendingQuestionWrite(input.pendingQuestion);
   if (question.unset) unset.pendingQuestion = "";
   else if (question.set) set.pendingQuestion = question.set;
@@ -862,6 +936,7 @@ export async function finalizeGuestRun(
     elapsed?: number;
     status: "done" | "failed";
     processSteps?: string[];
+    activities?: ActivityEvent[];
   }
 ): Promise<void> {
   if (!isGuestSessionId(sessionId)) return;
@@ -875,6 +950,8 @@ export async function finalizeGuestRun(
   if (input.elapsed !== undefined) set.elapsed = input.elapsed;
   const steps = sanitizeProcessSteps(input.processSteps);
   if (steps) set.processSteps = steps;
+  const acts = sanitizeActivities(input.activities);
+  if (acts) set.activities = acts;
   await db
     .collection<GuestRunDoc>("guestRuns")
     .updateOne({ sessionId }, { $set: set, $unset: { pendingQuestion: "" } });

@@ -17,7 +17,7 @@ import ActivityPanel, {
   type ActivityItem,
 } from "./ActivityPanel";
 import type { ChatImage, ChatMessage, PendingQuestion, WorkspaceId } from "@/lib/types";
-import { ModelMarkerParser } from "@/lib/markers";
+import { ModelMarkerParser, type ActivityEvent } from "@/lib/markers";
 import {
   appendGuestMessage,
   createGuestSession,
@@ -39,6 +39,7 @@ interface UiMessage {
   model?: string;
   trying?: string;
   processSteps?: string[];
+  activities?: ActivityEvent[];
   elapsed?: number;
   status?: "pending" | "done" | "failed";
   _id?: string;
@@ -54,6 +55,7 @@ interface StoredLike {
   elapsed?: number;
   status?: "pending" | "done" | "failed";
   processSteps?: string[];
+  activities?: ActivityEvent[];
   pendingQuestion?: PendingQuestion | null;
 }
 
@@ -117,6 +119,7 @@ function mapStoredMessages(list: StoredLike[], prev: UiMessage[] = []): UiMessag
       streaming: pending,
       failed: status === "failed",
       processSteps,
+      activities: message.activities,
       trying: pending && processSteps.length ? processSteps[processSteps.length - 1] : undefined,
       _id: message._id,
     };
@@ -161,6 +164,7 @@ function rememberGuestRun(sessionId: string, run: StoredLike, saved: Set<string>
     text: run.text ?? "",
     model: run.model,
     elapsed: run.elapsed,
+    activities: run.activities,
   });
 }
 
@@ -201,6 +205,7 @@ function isConnectionLossError(error: unknown): boolean {
 
 
 const WORKLOG_KEY = "agent.renstoolbox.worklog.v1";
+const UI_BUILD = "ui-20260913.11";
 
 type WorkLogSnapshot = {
   activities: ActivityItem[];
@@ -394,6 +399,7 @@ export default function ChatApp() {
   const userStoppedRef = useRef(false);
   const [freeNotice, setFreeNotice] = useState(false);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [activitiesMsgId, setActivitiesMsgId] = useState<number | null>(null);
   const [activityLive, setActivityLive] = useState(false);
   const [activityEndHint, setActivityEndHint] = useState<RunEndHint>(null);
   const [activityRailOpen, setActivityRailOpen] = useState(false);
@@ -496,6 +502,11 @@ export default function ChatApp() {
 
   useEffect(() => stopResume, [stopResume]);
 
+  // Diagnostic: lets us confirm which UI build the browser actually loaded.
+  useEffect(() => {
+    document.documentElement.dataset.uiBuild = UI_BUILD;
+  }, []);
+
   // Free-model notice: centered gray text, auto-dismisses after a few seconds.
   useEffect(() => {
     if (!freeNotice) return;
@@ -573,11 +584,14 @@ useEffect(() => {
     }
     setMessages([]);
     stopResume();
+    setActivities([]);
+    setActivitiesMsgId(null);
     setPendingQuestion(null);
     setQuestionError(null);
     if (!id) {
       sessionIdRef.current = null;
       setActivities([]);
+      setActivitiesMsgId(null);
       setActivityEndHint(null);
       setAssistantSnippet("");
       clearWorkLog();
@@ -639,6 +653,7 @@ useEffect(() => {
                 : undefined,
             model: message.model,
             elapsed: message.elapsed,
+            activities: message.activities,
             _index: String(index),
           }))
         ).then(async (hydrated) => {
@@ -721,6 +736,7 @@ useEffect(() => {
       setSending(true);
       setFreeNotice(false);
       setActivities([]);
+      setActivitiesMsgId(modelMessage.id);
       activitiesRef.current = [];
       setActivityEndHint(null);
       setAssistantSnippet("");
@@ -934,6 +950,7 @@ useEffect(() => {
               text: savedText,
               model: modelName,
               elapsed: elapsedValue,
+              activities: activitiesRef.current.slice(-80),
             });
           }
           // Clean end + server-owned persistence: this tab closes its own
@@ -1386,6 +1403,7 @@ useEffect(() => {
         ) : messages.length === 0 ? (
           <main className="welcome">
             <h2>{t["welcome.title"]}</h2>
+            <p className="build-stamp">{UI_BUILD}</p>
             {composerDock}
           </main>
         ) : (
@@ -1393,6 +1411,8 @@ useEffect(() => {
             messages={messages}
             guest={isAuthed === false}
             flashId={flashId}
+            activities={activities}
+            activityMessageId={activitiesMsgId}
             onEdit={startEdit}
             onRegenerate={regenerate}
             canAct={!sending}
@@ -1423,6 +1443,7 @@ useEffect(() => {
         ) : messages.length === 0 ? (
           <main className="welcome">
             <h2>{t["welcome.title"]}</h2>
+            <p className="build-stamp">{UI_BUILD}</p>
             {composerDock}
           </main>
         ) : (
@@ -1430,6 +1451,8 @@ useEffect(() => {
             messages={messages}
             guest={isAuthed === false}
             flashId={flashId}
+            activities={activities}
+            activityMessageId={activitiesMsgId}
             onEdit={startEdit}
             onRegenerate={regenerate}
             canAct={!sending}

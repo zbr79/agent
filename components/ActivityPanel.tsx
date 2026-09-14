@@ -29,7 +29,7 @@ export type RunStatus =
   | "failed"
   | "interrupted";
 
-function toolIcon(tool?: string) {
+export function toolIcon(tool?: string) {
   const key = (tool || "").toLowerCase();
   if (key === "read" || key === "list") return FileText;
   if (key === "grep") return Search;
@@ -47,7 +47,7 @@ function capitalize(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
-function toolVerb(tool: string | undefined, lang: UiLang): string {
+export function toolVerb(tool: string | undefined, lang: UiLang): string {
   const key = (tool || "").toLowerCase();
   const verbMap: Record<string, { en: string; zh: string }> = {
     read: { en: "Read", zh: "读取" },
@@ -69,7 +69,7 @@ function toolVerb(tool: string | undefined, lang: UiLang): string {
   return capitalize(tool || (lang === "zh" ? "步骤" : "Step"));
 }
 
-function primaryTitle(item: ActivityItem): string {
+export function primaryTitle(item: ActivityItem): string {
   const path = (item.path || "").trim();
   const detail = (item.detail || "").trim();
   const title = (item.title || "").trim();
@@ -78,7 +78,7 @@ function primaryTitle(item: ActivityItem): string {
   return raw.length > 96 ? `${raw.slice(0, 96)}…` : raw;
 }
 
-function isEditLike(item: ActivityItem): boolean {
+export function isEditLike(item: ActivityItem): boolean {
   const key = (item.tool || "").toLowerCase();
   return (
     item.kind === "patch" ||
@@ -89,7 +89,7 @@ function isEditLike(item: ActivityItem): boolean {
   );
 }
 
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
   if (ms < 1000) return `${Math.max(1, Math.round(ms / 100) * 100)}ms`;
   const seconds = ms / 1000;
@@ -162,7 +162,7 @@ export function hasToolErrors(items: ActivityItem[]): boolean {
   });
 }
 
-function StatusGlyph({ status }: { status: ActivityItem["status"] }) {
+export function StatusGlyph({ status }: { status: ActivityItem["status"] }) {
   if (status === "completed") {
     return <Check size={14} className="activity-status ok" aria-hidden="true" />;
   }

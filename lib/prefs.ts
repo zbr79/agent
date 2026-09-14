@@ -211,3 +211,37 @@ export function useChatMode(): [ChatMode, (mode: ChatMode) => void] {
   }, []);
   return [mode, setChatMode];
 }
+
+const CHANGES_OPEN_KEY = "inschat_changes_open";
+const CHANGES_OPEN_EVENT = "inschat-changes-open";
+
+// The "Files changed" card starts collapsed to a single title line; once the
+// user expands it, the choice sticks — for every card and across reloads.
+export function getChangesOpen(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(CHANGES_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setChangesOpen(open: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CHANGES_OPEN_KEY, open ? "1" : "0");
+  } catch {}
+  window.dispatchEvent(new CustomEvent(CHANGES_OPEN_EVENT, { detail: open }));
+}
+
+export function useChangesOpen(): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState<boolean>(() => getChangesOpen());
+  useEffect(() => {
+    const handler = (event: Event) => {
+      setOpen(Boolean((event as CustomEvent<boolean>).detail));
+    };
+    window.addEventListener(CHANGES_OPEN_EVENT, handler);
+    return () => window.removeEventListener(CHANGES_OPEN_EVENT, handler);
+  }, []);
+  return [open, setChangesOpen];
+}
