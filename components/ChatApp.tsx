@@ -738,7 +738,7 @@ useEffect(() => {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             language: lang,
             reasoning: reasoningEffort,
-            mode: chatMode,
+            mode: isAuthed === true ? chatMode : "plan",
             model: selectedModel,
             sessionId: sessionIdRef.current ?? undefined,
           }),
@@ -1344,6 +1344,9 @@ useEffect(() => {
           pendingQuestion ? t["question.composerLocked"] : t["composer.placeholder"]
         }
         signedIn={isAuthed === true}
+        onRequireAuth={() => {
+          window.dispatchEvent(new CustomEvent("inschat-open-auth"));
+        }}
       />
     </>
   );

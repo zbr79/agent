@@ -2689,6 +2689,16 @@ span.conclude-rank-badge {
   color: var(--text);
 }
 
+.composer-mode-btn.locked {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.composer-mode-btn.locked:hover {
+  color: var(--text);
+  opacity: 1;
+}
+
 .composer-mode-btn.active {
   background: var(--pill);
   color: var(--pill-text);

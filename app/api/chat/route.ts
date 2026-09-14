@@ -85,7 +85,11 @@ export async function POST(req: Request) {
         : "Invalid request body.";
     return Response.json({ error: message }, { status: 400 });
   }
-  const { messages, language, reasoning, mode, model, sessionId } = parsed;
+  const { messages, language, reasoning, mode: requestedMode, model, sessionId } = parsed;
+  // Guests are always read-only. Enforce this on the server as well as in the
+  // composer so a direct request cannot opt into the build agent.
+  const requestUser = await getUserFromRequest(req).catch(() => null);
+  const mode = requestUser ? requestedMode : "plan";
   // Only the latest message decides whether this send is an image request;
   // earlier photos in the history must not re-route text sends to the
   // paid-only vision chain.
@@ -101,7 +105,7 @@ export async function POST(req: Request) {
   let runUserId: string | null = null;
   if (sessionId) {
     try {
-      const user = await getUserFromRequest(req);
+      const user = requestUser;
       if (user) {
         runUserId = user._id;
         const pending = await startPendingModelMessage(user._id, sessionId);

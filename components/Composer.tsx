@@ -42,6 +42,7 @@ interface ComposerProps {
   disabled?: boolean;
   placeholder?: string;
   signedIn?: boolean;
+  onRequireAuth?: () => void;
 }
 
 interface GitFile {
@@ -93,6 +94,7 @@ export default function Composer({
   disabled = false,
   placeholder,
   signedIn = false,
+  onRequireAuth,
 }: ComposerProps) {
   const lang = useUiLang();
   const t = STR[lang];
@@ -163,6 +165,7 @@ export default function Composer({
   const modelLocked = peak && model === "deepseek-v4-flash";
   const modelKey =
     model === "qwen3.8-flash" ? "qwen" : model === "glm-5.3-flash" ? "glm" : "ds";
+  const effectiveMode: ChatMode = signedIn ? mode : "plan";
   const canSend = (text.trim().length > 0 || images.length > 0) && !sending && !disabled;
   // During the voice flow the send button stays live: pressing it queues an
   // auto-send once the transcript lands.
@@ -305,7 +308,13 @@ export default function Composer({
       handleSend();
       return;
     }
-    if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (
+      signedIn &&
+      event.key === "Tab" &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    ) {
       event.preventDefault();
       if (event.shiftKey) {
         insertNewline();
@@ -660,11 +669,22 @@ export default function Composer({
             <button
               key={value}
               type="button"
-              className={`composer-mode-btn composer-mode-btn-${value}${mode === value ? " active" : ""}`}
-              onClick={() => setMode(value)}
+              className={`composer-mode-btn composer-mode-btn-${value}${effectiveMode === value ? " active" : ""}${value === "build" && !signedIn ? " locked" : ""}`}
+              onClick={() => {
+                if (value === "build" && !signedIn) {
+                  onRequireAuth?.();
+                  return;
+                }
+                setMode(value);
+              }}
               disabled={disabled}
-              aria-pressed={mode === value}
-              title={t[`composer.mode.${value}`]}
+              aria-pressed={signedIn && effectiveMode === value}
+              aria-disabled={value === "build" && !signedIn}
+              title={
+                value === "build" && !signedIn
+                  ? t["composer.mode.buildLogin"]
+                  : t[`composer.mode.${value}`]
+              }
             >
               {t[`composer.mode.${value}`]}
             </button>
@@ -683,7 +703,7 @@ export default function Composer({
           </button>
         ) : null}
       </div>
-      <div className={`input-row mode-${mode}`}>
+      <div className={`input-row mode-${effectiveMode}`}>
         <input
           ref={fileRef}
           type="file"
