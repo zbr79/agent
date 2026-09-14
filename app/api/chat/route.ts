@@ -23,12 +23,12 @@ import {
   ModelMarkerParser,
   type ActivityEvent,
 } from "@/lib/markers";
-import { AGENT_ROOT } from "@/lib/pathJail";
 import {
   finalizeGuestRun,
   finalizeMessage,
   getAgentBinding,
   getGuestAgentBinding,
+  getSessionWorkspace,
   listAgentTranscript,
   setAgentBinding,
   setGuestAgentBinding,
@@ -37,7 +37,8 @@ import {
   updateGuestRunProgress,
   updateMessageProgress,
 } from "@/lib/db";
-import type { AgentBinding, ChatMessage, PendingQuestion } from "@/lib/types";
+import type { AgentBinding, ChatMessage, PendingQuestion, WorkspaceId } from "@/lib/types";
+import { DEFAULT_WORKSPACE_ID, workspaceRoot } from "@/lib/workspaces";
 
 export const runtime = "nodejs";
 
@@ -85,11 +86,33 @@ export async function POST(req: Request) {
         : "Invalid request body.";
     return Response.json({ error: message }, { status: 400 });
   }
-  const { messages, language, reasoning, mode: requestedMode, model, sessionId } = parsed;
+  const {
+    messages,
+    language,
+    reasoning,
+    mode: requestedMode,
+    model,
+    sessionId,
+    workspaceId: requestedWorkspaceId,
+  } = parsed;
   // Guests are always read-only. Enforce this on the server as well as in the
   // composer so a direct request cannot opt into the build agent.
   const requestUser = await getUserFromRequest(req).catch(() => null);
   const mode = requestUser ? requestedMode : "plan";
+  let workspaceId: WorkspaceId = requestedWorkspaceId ?? DEFAULT_WORKSPACE_ID;
+  if (!requestUser) {
+    // Guests are intentionally confined to the public Agent project.
+    workspaceId = DEFAULT_WORKSPACE_ID;
+  } else if (sessionId) {
+    const storedWorkspace = await getSessionWorkspace(requestUser._id, sessionId);
+    if (!storedWorkspace) {
+      return Response.json({ error: "Session not found." }, { status: 404 });
+    }
+    if (requestedWorkspaceId && requestedWorkspaceId !== storedWorkspace) {
+      return Response.json({ error: "Session belongs to another workspace." }, { status: 409 });
+    }
+    workspaceId = storedWorkspace;
+  }
   // Only the latest message decides whether this send is an image request;
   // earlier photos in the history must not re-route text sends to the
   // paid-only vision chain.
@@ -114,7 +137,7 @@ export async function POST(req: Request) {
       // Guest ids are UUIDs with no owned Mongo session. Still persist the
       // in-flight model message so a hard refresh can restore the trail.
       if (!runMessageId) {
-        const guest = await startGuestPendingRun(sessionId);
+        const guest = await startGuestPendingRun(sessionId, workspaceId);
         guestSessionId = guest ? sessionId : null;
       }
     } catch {
@@ -152,9 +175,16 @@ export async function POST(req: Request) {
   const saveBinding = (next: AgentBinding | null) => {
     if (!sessionId || (!accountBound && !guestBound)) return;
     if (accountBound) {
-      setAgentBinding(runUserId as string, sessionId, next).catch(() => {});
+      setAgentBinding(
+        runUserId as string,
+        sessionId,
+        next ? { ...next, workspaceId } : null
+      ).catch(() => {});
     } else {
-      setGuestAgentBinding(sessionId, next).catch(() => {});
+      setGuestAgentBinding(
+        sessionId,
+        next ? { ...next, workspaceId } : null
+      ).catch(() => {});
     }
   };
   if (persistedRun) {
@@ -181,7 +211,7 @@ export async function POST(req: Request) {
 
   const shortTarget = (value: string | undefined) => {
     if (!value) return value;
-    const prefix = `${AGENT_ROOT}/`;
+    const prefix = `${workspaceRoot(workspaceId)}/`;
     return value.startsWith(prefix) ? value.slice(prefix.length) : value;
   };
 
@@ -397,7 +427,11 @@ export async function POST(req: Request) {
                   ownerKey,
                   priorTurns: await priorTurns(),
                   onSessionReady: (id) =>
-                    saveBinding({ sessionId: id, tokens: binding?.tokens ?? 0 }),
+                    saveBinding({
+                      sessionId: id,
+                      tokens: binding?.tokens ?? 0,
+                      workspaceId,
+                    }),
                 })
               )) {
                 produced = true;
@@ -411,6 +445,7 @@ export async function POST(req: Request) {
                 binding = { sessionId: out.agentSessionId, tokens: out.lastInputTokens ?? 0 };
               }
               finishRun("done");
+                  workspaceId,
               return "ok";
             } catch (error) {
               if (error instanceof AgentBusyError) {
@@ -482,17 +517,26 @@ export async function POST(req: Request) {
           let sid = binding?.sessionId ?? null;
           if (ownerKey) {
             try {
-              const ensured = await ensureBoundSession(ownerKey, sid);
+              const ensured = await ensureBoundSession(ownerKey, sid, workspaceId);
               if (ensured) {
                 sid = ensured;
-                saveBinding({ sessionId: sid, tokens: binding?.tokens ?? 0 });
+                saveBinding({
+                  sessionId: sid,
+                  tokens: binding?.tokens ?? 0,
+                  workspaceId,
+                });
               }
             } catch {
               /* keep the text path working even if session create fails */
             }
           }
           if (sid && assistantText.trim()) {
-            injectVisionExchange(sid, lastMessage?.text ?? "", assistantText).catch(() => {});
+            injectVisionExchange(
+              sid,
+              lastMessage?.text ?? "",
+              assistantText,
+              workspaceId
+            ).catch(() => {});
           }
         } catch (error) {
           const message =

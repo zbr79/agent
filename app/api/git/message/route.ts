@@ -1,6 +1,7 @@
 import { completeOpenCode } from "@/lib/opencode";
 import { requireUser } from "@/lib/auth";
 import { getGitContext } from "@/lib/git";
+import { getWorkspaceDefinition } from "@/lib/workspaces";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,14 @@ export async function POST(req: Request) {
   const auth = await requireUser(req);
   if (auth instanceof Response) return auth;
   try {
-    const context = await getGitContext();
+    const body: unknown = await req.json().catch(() => ({}));
+    const rawWorkspace =
+      body && typeof body === "object"
+        ? (body as { workspaceId?: unknown }).workspaceId
+        : undefined;
+    const workspace = getWorkspaceDefinition(rawWorkspace ?? "agent");
+    if (!workspace) return Response.json({ error: "Unknown workspace." }, { status: 400 });
+    const context = await getGitContext(workspace.id);
     if (context.status.clean) {
       return Response.json({ error: "There are no changes to commit." }, { status: 409 });
     }

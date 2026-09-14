@@ -11,7 +11,8 @@ import {
 import { insertCall } from "./db";
 import { resolveAgentModel, type TextModelPin } from "./models";
 import { AGENT_ROOT } from "./pathJail";
-import type { AgentBinding, ChatMessage } from "./types";
+import type { AgentBinding, ChatMessage, WorkspaceId } from "./types";
+import { DEFAULT_WORKSPACE_ID, workspaceRoot } from "./workspaces";
 import {
   claimAgentTurn,
   compactAt,
@@ -50,13 +51,14 @@ const CONFIGURED_MODEL_ID = "qwen3.8-flash";
 
 interface OpencodeClient {
   session: {
-    create: (input: { body: { title?: string } }) => Promise<{
+    create: (input: { query?: { directory: string }; body: { title?: string } }) => Promise<{
       data: { id: string };
     }>;
-    get: (input: { path: { id: string } }) => Promise<{
+    get: (input: { query?: { directory: string }; path: { id: string } }) => Promise<{
       data?: { id?: string; title?: string };
     }>;
     prompt: (input: {
+      query?: { directory: string };
       path: { id: string };
       body: {
         system?: string;
@@ -72,17 +74,21 @@ interface OpencodeClient {
         }[];
       };
     }) => Promise<{ data: unknown }>;
-    delete: (input: { path: { id: string } }) => Promise<unknown>;
-    abort: (input: { path: { id: string } }) => Promise<unknown>;
+    delete: (input: { query?: { directory: string }; path: { id: string } }) => Promise<unknown>;
+    abort: (input: { query?: { directory: string }; path: { id: string } }) => Promise<unknown>;
     summarize: (input: {
       path: { id: string };
       body: { providerID: string; modelID: string };
     }) => Promise<unknown>;
-    messages: (input: { path: { id: string } }) => Promise<unknown>;
+    messages: (input: { query?: { directory: string }; path: { id: string } }) => Promise<unknown>;
   };
 }
 
 let client: OpencodeClient | null = null;
+
+function directoryQuery(workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID): { directory: string } {
+  return { directory: workspaceRoot(workspaceId) };
+}
 
 function authHeaders(): Record<string, string> {
   const password = process.env.OPENCODE_SERVER_PASSWORD;
@@ -167,9 +173,16 @@ export async function lookupAgentModel(modelId = CONFIGURED_MODEL_ID): Promise<A
   }
 }
 
-async function sessionOwnedBy(id: string, ownerKey: string | null): Promise<boolean> {
+async function sessionOwnedBy(
+  id: string,
+  ownerKey: string | null,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
+): Promise<boolean> {
   try {
-    const res = await getAgentClient().session.get({ path: { id } });
+    const res = await getAgentClient().session.get({
+      query: directoryQuery(workspaceId),
+      path: { id },
+    });
     const data = res?.data;
     if (!data?.id || data.id !== id) return false;
     const title = typeof data.title === "string" ? data.title : "";
@@ -194,11 +207,13 @@ function imageFileParts(message: ChatMessage | undefined) {
 
 export async function ensureBoundSession(
   ownerKey: string,
-  existingId?: string | null
+  existingId?: string | null,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
 ): Promise<string | null> {
   if (ownerTurnBusy(ownerKey)) return inflightSessionFor(ownerKey) ?? existingId ?? null;
-  if (existingId && (await sessionOwnedBy(existingId, ownerKey))) return existingId;
+  if (existingId && (await sessionOwnedBy(existingId, ownerKey, workspaceId))) return existingId;
   const created = await getAgentClient().session.create({
+    query: directoryQuery(workspaceId),
     body: { title: sessionTitleFor(ownerKey) },
   });
   return created.data.id;
@@ -227,19 +242,25 @@ async function sessionAlive(id: string): Promise<boolean> {
 
 // Fire-and-forget cleanup when a chat is deleted: the bound opencode session
 // should die with it. Safe to call with null.
-export async function deleteAgentSession(id: string | null | undefined): Promise<void> {
+export async function deleteAgentSession(
+  id: string | null | undefined,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
+): Promise<void> {
   if (!id) return;
   try {
-    await getAgentClient().session.delete({ path: { id } });
+    await getAgentClient().session.delete({ query: directoryQuery(workspaceId), path: { id } });
   } catch {
     /* opencode restart already dropped it */
   }
 }
 
-export async function abortAgentSession(id: string | null | undefined): Promise<void> {
+export async function abortAgentSession(
+  id: string | null | undefined,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
+): Promise<void> {
   if (!id) return;
   try {
-    await getAgentClient().session.abort({ path: { id } });
+    await getAgentClient().session.abort({ query: directoryQuery(workspaceId), path: { id } });
   } catch {
     /* already gone */
   }
@@ -255,10 +276,11 @@ export class QuestionExpiredError extends Error {
 function questionActionUrls(
   requestId: string,
   action: "reply" | "reject",
-  sessionId?: string
+  sessionId?: string,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
 ): string[] {
   const id = encodeURIComponent(requestId);
-  const dir = `directory=${encodeURIComponent(AGENT_ROOT)}`;
+  const dir = `directory=${encodeURIComponent(workspaceRoot(workspaceId))}`;
   const urls = [`${AGENT_URL}/question/${id}/${action}?${dir}`];
   if (sessionId) {
     const sid = encodeURIComponent(sessionId);
@@ -272,9 +294,10 @@ async function postQuestionAction(
   requestId: string,
   action: "reply" | "reject",
   sessionId: string | undefined,
-  body?: unknown
+  body?: unknown,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
 ): Promise<void> {
-  for (const url of questionActionUrls(requestId, action, sessionId)) {
+  for (const url of questionActionUrls(requestId, action, sessionId, workspaceId)) {
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -298,16 +321,18 @@ async function postQuestionAction(
 export async function replyAgentQuestion(
   requestId: string,
   answers: string[][],
-  opencodeSessionId?: string
+  opencodeSessionId?: string,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
 ): Promise<void> {
-  await postQuestionAction(requestId, "reply", opencodeSessionId, { answers });
+  await postQuestionAction(requestId, "reply", opencodeSessionId, { answers }, workspaceId);
 }
 
 export async function rejectAgentQuestion(
   requestId: string,
-  opencodeSessionId?: string
+  opencodeSessionId?: string,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
 ): Promise<void> {
-  await postQuestionAction(requestId, "reject", opencodeSessionId);
+  await postQuestionAction(requestId, "reject", opencodeSessionId, undefined, workspaceId);
 }
 
 // Photo turns go through the direct vision engine (the agent's bound model
@@ -316,7 +341,8 @@ export async function rejectAgentQuestion(
 export async function injectVisionExchange(
   sessionId: string | null | undefined,
   userText: string,
-  assistantText: string
+  assistantText: string,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
 ): Promise<void> {
   if (!sessionId || !assistantText.trim()) return;
   const text =
@@ -324,6 +350,7 @@ export async function injectVisionExchange(
     `You replied: ${assistantText.slice(0, 8000)}`;
   try {
     await getAgentClient().session.prompt({
+      query: directoryQuery(workspaceId),
       path: { id: sessionId },
       body: { noReply: true, parts: [{ type: "text", text }] },
     });
@@ -347,6 +374,8 @@ export interface AgentChatOptions {
   onSessionReady?: (sessionId: string) => void;
   /** u:userId:chatId or g:guestId. Required to reuse a saved session. */
   ownerKey?: string | null;
+  /** Approved project workspace used for this conversation. */
+  workspaceId?: WorkspaceId;
   /** Completed turns before the new user message, for rebuild/compact only. */
   priorTurns?: ChatMessage[];
 }
@@ -525,6 +554,8 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
     out = {},
     onSessionReady,
   } = opts;
+  const workspaceId = opts.workspaceId ?? binding?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const directory = directoryQuery(workspaceId);
   const agent = getAgentClient();
   const system = getSystemPrompt(language, agentTools, mode === "plan");
   const requestId = Math.random().toString(36).slice(2, 8);
@@ -561,7 +592,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
   const title = ownerKey ? sessionTitleFor(ownerKey) : "inschat";
 
   async function createBound(): Promise<string> {
-    const created = (await agent.session.create({ body: { title } })).data.id;
+    const created = (await agent.session.create({ query: directory, body: { title } })).data.id;
     if (ownerKey) noteInflightSession(ownerKey, created);
     return created;
   }
@@ -572,6 +603,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
       (lostWithoutTranscript ? seedFromHistory([], "rebuild") : null);
     if (!seed) return;
     await agent.session.prompt({
+      query: directory,
       path: { id },
       body: {
         system,
@@ -585,7 +617,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
   try {
     if (sessionId) {
       if (ownerKey) noteInflightSession(ownerKey, sessionId);
-      const owned = await sessionOwnedBy(sessionId, ownerKey);
+      const owned = await sessionOwnedBy(sessionId, ownerKey, workspaceId);
       if (owned) {
         continued = true;
         if ((binding?.tokens ?? 0) >= gate) {
@@ -603,7 +635,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
               ).slice(0, 120)}`
             );
           }
-          deleteAgentSession(previous).catch(() => {});
+          deleteAgentSession(previous, workspaceId).catch(() => {});
           rebound = true;
         }
       } else {
@@ -1001,6 +1033,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
     // history when the event stream stalls mid-run.
     const turnStartedAt = Date.now() - 1_500;
     const promptPromise = agent.session.prompt({
+      query: directory,
       path: { id: sessionId },
       body: {
         system: promptSystem,
@@ -1093,6 +1126,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
     if (!produced && promptResult.status === "ok") {
       try {
         const list = (await agent.session.messages({
+          query: directory,
           path: { id: sessionId },
         })) as {
           data?: {
@@ -1138,7 +1172,7 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
       // Poisoned thread risk: a prompt that died mid-flight can leave the
       // bound session busy or half-spoken. Best-effort abort; the caller
       // unbinds on this error so the next turn re-seeds a clean session.
-      agent.session.abort({ path: { id: sessionId } }).catch(() => {});
+      agent.session.abort({ query: directory, path: { id: sessionId } }).catch(() => {});
       insertCall({
         kind: "opencode",
         model: modelName ?? modelId,
@@ -1148,11 +1182,11 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
       throw failure;
     }
     if (!produced && failed) {
-      agent.session.abort({ path: { id: sessionId } }).catch(() => {});
+      agent.session.abort({ query: directory, path: { id: sessionId } }).catch(() => {});
       throw failed;
     }
     if (!produced) {
-      agent.session.abort({ path: { id: sessionId } }).catch(() => {});
+      agent.session.abort({ query: directory, path: { id: sessionId } }).catch(() => {});
       throw new Error("Agent finished without producing an answer.");
     }
     const info = promptResult.info;
@@ -1204,6 +1238,6 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
     // deleteAgentSession() when the chat is deleted. Unbound one-shot
     // requests (no chat id) are deleted so they cannot be reused.
     if (claimed) releaseAgentTurn(ownerKey);
-    else if (!ownerKey && sessionId) deleteAgentSession(sessionId).catch(() => {});
+    else if (!ownerKey && sessionId) deleteAgentSession(sessionId, workspaceId).catch(() => {});
   }
 }

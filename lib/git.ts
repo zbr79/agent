@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import { AGENT_ROOT, assertAllowedAgentFile } from "./pathJail";
+import { DEFAULT_WORKSPACE_ID, workspaceRoot } from "./workspaces";
+import type { WorkspaceId } from "./types";
 
 const GIT_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 1_500_000;
@@ -27,10 +29,10 @@ interface GitResult {
   code: number;
 }
 
-function runGit(args: string[], input?: string): Promise<GitResult> {
+function runGit(args: string[], input?: string, cwd = AGENT_ROOT): Promise<GitResult> {
   return new Promise((resolve, reject) => {
     const child = spawn("git", args, {
-      cwd: AGENT_ROOT,
+      cwd,
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
     });
@@ -79,16 +81,16 @@ function gitError(result: GitResult, fallback: string): Error {
   return new Error(detail || fallback);
 }
 
-function safeRelativePath(raw: string): boolean {
+function safeRelativePath(raw: string, root: string): boolean {
   try {
-    assertAllowedAgentFile(raw);
+    assertAllowedAgentFile(raw, root);
     return true;
   } catch {
     return false;
   }
 }
 
-function parseStatus(output: string): GitFile[] {
+function parseStatus(output: string, root: string): GitFile[] {
   const files: GitFile[] = [];
   for (const entry of output.split("\0")) {
     if (!entry) continue;
@@ -102,33 +104,41 @@ function parseStatus(output: string): GitFile[] {
       staged: !untracked && status[0] !== " ",
       unstaged: !untracked && status[1] !== " ",
       untracked,
-      safe: safeRelativePath(filePath),
+      safe: safeRelativePath(filePath, root),
     });
   }
   return files;
 }
 
-async function gitValue(args: string[], fallback = ""): Promise<string> {
-  const result = await runGit(args);
+async function gitValue(args: string[], fallback = "", cwd = AGENT_ROOT): Promise<string> {
+  const result = await runGit(args, undefined, cwd);
   if (result.code !== 0) throw gitError(result, fallback);
   return result.stdout.trim();
 }
 
-export async function getGitStatus(): Promise<GitStatus> {
+export async function getGitStatus(
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
+): Promise<GitStatus> {
+  const root = workspaceRoot(workspaceId);
   const [branch, statusOutput] = await Promise.all([
-    gitValue(["rev-parse", "--abbrev-ref", "HEAD"], "Could not determine the current branch."),
+    gitValue(["rev-parse", "--abbrev-ref", "HEAD"], "Could not determine the current branch.", root),
     gitValue(
       ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
-      "Could not read git status."
+      "Could not read git status.",
+      root
     ),
   ]);
   let upstream: string | null = null;
   try {
-    upstream = await gitValue(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+    upstream = await gitValue(
+      ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+      "",
+      root
+    );
   } catch {
     upstream = null;
   }
-  const files = parseStatus(statusOutput);
+  const files = parseStatus(statusOutput, root);
   return {
     branch,
     upstream,
@@ -138,26 +148,31 @@ export async function getGitStatus(): Promise<GitStatus> {
   };
 }
 
-async function safeFiles(): Promise<{ files: GitFile[]; skipped: string[] }> {
-  const status = await getGitStatus();
+async function safeFiles(
+  workspaceId: WorkspaceId
+): Promise<{ files: GitFile[]; skipped: string[] }> {
+  const status = await getGitStatus(workspaceId);
   const files = status.files.filter((file) => file.safe);
   return { files, skipped: status.skipped };
 }
 
-async function diffForPath(filePath: string): Promise<string> {
-  const result = await runGit(["diff", "--no-index", "--", "/dev/null", filePath]);
+async function diffForPath(filePath: string, root: string): Promise<string> {
+  const result = await runGit(["diff", "--no-index", "--", "/dev/null", filePath], undefined, root);
   if (result.code !== 0 && result.code !== 1) {
     throw gitError(result, `Could not read the diff for ${filePath}.`);
   }
   return result.stdout;
 }
 
-export async function getGitContext(): Promise<{
+export async function getGitContext(
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
+): Promise<{
   status: GitStatus;
   diff: string;
   log: string;
 }> {
-  const status = await getGitStatus();
+  const root = workspaceRoot(workspaceId);
+  const status = await getGitStatus(workspaceId);
   const safe = status.files.filter((file) => file.safe);
   const trackedDiff =
     safe.length > 0
@@ -168,18 +183,18 @@ export async function getGitContext(): Promise<{
           "HEAD",
           "--",
           ...safe.filter((file) => !file.untracked).map((file) => file.path),
-        ])
+        ], undefined, root)
       : { stdout: "", stderr: "", code: 0 };
   if (trackedDiff.code !== 0) {
     throw gitError(trackedDiff, "Could not read the git diff.");
   }
   const untrackedDiffs: string[] = [];
   for (const file of safe.filter((item) => item.untracked)) {
-    untrackedDiffs.push(await diffForPath(file.path));
+    untrackedDiffs.push(await diffForPath(file.path, root));
   }
   let log = "";
   try {
-    log = await gitValue(["log", "-8", "--oneline"]);
+    log = await gitValue(["log", "-8", "--oneline"], "", root);
   } catch {
     log = "";
   }
@@ -203,29 +218,35 @@ function validateCommitMessage(message: unknown): string {
  *  here), never a same-named copy of the local branch. This workspace runs
  *  on a long-lived feature branch, and `push -u origin HEAD` used to spray
  *  stray origin/cursor/… branches while the deployed origin/main stayed stale. */
-async function pushTargetBranch(): Promise<string> {
+async function pushTargetBranch(root: string): Promise<string> {
   try {
-    const ref = await gitValue(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+    const ref = await gitValue(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], "", root);
     const name = ref.replace(/^origin\//, "").trim();
     if (name) return name;
   } catch {
     /* older clones without origin/HEAD */
   }
   try {
-    await gitValue(["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main"]);
+    await gitValue(["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main"], "", root);
     return "main";
   } catch {
-    return await gitValue(["rev-parse", "--abbrev-ref", "HEAD"], "Could not read the branch.");
+    return await gitValue(
+      ["rev-parse", "--abbrev-ref", "HEAD"],
+      "Could not read the branch.",
+      root
+    );
   }
 }
 
 export async function commitAndMaybePush(
   message: unknown,
-  push: boolean
+  push: boolean,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
 ): Promise<{ sha: string; branch: string; pushed: boolean; remote: string | null; skipped: string[] }> {
+  const root = workspaceRoot(workspaceId);
   const cleanMessage = validateCommitMessage(message);
-  const { files, skipped } = await safeFiles();
-  const stagedDenylisted = (await getGitStatus()).files.filter(
+  const { files, skipped } = await safeFiles(workspaceId);
+  const stagedDenylisted = (await getGitStatus(workspaceId)).files.filter(
     (file) => !file.safe && file.staged
   );
   if (stagedDenylisted.length > 0) {
@@ -243,18 +264,18 @@ export async function commitAndMaybePush(
     );
   }
   for (const file of files) {
-    const result = await runGit(["add", "--", file.path]);
+    const result = await runGit(["add", "--", file.path], undefined, root);
     if (result.code !== 0) throw gitError(result, `Could not stage ${file.path}.`);
   }
-  const commit = await runGit(["commit", "-F", "-"], cleanMessage + "\n");
+  const commit = await runGit(["commit", "-F", "-"], cleanMessage + "\n", root);
   if (commit.code !== 0) throw gitError(commit, "Could not create the commit.");
-  const sha = await gitValue(["rev-parse", "--short", "HEAD"], "Could not read the commit id.");
-  const branch = await gitValue(["rev-parse", "--abbrev-ref", "HEAD"], "Could not read the branch.");
+  const sha = await gitValue(["rev-parse", "--short", "HEAD"], "Could not read the commit id.", root);
+  const branch = await gitValue(["rev-parse", "--abbrev-ref", "HEAD"], "Could not read the branch.", root);
   let remote: string | null = null;
   let pushed = false;
   if (push) {
-    const target = await pushTargetBranch();
-    const pushResult = await runGit(["push", "origin", `HEAD:${target}`]);
+    const target = await pushTargetBranch(root);
+    const pushResult = await runGit(["push", "origin", `HEAD:${target}`], undefined, root);
     if (pushResult.code !== 0) {
       const detail = (pushResult.stderr || pushResult.stdout).trim();
       throw new Error(

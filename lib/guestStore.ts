@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatImage, SessionConclusion } from "./types";
+import type { ChatImage, SessionConclusion, WorkspaceId } from "./types";
 
 export interface GuestMessage {
   role: "user" | "model";
@@ -15,6 +15,7 @@ export interface GuestSession {
   id: string;
   title: string;
   updatedAt: number;
+  workspaceId: WorkspaceId;
   messages: GuestMessage[];
   pinned?: boolean;
   conclusion?: SessionConclusion | null;
@@ -60,21 +61,30 @@ function writeSessions(sessions: GuestSession[]): void {
   writeJson(SESSIONS_KEY, withoutImages.slice(-10));
 }
 
+function normalizeSession(session: GuestSession): GuestSession {
+  return { ...session, workspaceId: session.workspaceId ?? "agent" };
+}
+
 export function listGuestSessions(): GuestSession[] {
-  return readJson<GuestSession[]>(SESSIONS_KEY, []).sort(
+  return readJson<GuestSession[]>(SESSIONS_KEY, []).map(normalizeSession).sort(
     (a, b) => b.updatedAt - a.updatedAt
   );
 }
 
 export function getGuestSession(id: string): GuestSession | null {
-  return readJson<GuestSession[]>(SESSIONS_KEY, []).find((s) => s.id === id) ?? null;
+  const session = readJson<GuestSession[]>(SESSIONS_KEY, []).find((s) => s.id === id);
+  return session ? normalizeSession(session) : null;
 }
 
-export function createGuestSession(title: string): GuestSession {
+export function createGuestSession(
+  title: string,
+  workspaceId: WorkspaceId = "agent"
+): GuestSession {
   const session: GuestSession = {
     id: newId(),
     title,
     updatedAt: Date.now(),
+    workspaceId,
     messages: [],
   };
   writeSessions([session, ...readJson<GuestSession[]>(SESSIONS_KEY, [])]);

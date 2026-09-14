@@ -9,7 +9,9 @@ import type {
   PendingQuestion,
   SessionConclusion,
   StoredMessage,
+  WorkspaceId,
 } from "./types";
+import { DEFAULT_WORKSPACE_ID } from "./workspaces";
 
 // Own database inside the shared MongoDB cluster, so accounts/sessions/tokens
 // never collide with the inschat app (which uses the "inschat" db). Override
@@ -209,6 +211,7 @@ interface SessionDoc {
   _id?: ObjectId;
   userId?: ObjectId;
   title: string;
+  workspaceId?: WorkspaceId;
   createdAt: Date;
   updatedAt: Date;
   pinned?: boolean;
@@ -263,6 +266,7 @@ function toChatSession(doc: SessionDoc): ChatSession {
     title: doc.title,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
+    workspaceId: doc.workspaceId ?? DEFAULT_WORKSPACE_ID,
     pinned: doc.pinned,
   };
 }
@@ -284,19 +288,35 @@ function toStoredMessage(doc: MessageDoc): StoredMessage {
   };
 }
 
-export async function insertSession(userId: string, title: string): Promise<ChatSession> {
+export async function insertSession(
+  userId: string,
+  title: string,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
+): Promise<ChatSession> {
   const db = await getDb();
   const now = new Date();
-  const doc: SessionDoc = { userId: new ObjectId(userId), title, createdAt: now, updatedAt: now };
+  const doc: SessionDoc = {
+    userId: new ObjectId(userId),
+    title,
+    workspaceId,
+    createdAt: now,
+    updatedAt: now,
+  };
   const result = await db.collection<SessionDoc>("sessions").insertOne(doc);
   return toChatSession({ ...doc, _id: result.insertedId });
 }
 
-export async function listSessions(userId: string, limit = 50): Promise<ChatSession[]> {
+export async function listSessions(
+  userId: string,
+  limit = 50,
+  workspaceId?: WorkspaceId
+): Promise<ChatSession[]> {
   const db = await getDb();
+  const filter: Record<string, unknown> = { userId: new ObjectId(userId) };
+  if (workspaceId) filter.workspaceId = workspaceId;
   const docs = await db
     .collection<SessionDoc>("sessions")
-    .find({ userId: new ObjectId(userId) })
+    .find(filter)
     .sort({ updatedAt: -1 })
     .limit(limit)
     .toArray();
@@ -404,12 +424,39 @@ export async function getAgentBinding(
     .collection<SessionDoc>("sessions")
     .findOne(
       { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
-      { projection: { opencodeSessionId: 1, opencodePromptTokens: 1, agentSessionId: 1, agentTokens: 1 } }
+      {
+        projection: {
+          opencodeSessionId: 1,
+          opencodePromptTokens: 1,
+          agentSessionId: 1,
+          agentTokens: 1,
+          workspaceId: 1,
+        },
+      }
     );
   const id = doc?.opencodeSessionId || doc?.agentSessionId;
   return id
-    ? { sessionId: id, tokens: doc?.opencodePromptTokens ?? doc?.agentTokens ?? 0 }
+    ? {
+        sessionId: id,
+        tokens: doc?.opencodePromptTokens ?? doc?.agentTokens ?? 0,
+        workspaceId: doc.workspaceId ?? DEFAULT_WORKSPACE_ID,
+      }
     : null;
+}
+
+export async function getSessionWorkspace(
+  userId: string,
+  sessionId: string
+): Promise<WorkspaceId | null> {
+  if (!ObjectId.isValid(userId) || !ObjectId.isValid(sessionId)) return null;
+  const db = await getDb();
+  const session = await db
+    .collection<SessionDoc>("sessions")
+    .findOne(
+      { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
+      { projection: { workspaceId: 1 } }
+    );
+  return session ? session.workspaceId ?? DEFAULT_WORKSPACE_ID : null;
 }
 
 export async function listAgentTranscript(
@@ -456,6 +503,7 @@ export async function setAgentBinding(
         opencodePromptTokens: tokens,
         agentSessionId: id,
         agentTokens: tokens,
+        workspaceId: binding.workspaceId ?? DEFAULT_WORKSPACE_ID,
       },
     });
   } else {
@@ -696,6 +744,7 @@ export function isGuestSessionId(id: string): boolean {
 interface GuestRunDoc {
   _id?: ObjectId;
   sessionId: string;
+  workspaceId?: WorkspaceId;
   role: "model";
   text: string;
   status: "pending" | "done" | "failed";
@@ -730,7 +779,10 @@ function toGuestRun(doc: GuestRunDoc): StoredMessage {
 
 // Guest chat ids are UUIDs in localStorage, not owned Mongo sessions.
 // Persist the in-flight model message so a hard refresh can rejoin the run.
-export async function startGuestPendingRun(sessionId: string): Promise<StoredMessage | null> {
+export async function startGuestPendingRun(
+  sessionId: string,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
+): Promise<StoredMessage | null> {
   if (!isGuestSessionId(sessionId)) return null;
   const db = await getDb();
   const now = new Date();
@@ -746,6 +798,7 @@ export async function startGuestPendingRun(sessionId: string): Promise<StoredMes
           status: "pending",
           createdAt: now,
           updatedAt: now,
+          workspaceId,
         },
         $unset: { processSteps: "", model: "", elapsed: "", pendingQuestion: "" },
       }
@@ -765,6 +818,7 @@ export async function startGuestPendingRun(sessionId: string): Promise<StoredMes
   }
   const doc: GuestRunDoc = {
     sessionId,
+    workspaceId,
     role: "model",
     text: "",
     status: "pending",
@@ -866,11 +920,23 @@ export async function getGuestAgentBinding(
     .collection<GuestRunDoc>("guestRuns")
     .findOne(
       { sessionId },
-      { projection: { opencodeSessionId: 1, opencodePromptTokens: 1, agentSessionId: 1, agentTokens: 1 } }
+      {
+        projection: {
+          opencodeSessionId: 1,
+          opencodePromptTokens: 1,
+          agentSessionId: 1,
+          agentTokens: 1,
+          workspaceId: 1,
+        },
+      }
     );
   const id = doc?.opencodeSessionId || doc?.agentSessionId;
   return id
-    ? { sessionId: id, tokens: doc?.opencodePromptTokens ?? doc?.agentTokens ?? 0 }
+    ? {
+        sessionId: id,
+        tokens: doc?.opencodePromptTokens ?? doc?.agentTokens ?? 0,
+        workspaceId: doc.workspaceId ?? DEFAULT_WORKSPACE_ID,
+      }
     : null;
 }
 
@@ -893,6 +959,7 @@ export async function setGuestAgentBinding(
           opencodePromptTokens: Math.max(0, Math.floor(binding.tokens || 0)),
           agentSessionId: binding.sessionId.slice(0, 64),
           agentTokens: Math.max(0, Math.floor(binding.tokens || 0)),
+          workspaceId: binding.workspaceId ?? DEFAULT_WORKSPACE_ID,
         },
       }
     );
@@ -906,20 +973,26 @@ export async function setGuestAgentBinding(
 
 // Clear the binding and hand back the removed opencode session id so the
 // caller can dispose of it (guest chat deleted / reverted client-side).
-export async function takeGuestAgentBinding(sessionId: string): Promise<string | null> {
+export async function takeGuestAgentBinding(sessionId: string): Promise<AgentBinding | null> {
   if (!isGuestSessionId(sessionId)) return null;
   const db = await getDb();
   const col = db.collection<GuestRunDoc>("guestRuns");
   const doc = await col.findOne(
     { sessionId },
-    { projection: { opencodeSessionId: 1, agentSessionId: 1 } }
+    { projection: { opencodeSessionId: 1, agentSessionId: 1, opencodePromptTokens: 1, agentTokens: 1, workspaceId: 1 } }
   );
-  const removed = doc?.opencodeSessionId || doc?.agentSessionId || null;
+  const removedId = doc?.opencodeSessionId || doc?.agentSessionId || null;
   await col.updateOne(
     { sessionId },
     { $unset: { opencodeSessionId: "", opencodePromptTokens: "", agentSessionId: "", agentTokens: "" } }
   );
-  return removed;
+  return removedId
+    ? {
+        sessionId: removedId,
+        tokens: doc?.opencodePromptTokens ?? doc?.agentTokens ?? 0,
+        workspaceId: doc?.workspaceId ?? DEFAULT_WORKSPACE_ID,
+      }
+    : null;
 }
 
 export async function getGuestRun(sessionId: string): Promise<StoredMessage | null> {
@@ -950,13 +1023,13 @@ export async function findOwnedPendingQuestion(
   sessionId: string,
   requestId: string,
   userId: string | null
-): Promise<{ pending: PendingQuestion; guest: boolean } | null> {
+): Promise<{ pending: PendingQuestion; guest: boolean; workspaceId: WorkspaceId } | null> {
   if (!requestId || requestId.length > 80) return null;
   const db = await getDb();
   if (userId && ObjectId.isValid(userId) && ObjectId.isValid(sessionId)) {
     const owned = await db.collection<SessionDoc>("sessions").findOne(
       { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
-      { projection: { _id: 1 } }
+      { projection: { _id: 1, workspaceId: 1 } }
     );
     if (!owned) return null;
     const doc = await db.collection<MessageDoc>("messages").findOne({
@@ -964,7 +1037,13 @@ export async function findOwnedPendingQuestion(
       status: "pending",
       "pendingQuestion.requestId": requestId,
     });
-    return doc?.pendingQuestion ? { pending: doc.pendingQuestion, guest: false } : null;
+    return doc?.pendingQuestion
+      ? {
+          pending: doc.pendingQuestion,
+          guest: false,
+          workspaceId: owned.workspaceId ?? DEFAULT_WORKSPACE_ID,
+        }
+      : null;
   }
   if (!userId && isGuestSessionId(sessionId)) {
     const doc = await db.collection<GuestRunDoc>("guestRuns").findOne({
@@ -972,7 +1051,13 @@ export async function findOwnedPendingQuestion(
       status: "pending",
       "pendingQuestion.requestId": requestId,
     });
-    return doc?.pendingQuestion ? { pending: doc.pendingQuestion, guest: true } : null;
+    return doc?.pendingQuestion
+      ? {
+          pending: doc.pendingQuestion,
+          guest: true,
+          workspaceId: doc.workspaceId ?? DEFAULT_WORKSPACE_ID,
+        }
+      : null;
   }
   return null;
 }

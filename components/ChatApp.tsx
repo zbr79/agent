@@ -16,7 +16,7 @@ import ActivityPanel, {
   upsertActivity,
   type ActivityItem,
 } from "./ActivityPanel";
-import type { ChatImage, ChatMessage, PendingQuestion } from "@/lib/types";
+import type { ChatImage, ChatMessage, PendingQuestion, WorkspaceId } from "@/lib/types";
 import { ModelMarkerParser } from "@/lib/markers";
 import {
   appendGuestMessage,
@@ -361,6 +361,11 @@ export default function ChatApp() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionParam = searchParams.get("session");
+  const rawWorkspace = searchParams.get("workspace");
+  const requestedWorkspaceId: WorkspaceId =
+    rawWorkspace === "profile" || rawWorkspace === "inschat" || rawWorkspace === "rencipe"
+      ? rawWorkspace
+      : "agent";
   const lang = useUiLang();
   const t = STR[lang];
   const [reasoningEffort] = useReasoningEffort();
@@ -376,12 +381,15 @@ export default function ChatApp() {
   pendingQuestionRef.current = pendingQuestion;
   const [loading, setLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
+  const workspaceId: WorkspaceId =
+    isAuthed === true ? requestedWorkspaceId : "agent";
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
   // const [shareMsg, setShareMsg] = useState<"link" | "error" | null>(null); // share feature removed
   const [flashId, setFlashId] = useState<number | null>(null);
   const handledMsgRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const workspaceIdRef = useRef<WorkspaceId>(workspaceId);
   const abortRef = useRef<AbortController | null>(null);
   const userStoppedRef = useRef(false);
   const [freeNotice, setFreeNotice] = useState(false);
@@ -393,6 +401,10 @@ export default function ChatApp() {
   const activitiesRef = useRef<ActivityItem[]>([]);
   const restoredWorkLogRef = useRef(false);
   const resumeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!sessionParam) workspaceIdRef.current = workspaceId;
+  }, [sessionParam, workspaceId]);
 
   // Re-attach to a run that is still going (or was left pending) on the
   // server: poll the session until the placeholder flips to done/failed.
@@ -581,8 +593,9 @@ useEffect(() => {
           return response.json();
         })
         .then(
-          (body: { messages: StoredLike[] }) => {
+          (body: { messages: StoredLike[]; session?: { workspaceId?: WorkspaceId } }) => {
             if (sessionIdRef.current !== id) return;
+            workspaceIdRef.current = body.session?.workspaceId ?? workspaceIdRef.current;
             const list = mapStoredMessages(body.messages ?? []);
             setMessages(list);
             const hasPending = latestModelPending(body.messages ?? []);
@@ -608,6 +621,7 @@ useEffect(() => {
     } else {
       const local = getGuestSession(id);
       if (local) {
+        workspaceIdRef.current = local.workspaceId;
         sessionIdRef.current = id;
         Promise.all(
           local.messages.map(async (message, index) => ({
@@ -741,6 +755,7 @@ useEffect(() => {
             mode: isAuthed === true ? chatMode : "plan",
             model: selectedModel,
             sessionId: sessionIdRef.current ?? undefined,
+            workspaceId: workspaceIdRef.current,
           }),
           signal: controller.signal,
         });
@@ -1063,7 +1078,10 @@ useEffect(() => {
             const response = await fetch("/api/sessions", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ title: titleFrom(trimmed, t["nav.newChat"]) }),
+              body: JSON.stringify({
+                title: titleFrom(trimmed, t["nav.newChat"]),
+                workspaceId: workspaceIdRef.current,
+              }),
             });
             const body = await response.json();
             if (!response.ok) throw new Error(t["common.requestFailed"]);
@@ -1072,12 +1090,17 @@ useEffect(() => {
             sessionId = null;
           }
         } else {
-          sessionId = createGuestSession(titleFrom(trimmed, t["nav.newChat"])).id;
+          sessionId = createGuestSession(
+            titleFrom(trimmed, t["nav.newChat"]),
+            workspaceIdRef.current
+          ).id;
         }
         if (sessionId) {
           sessionIdRef.current = sessionId;
           justCreatedRef.current = sessionId;
-          router.replace(`/?session=${sessionId}`);
+          router.replace(
+            `/?session=${sessionId}&workspace=${encodeURIComponent(workspaceIdRef.current)}`
+          );
         }
       }
 
@@ -1344,6 +1367,7 @@ useEffect(() => {
           pendingQuestion ? t["question.composerLocked"] : t["composer.placeholder"]
         }
         signedIn={isAuthed === true}
+        workspaceId={workspaceIdRef.current}
         onRequireAuth={() => {
           window.dispatchEvent(new CustomEvent("inschat-open-auth"));
         }}

@@ -58,14 +58,23 @@ export async function POST(req: Request) {
   try {
     if (action === "reply") {
       const answers = validateQuestionAnswers(found.pending, body.answers);
-      await replyAgentQuestion(requestId, answers, found.pending.opencodeSessionId);
+      await replyAgentQuestion(
+        requestId,
+        answers,
+        found.pending.opencodeSessionId,
+        found.workspaceId
+      );
     } else {
       try {
-        await rejectAgentQuestion(requestId, found.pending.opencodeSessionId);
+        await rejectAgentQuestion(
+          requestId,
+          found.pending.opencodeSessionId,
+          found.workspaceId
+        );
       } catch (error) {
         if (!(error instanceof QuestionExpiredError) || !abort) throw error;
       }
-      if (abort) await abortAgentSession(found.pending.opencodeSessionId);
+      if (abort) await abortAgentSession(found.pending.opencodeSessionId, found.workspaceId);
     }
   } catch (error) {
     if (error instanceof QuestionValidationError) {
