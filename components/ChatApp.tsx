@@ -386,8 +386,7 @@ export default function ChatApp() {
   pendingQuestionRef.current = pendingQuestion;
   const [loading, setLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
-  const workspaceId: WorkspaceId =
-    isAuthed === true ? requestedWorkspaceId : "agent";
+  const workspaceId: WorkspaceId = requestedWorkspaceId;
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
   // const [shareMsg, setShareMsg] = useState<"link" | "error" | null>(null); // share feature removed

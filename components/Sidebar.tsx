@@ -72,7 +72,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
     : "";
   const currentWorkspaceId = (() => {
     const raw = searchParams.get("workspace");
-    if (!user && raw && raw !== "agent") return "agent" as WorkspaceId;
     if (raw === "profile" || raw === "inschat" || raw === "rencipe") return raw;
     const owned = sessions?.find((session) => session._id === currentSession)?.workspaceId;
     const guest = guestSessions.find((session) => session.id === currentSession)?.workspaceId;

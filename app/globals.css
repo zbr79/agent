@@ -418,8 +418,7 @@ body {
   position: fixed;
   z-index: 100;
   inset: 0;
-  background: rgba(16, 16, 22, 0.34);
-  backdrop-filter: blur(2px);
+  background: transparent;
 }
 
 .workspace-modal {
@@ -434,7 +433,7 @@ body {
   padding: 20px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: var(--surface);
+  background: #fff;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
 }
 
@@ -494,7 +493,7 @@ body {
   padding: 11px;
   border: 1px solid var(--border);
   border-radius: 11px;
-  background: transparent;
+  background: #fff;
   color: var(--text);
   cursor: pointer;
   text-align: left;
