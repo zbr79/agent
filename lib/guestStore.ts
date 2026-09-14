@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChatImage, SessionConclusion, WorkspaceId } from "./types";
+import type { ActivityEvent } from "./markers";
 
 export interface GuestMessage {
   role: "user" | "model";
@@ -9,6 +10,7 @@ export interface GuestMessage {
   imageKeys?: string[];
   model?: string;
   elapsed?: number;
+  activities?: ActivityEvent[];
 }
 
 export interface GuestSession {

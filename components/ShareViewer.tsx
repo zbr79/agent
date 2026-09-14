@@ -8,6 +8,7 @@ import type { ChatImage } from "@/lib/types";
 import { modelLabel } from "@/lib/modelLabels";
 import { STR, useUiLang } from "@/lib/i18n";
 import { formatElapsed, stripDoneLines } from "@/lib/format";
+import { toWorkspaceRelative } from "@/lib/workspacePath";
 
 interface SharedMessage {
   role: "user" | "model";
@@ -77,7 +78,7 @@ export default function ShareViewer({ share }: ShareViewerProps) {
                   >
                     {preserveLineBreaks(
                       message.role === "model"
-                        ? stripDoneLines(message.text)
+                        ? toWorkspaceRelative(stripDoneLines(message.text))
                         : message.text
                     )}
                   </ReactMarkdown>
