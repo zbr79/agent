@@ -100,10 +100,7 @@ export async function POST(req: Request) {
   const requestUser = await getUserFromRequest(req).catch(() => null);
   const mode = requestUser ? requestedMode : "plan";
   let workspaceId: WorkspaceId = requestedWorkspaceId ?? DEFAULT_WORKSPACE_ID;
-  if (!requestUser) {
-    // Guests are intentionally confined to the public Agent project.
-    workspaceId = DEFAULT_WORKSPACE_ID;
-  } else if (sessionId) {
+  if (requestUser && sessionId) {
     const storedWorkspace = await getSessionWorkspace(requestUser._id, sessionId);
     if (!storedWorkspace) {
       return Response.json({ error: "Session not found." }, { status: 404 });
