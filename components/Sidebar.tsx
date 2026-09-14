@@ -185,6 +185,12 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
     return () => window.removeEventListener("inschat-titles", onTitles);
   }, [load]);
 
+  useEffect(() => {
+    const onRequireAuth = () => setAuthOpen(true);
+    window.addEventListener("inschat-open-auth", onRequireAuth);
+    return () => window.removeEventListener("inschat-open-auth", onRequireAuth);
+  }, []);
+
 
   const remove = async (id: string) => {
     if (deleting) return;
