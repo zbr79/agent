@@ -400,7 +400,12 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
     pinned: boolean,
     workspaceId: WorkspaceId = "agent"
   ) => (
-    <div key={id} className={`session-row${pinned ? " pinned" : ""}`}>
+    <div
+      key={id}
+      className={`session-row${pinned ? " pinned" : ""}${
+        id === currentSession ? " active" : ""
+      }`}
+    >
       {renamingId === id ? (
         <input
           type="text"
@@ -422,7 +427,7 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
       ) : (
         <Link
           href={`/?session=${id}&workspace=${encodeURIComponent(workspaceId)}`}
-          className={`session-link${id === currentSession ? " active" : ""}`}
+          className="session-link"
           title={title}
           onClick={() => setMenuOpen(false)}
         >
@@ -432,79 +437,17 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
       )}
       <button
         type="button"
-        className="session-more"
-        aria-label={t["nav.more"]}
-        title={t["nav.more"]}
-        onClick={(event) => {
-          if (menuFor?.id === id) {
-            setMenuFor(null);
-            return;
-          }
-          const rect = event.currentTarget.getBoundingClientRect();
-          const menuWidth = 150;
-          const left =
-            rect.right + 6 + menuWidth > window.innerWidth
-              ? rect.left - menuWidth - 6
-              : rect.right + 6;
-          const top = Math.max(
-            8,
-            Math.min(rect.top, window.innerHeight - 130)
-          );
-          setMenuFor({ id, top, left });
-          setRenamingId(null);
-        }}
+        className="session-delete"
+        aria-label={t["nav.delete"]}
+        title={t["nav.delete"]}
+        disabled={deleting !== null}
+        onClick={() => remove(id)}
       >
-        <MoreHorizontal size={15} />
+        <Trash2 size={14} />
       </button>
-      {menuFor?.id === id && (
-        <>
-          <div
-            className="row-menu-backdrop"
-            onClick={() => setMenuFor(null)}
-            aria-hidden="true"
-          />
-          <div
-            className="row-menu"
-            style={{ top: menuFor.top, left: menuFor.left }}
-          >
-            <button
-              type="button"
-              className="row-menu-item"
-              onClick={() => {
-                setRenamingId(id);
-                setRenameText(title);
-                setMenuFor(null);
-              }}
-            >
-              <Pencil size={14} />
-              {t["nav.rename"]}
-            </button>
-            <button
-              type="button"
-              className="row-menu-item"
-              onClick={() => {
-                setMenuFor(null);
-                togglePin(id, pinned);
-              }}
-            >
-              {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-              {pinned ? t["nav.unpin"] : t["nav.pin"]}
-            </button>
-            <button
-              type="button"
-              className="row-menu-item danger"
-              disabled={deleting !== null}
-              onClick={() => {
-                setMenuFor(null);
-                remove(id);
-              }}
-            >
-              <Trash2 size={14} />
-              {t["nav.delete"]}
-            </button>
-          </div>
-        </>
-      )}
+      <span className="session-time" aria-hidden="true">
+        4m
+      </span>
     </div>
   );
 
