@@ -186,6 +186,18 @@ function pendingQuestionFrom(list: StoredLike[]): PendingQuestion | null {
 
 let nextId = 1;
 
+function emitSessionIndicator(
+  sessionId: string | null | undefined,
+  status: "read" | "unread" | "responding"
+): void {
+  if (!sessionId || typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("inschat-session-indicator", {
+      detail: { sessionId, status },
+    })
+  );
+}
+
 function isConnectionLossError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === "AbortError") return true;
   if (!(error instanceof Error)) return false;
@@ -423,6 +435,7 @@ export default function ChatApp() {
   const startResume = useCallback(
     (id: string) => {
       stopResume();
+      emitSessionIndicator(id, "responding");
       // Rejoin the VIEW of a still-live detached run. Do not open a new
       // agent session or POST /api/chat — the original handler keeps writing.
       setSending(true);
@@ -444,7 +457,10 @@ export default function ChatApp() {
             setActivityLive(stillPending);
             setPendingQuestion(stillPending ? pendingQuestionFrom(list) : null);
           }
-          if (!stillPending) stopResume();
+          if (!stillPending) {
+            emitSessionIndicator(id, "unread");
+            stopResume();
+          }
         } catch {
           /* retry next tick */
         }
@@ -465,6 +481,7 @@ export default function ChatApp() {
   const startGuestResume = useCallback(
     (id: string) => {
       stopResume();
+      emitSessionIndicator(id, "responding");
       setSending(true);
       setActivityLive(true);
       const tick = async () => {
@@ -485,6 +502,7 @@ export default function ChatApp() {
           setPendingQuestion(stillPending ? run.pendingQuestion ?? null : null);
           if (!stillPending) {
             rememberGuestRun(id, run, savedGuestRunsRef.current);
+            emitSessionIndicator(id, "unread");
             stopResume();
           }
         } catch {
@@ -717,6 +735,8 @@ useEffect(() => {
   const streamReply = useCallback(
     async (base: UiMessage[]) => {
       stopResume();
+      const streamSessionId = sessionIdRef.current;
+      emitSessionIndicator(streamSessionId, "responding");
       const modelMessage: UiMessage = {
         id: nextId++,
         role: "model",
@@ -1057,6 +1077,7 @@ useEffect(() => {
       } finally {
         abortRef.current = null;
         if (keepQuestion) {
+          emitSessionIndicator(streamSessionId, "responding");
           const id = sessionIdRef.current;
           setSending(true);
           setActivityLive(true);
@@ -1065,6 +1086,7 @@ useEffect(() => {
             else startGuestResume(id);
           }
         } else {
+          emitSessionIndicator(streamSessionId, "unread");
           setSending(false);
           setActivityLive(false);
           setPendingQuestion(null);

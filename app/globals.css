@@ -539,6 +539,36 @@ body {
   opacity: 0.7;
 }
 
+.session-placeholder-dot.session-status-unread {
+  background: #3b82f6;
+  opacity: 1;
+}
+
+.session-placeholder-dot.session-status-responding {
+  flex-basis: 10px;
+  width: 10px;
+  height: 10px;
+  background: transparent;
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  border-top-color: #3b82f6;
+  border-right-color: #3b82f6;
+  opacity: 1;
+  animation: session-status-spin 0.9s linear infinite;
+}
+
+@keyframes session-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-placeholder-dot.session-status-responding {
+    animation: none;
+    border-color: #3b82f6;
+  }
+}
+
 .workspace-modal-backdrop {
   position: fixed;
   z-index: 100;
