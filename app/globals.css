@@ -511,15 +511,23 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 1px 0 5px 20px;
+  padding: 1px 0 5px 16px;
 }
 
 .workspace-child-sessions .session-link {
   display: flex;
   align-items: center;
   gap: 9px;
+  padding-left: 0;
+  padding-right: 0;
   padding-top: 8px;
   padding-bottom: 8px;
+}
+
+.workspace-child-sessions .session-row {
+  margin-left: -16px;
+  padding-left: 8px;
+  padding-right: 12px;
 }
 
 .session-placeholder-dot {
@@ -788,6 +796,17 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
+  padding: 0 8px;
+  border-radius: 10px;
+}
+
+.session-row:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.session-row.active {
+  background: rgba(0, 0, 0, 0.08);
+  font-weight: 500;
 }
 
 .session-link {
@@ -804,18 +823,28 @@ body {
 }
 
 .session-link:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: transparent;
 }
 
 .session-link.active {
-  background: rgba(0, 0, 0, 0.08);
-  font-weight: 500;
+  background: transparent;
+}
+
+.session-time {
+  flex: 0 0 24px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  text-align: right;
 }
 
 .session-delete {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -2671,6 +2700,14 @@ span.conclude-rank-badge {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.input-row.mode-build .send-button {
+  background: var(--mode-build);
+}
+
+.input-row.mode-plan .send-button {
+  background: var(--mode-plan);
 }
 
 .send-button:disabled {
