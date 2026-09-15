@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, SquarePen, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown, RotateCw, Folder, Check, Plus, AppWindow } from "lucide-react";
+import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, ChevronDown, Languages, Gauge, LogOut, ImageDown, RotateCw, Folder, FolderPlus, Check, AppWindow } from "lucide-react";
 import type { ChatSession, WorkspaceId, WorkspaceInfo } from "@/lib/types";
 import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession, type GuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
@@ -17,6 +17,34 @@ interface MeUser {
 }
 
 const COLLAPSED_KEY = "inschat_sidebar_collapsed";
+const WORKSPACE_ORDER_KEY = "inschat_workspace_order";
+const DEFAULT_WORKSPACE_ORDER: WorkspaceId[] = ["agent", "profile", "inschat", "rencipe"];
+
+function orderWorkspaces(items: WorkspaceInfo[], order: WorkspaceId[]): WorkspaceInfo[] {
+  const rank = new Map(order.map((id, index) => [id, index]));
+  return [...items].sort(
+    (a, b) => (rank.get(a.id) ?? order.length) - (rank.get(b.id) ?? order.length)
+  );
+}
+
+function moveByDropPosition<T>(
+  items: T[],
+  fromId: string,
+  targetId: string,
+  before: boolean,
+  getId: (item: T) => string
+): T[] {
+  const from = items.findIndex((item) => getId(item) === fromId);
+  const target = items.findIndex((item) => getId(item) === targetId);
+  if (from < 0 || target < 0 || from === target) return items;
+  const next = [...items];
+  const [moved] = next.splice(from, 1);
+  let insertAt = target;
+  if (from < target) insertAt -= 1;
+  if (!before) insertAt += 1;
+  next.splice(Math.max(0, Math.min(insertAt, next.length)), 0, moved);
+  return next;
+}
 
 // Workspace/folder path chip in the brand area (desktop + mobile).
 // Kept behind a flag so it can be hidden without deleting the wiring.
@@ -57,6 +85,12 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   const [sessions, setSessions] = useState<ChatSession[] | null>(null);
   const [guestSessions, setGuestSessions] = useState<GuestSession[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
+  const [workspaceTreeOpen, setWorkspaceTreeOpen] = useState(true);
+  const [dragWorkspaceId, setDragWorkspaceId] = useState<WorkspaceId | null>(null);
+  const [workspaceDropTarget, setWorkspaceDropTarget] = useState<{
+    id: WorkspaceId;
+    before: boolean;
+  } | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -77,10 +111,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
     const guest = guestSessions.find((session) => session.id === currentSession)?.workspaceId;
     return (owned ?? guest ?? "agent") as WorkspaceId;
   })();
-  const currentWorkspace = workspaces.find((item) => item.id === currentWorkspaceId) ?? {
-    id: currentWorkspaceId,
-    label: currentWorkspaceId === "agent" ? "Agent" : currentWorkspaceId,
-  };
   const copyWorkspace = async () => {
     if (!workspace) return;
     try {
@@ -170,7 +200,22 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
     fetch("/api/workspaces")
       .then((response) => response.json())
       .then((body: { workspaces?: WorkspaceInfo[] }) => {
-        if (Array.isArray(body.workspaces)) setWorkspaces(body.workspaces);
+        if (!Array.isArray(body.workspaces)) return;
+        if (user) {
+          setWorkspaces(body.workspaces);
+          return;
+        }
+        try {
+          const stored = JSON.parse(
+            window.localStorage.getItem(WORKSPACE_ORDER_KEY) ?? "[]"
+          );
+          const order = Array.isArray(stored)
+            ? stored.filter((id): id is WorkspaceId => DEFAULT_WORKSPACE_ORDER.includes(id))
+            : [];
+          setWorkspaces(orderWorkspaces(body.workspaces, order));
+        } catch {
+          setWorkspaces(body.workspaces);
+        }
       })
       .catch(() => {});
   }, [authChecked, user]);
@@ -294,22 +339,47 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
 
   const selectWorkspace = (id: WorkspaceId) => {
     setWorkspaceOpen(false);
+    setWorkspaceTreeOpen(true);
     setMenuOpen(false);
     router.push(`/?workspace=${encodeURIComponent(id)}`);
   };
 
-  const ownerList = (sessions ?? []).sort(
+  const ownerList = [...(sessions ?? [])].sort(
     (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false)
   );
-  const guestList = guestSessions.sort(
+  const guestList = [...guestSessions].sort(
     (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false)
   );
-  const activeOwnerList = ownerList.filter(
-    (session) => session.workspaceId === currentWorkspaceId
-  );
-  const activeGuestList = guestList.filter(
-    (session) => session.workspaceId === currentWorkspaceId
-  );
+
+  const persistWorkspaceOrder = (next: WorkspaceInfo[]) => {
+    setWorkspaces(next);
+    const order = next.map((item) => item.id);
+    if (user) {
+      fetch("/api/workspaces/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order }),
+      }).catch(() => {});
+    } else {
+      try {
+        window.localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(order));
+      } catch {}
+    }
+  };
+
+  const handleWorkspaceDrop = (targetId: WorkspaceId) => {
+    if (!dragWorkspaceId || dragWorkspaceId === targetId) return;
+    const next = moveByDropPosition(
+      workspaces,
+      dragWorkspaceId,
+      targetId,
+      workspaceDropTarget?.id === targetId ? workspaceDropTarget.before : true,
+      (item) => item.id
+    );
+    persistWorkspaceOrder(next);
+    setDragWorkspaceId(null);
+    setWorkspaceDropTarget(null);
+  };
 
   const renderSessionRow = (
     id: string,
@@ -343,6 +413,7 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
           title={title}
           onClick={() => setMenuOpen(false)}
         >
+          <span className="session-placeholder-dot" aria-hidden="true" />
           <FitTitle title={title} />
         </Link>
       )}
@@ -526,13 +597,14 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
               <button
                 type="button"
                 className="workspace-root-button"
-                onClick={() => setWorkspaceOpen(true)}
-                aria-expanded={workspaceOpen}
-                aria-haspopup="dialog"
+                onClick={() => setWorkspaceTreeOpen((open) => !open)}
+                aria-expanded={workspaceTreeOpen}
               >
-                <Folder size={16} />
-                <span>{t["workspace.root"]}</span>
-                <img src="/icon.svg" width={17} height={17} alt="" className="workspace-app-icon" />
+                <span className="workspace-root-label">{t["workspace.root"]}</span>
+                <ChevronDown
+                  size={16}
+                  className={workspaceTreeOpen ? "workspace-chevron-open" : ""}
+                />
               </button>
               <button
                 type="button"
@@ -541,68 +613,147 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                 aria-label={t["workspace.add"]}
                 title={t["workspace.add"]}
               >
-                <Plus size={15} />
+                <FolderPlus size={16} />
               </button>
             </div>
-            <div className="workspace-child">
-              <div className="workspace-child-row">
-                <button
-                  type="button"
-                  className="workspace-child-button"
-                  onClick={() => setWorkspaceOpen(true)}
-                  aria-haspopup="dialog"
-                >
-                  <AppWindow size={14} />
-                  <span>{currentWorkspace.label}</span>
-                </button>
-                <button
-                  type="button"
-                  className="workspace-child-new"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    router.push(`/?workspace=${encodeURIComponent(currentWorkspaceId)}`);
-                  }}
-                  aria-label={t["nav.newChat"]}
-                  title={t["nav.newChat"]}
-                >
-                  <SquarePen size={13} />
-                </button>
+            {workspaceTreeOpen && (
+              <div
+                className="workspace-tree-children"
+                onDragOver={(event) => {
+                  if (!dragWorkspaceId) return;
+                  event.preventDefault();
+                  const element =
+                    event.target instanceof HTMLElement ? event.target : null;
+                  const folder = element?.closest<HTMLElement>(".workspace-folder");
+                  const targetId = folder?.dataset.workspaceId as WorkspaceId | undefined;
+                  if (!folder || !targetId || targetId === dragWorkspaceId) {
+                    const firstRow = event.currentTarget.querySelector(".workspace-child-row");
+                    const firstWorkspace = workspaces[0];
+                    if (
+                      firstRow instanceof HTMLElement &&
+                      firstWorkspace &&
+                      event.clientY < firstRow.getBoundingClientRect().top
+                    ) {
+                      setWorkspaceDropTarget({ id: firstWorkspace.id, before: true });
+                    }
+                    return;
+                  }
+                  const row = folder.querySelector(".workspace-child-row");
+                  if (!(row instanceof HTMLElement)) return;
+                  const rect = row.getBoundingClientRect();
+                  setWorkspaceDropTarget({
+                    id: targetId,
+                    before: event.clientY < rect.top + rect.height / 2,
+                  });
+                }}
+                onDrop={(event) => {
+                  if (!workspaceDropTarget) return;
+                  event.preventDefault();
+                  handleWorkspaceDrop(workspaceDropTarget.id);
+                }}
+              >
+                {workspaces.length === 0 ? (
+                  <p className="session-hint">{t["nav.loading"]}</p>
+                ) : (
+                  workspaces.map((item) => {
+                    const itemOwnerList = ownerList.filter(
+                      (session) => session.workspaceId === item.id
+                    );
+                    const itemGuestList = guestList.filter(
+                      (session) => session.workspaceId === item.id
+                    );
+                    const active = item.id === currentWorkspaceId;
+                    return (
+                      <div
+                        key={item.id}
+                        data-workspace-id={item.id}
+                        className={`workspace-folder${active ? " active" : ""}`}
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = "move";
+                          setDragWorkspaceId(item.id);
+                        }}
+                        onDragEnd={() => {
+                          setDragWorkspaceId(null);
+                          setWorkspaceDropTarget(null);
+                        }}
+                      >
+                        {workspaceDropTarget?.id === item.id &&
+                          workspaceDropTarget.before && (
+                            <div
+                              className="workspace-drop-indicator before"
+                              aria-hidden="true"
+                            />
+                          )}
+                        <div className="workspace-child-row">
+                          <button
+                            type="button"
+                            className="workspace-child-button"
+                            onClick={() => selectWorkspace(item.id)}
+                            aria-current={active ? "page" : undefined}
+                          >
+                            <AppWindow size={14} />
+                            <span>{item.label}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="workspace-child-new"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              router.push(`/?workspace=${encodeURIComponent(item.id)}`);
+                            }}
+                            aria-label={t["nav.newChat"]}
+                            title={t["nav.newChat"]}
+                          >
+                            <Plus size={15} />
+                          </button>
+                        </div>
+                        {workspaceDropTarget?.id === item.id &&
+                          !workspaceDropTarget.before && (
+                            <div
+                              className="workspace-drop-indicator after"
+                              aria-hidden="true"
+                            />
+                          )}
+                        {authChecked && (
+                          <div className="workspace-child-sessions">
+                            {user
+                              ? itemOwnerList.map((session) =>
+                                  renderSessionRow(
+                                    session._id,
+                                    session.title,
+                                    Boolean(session.pinned),
+                                    session.workspaceId
+                                  )
+                                )
+                              : itemGuestList.map((session) =>
+                                  renderSessionRow(
+                                    session.id,
+                                    session.title,
+                                    Boolean(session.pinned),
+                                    session.workspaceId
+                                  )
+                                )}
+                            {active && user && sessions === null && (
+                              <p className="session-hint">{t["nav.loading"]}</p>
+                            )}
+                            {active &&
+                              user &&
+                              sessions !== null &&
+                              itemOwnerList.length === 0 && (
+                                <p className="session-hint">{t["nav.noSessions"]}</p>
+                              )}
+                            {active && !user && itemGuestList.length === 0 && (
+                              <p className="session-hint">{t["nav.guestHint"]}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
-              {authChecked && (
-                <div className="workspace-child-sessions">
-                  {user ? (
-                    <>
-                      {sessions === null && <p className="session-hint">{t["nav.loading"]}</p>}
-                      {sessions !== null && activeOwnerList.length === 0 && (
-                        <p className="session-hint">{t["nav.noSessions"]}</p>
-                      )}
-                      {activeOwnerList.map((session) =>
-                        renderSessionRow(
-                          session._id,
-                          session.title,
-                          Boolean(session.pinned),
-                          session.workspaceId
-                        )
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {activeGuestList.length === 0 && (
-                        <p className="session-hint">{t["nav.guestHint"]}</p>
-                      )}
-                      {activeGuestList.map((session) =>
-                        renderSessionRow(
-                          session.id,
-                          session.title,
-                          Boolean(session.pinned),
-                          session.workspaceId
-                        )
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+            )}
           </div>
         </div>
       <div className="sidebar-foot">

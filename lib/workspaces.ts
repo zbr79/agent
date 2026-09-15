@@ -28,9 +28,11 @@ export function requireWorkspace(id: unknown): WorkspaceDefinition {
   return workspace;
 }
 
-export function listWorkspaceInfo(guest = false): WorkspaceInfo[] {
+export function listWorkspaceInfo(guest = false, order: WorkspaceId[] = []): WorkspaceInfo[] {
+  const rank = new Map(order.map((id, index) => [id, index]));
   return DEFINITIONS
     .filter((workspace) => !guest || workspace.id === DEFAULT_WORKSPACE_ID)
+    .sort((a, b) => (rank.get(a.id) ?? order.length) - (rank.get(b.id) ?? order.length))
     .map(({ id, label }) => ({ id, label }));
 }
 

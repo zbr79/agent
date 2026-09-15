@@ -270,6 +270,8 @@ body {
   display: grid;
   place-items: center;
   border-radius: 9px;
+  border: none;
+  background: transparent;
 }
 
 .workspace-picker-button:hover,
@@ -357,21 +359,62 @@ body {
   flex: 1;
 }
 
+.workspace-root-button svg {
+  flex: none;
+  transform: rotate(-90deg);
+  transition: transform 160ms ease;
+}
+
+.workspace-root-button .workspace-chevron-open {
+  transform: rotate(0deg);
+}
+
 .workspace-root-button:hover,
 .workspace-child-button:hover,
 .workspace-child-new:hover {
   background: rgba(0, 0, 0, 0.05);
 }
 
-.workspace-app-icon {
-  opacity: 0.75;
-  border-radius: 4px;
+.workspace-tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.workspace-child {
-  margin-left: 17px;
-  padding-left: 9px;
-  border-left: 1px solid var(--border);
+.workspace-folder {
+  position: relative;
+  min-width: 0;
+}
+
+.workspace-folder[draggable] {
+  cursor: grab;
+}
+
+.workspace-folder[draggable]:active {
+  cursor: grabbing;
+}
+
+.workspace-drop-indicator {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  height: 1px;
+  border-radius: 999px;
+  background: #7f3448;
+  pointer-events: none;
+}
+
+.workspace-drop-indicator.before {
+  top: -1px;
+}
+
+.workspace-drop-indicator.after {
+  bottom: -1px;
+}
+
+.workspace-folder.active .workspace-child-button {
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .workspace-child-button {
@@ -400,18 +443,37 @@ body {
   place-items: center;
   border-radius: 7px;
   color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 140ms ease, background 140ms ease;
+}
+
+.workspace-child-row:hover .workspace-child-new,
+.workspace-child-new:focus-visible {
+  opacity: 1;
 }
 
 .workspace-child-sessions {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 1px 0 5px 8px;
+  padding: 1px 0 5px 20px;
 }
 
 .workspace-child-sessions .session-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   padding-top: 8px;
   padding-bottom: 8px;
+}
+
+.session-placeholder-dot {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.7;
 }
 
 .workspace-modal-backdrop {
