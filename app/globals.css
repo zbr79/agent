@@ -333,6 +333,11 @@ body {
   gap: 4px;
 }
 
+.workspace-child-row {
+  width: 100%;
+  border-radius: 8px;
+}
+
 .workspace-root-button,
 .workspace-child-button,
 .workspace-child-new {
@@ -370,9 +375,15 @@ body {
 }
 
 .workspace-root-button:hover,
-.workspace-child-button:hover,
+.workspace-child-row:hover,
+.workspace-child-row:hover .workspace-child-button,
 .workspace-child-new:hover {
   background: rgba(0, 0, 0, 0.05);
+}
+
+.workspace-child-row:hover .workspace-child-button,
+.workspace-child-row:hover .workspace-child-new {
+  background: transparent;
 }
 
 .workspace-tree-children {
@@ -428,6 +439,50 @@ body {
   color: var(--text);
   font-size: 13px;
   text-align: left;
+}
+
+.workspace-child-button:disabled {
+  cursor: default;
+}
+
+.workspace-child-button svg {
+  flex: none;
+  transition: transform 160ms ease;
+}
+
+.workspace-folder-icon {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+}
+
+.workspace-folder-icon > svg {
+  position: absolute;
+  inset: 0;
+  transition: opacity 120ms ease, transform 160ms ease;
+}
+
+.workspace-folder-chevron {
+  opacity: 0;
+  transform: rotate(0deg);
+}
+
+.workspace-folder-chevron-open {
+  transform: rotate(90deg);
+}
+
+.workspace-child-row:hover .workspace-folder-glyph {
+  opacity: 0;
+}
+
+.workspace-child-row:hover .workspace-folder-chevron {
+  opacity: 1;
+}
+
+.workspace-child-button .workspace-folder-chevron-open {
+  transform: rotate(90deg);
 }
 
 .workspace-child-button span {

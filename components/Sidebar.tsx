@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, ChevronDown, Languages, Gauge, LogOut, ImageDown, RotateCw, Folder, FolderPlus, Check, AppWindow } from "lucide-react";
+import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, ChevronDown, Languages, Gauge, LogOut, ImageDown, RotateCw, Folder, FolderPlus, Check } from "lucide-react";
 import type { ChatSession, WorkspaceId, WorkspaceInfo } from "@/lib/types";
 import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession, type GuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
@@ -86,6 +86,9 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   const [guestSessions, setGuestSessions] = useState<GuestSession[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [workspaceTreeOpen, setWorkspaceTreeOpen] = useState(true);
+  const [openWorkspaceIds, setOpenWorkspaceIds] = useState<Set<WorkspaceId>>(
+    () => new Set(DEFAULT_WORKSPACE_ORDER)
+  );
   const [dragWorkspaceId, setDragWorkspaceId] = useState<WorkspaceId | null>(null);
   const [workspaceDropTarget, setWorkspaceDropTarget] = useState<{
     id: WorkspaceId;
@@ -340,8 +343,18 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   const selectWorkspace = (id: WorkspaceId) => {
     setWorkspaceOpen(false);
     setWorkspaceTreeOpen(true);
+    setOpenWorkspaceIds((current) => new Set(current).add(id));
     setMenuOpen(false);
     router.push(`/?workspace=${encodeURIComponent(id)}`);
+  };
+
+  const toggleWorkspaceOpen = (id: WorkspaceId) => {
+    setOpenWorkspaceIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const ownerList = [...(sessions ?? [])].sort(
@@ -662,12 +675,14 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                     const itemGuestList = guestList.filter(
                       (session) => session.workspaceId === item.id
                     );
-                    const active = item.id === currentWorkspaceId;
+                    const isOpen = openWorkspaceIds.has(item.id);
+                    const hasChats =
+                      user ? sessions === null || itemOwnerList.length > 0 : itemGuestList.length > 0;
                     return (
                       <div
                         key={item.id}
                         data-workspace-id={item.id}
-                        className={`workspace-folder${active ? " active" : ""}`}
+                        className="workspace-folder"
                         draggable
                         onDragStart={(event) => {
                           event.dataTransfer.effectAllowed = "move";
@@ -689,10 +704,23 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                           <button
                             type="button"
                             className="workspace-child-button"
-                            onClick={() => selectWorkspace(item.id)}
-                            aria-current={active ? "page" : undefined}
+                            onClick={() => {
+                              if (hasChats) toggleWorkspaceOpen(item.id);
+                            }}
+                            aria-expanded={hasChats ? isOpen : undefined}
+                            disabled={!hasChats}
                           >
-                            <AppWindow size={14} />
+                            <span className="workspace-folder-icon" aria-hidden="true">
+                              <Folder size={14} className="workspace-folder-glyph" />
+                              {hasChats && (
+                                <ChevronRight
+                                  size={14}
+                                  className={`workspace-folder-chevron${
+                                    isOpen ? " workspace-folder-chevron-open" : ""
+                                  }`}
+                                />
+                              )}
+                            </span>
                             <span>{item.label}</span>
                           </button>
                           <button
@@ -715,7 +743,7 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                               aria-hidden="true"
                             />
                           )}
-                        {authChecked && (
+                        {authChecked && isOpen && hasChats && (
                           <div className="workspace-child-sessions">
                             {user
                               ? itemOwnerList.map((session) =>
@@ -734,17 +762,8 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                                     session.workspaceId
                                   )
                                 )}
-                            {active && user && sessions === null && (
+                            {user && sessions === null && (
                               <p className="session-hint">{t["nav.loading"]}</p>
-                            )}
-                            {active &&
-                              user &&
-                              sessions !== null &&
-                              itemOwnerList.length === 0 && (
-                                <p className="session-hint">{t["nav.noSessions"]}</p>
-                              )}
-                            {active && !user && itemGuestList.length === 0 && (
-                              <p className="session-hint">{t["nav.guestHint"]}</p>
                             )}
                           </div>
                         )}
