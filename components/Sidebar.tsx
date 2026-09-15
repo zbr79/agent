@@ -18,7 +18,9 @@ interface MeUser {
 
 const COLLAPSED_KEY = "inschat_sidebar_collapsed";
 const WORKSPACE_ORDER_KEY = "inschat_workspace_order";
+const SESSION_INDICATORS_KEY = "inschat_session_indicators";
 const DEFAULT_WORKSPACE_ORDER: WorkspaceId[] = ["agent", "profile", "inschat", "rencipe"];
+type SessionIndicator = "read" | "unread" | "responding";
 
 function orderWorkspaces(items: WorkspaceInfo[], order: WorkspaceId[]): WorkspaceInfo[] {
   const rank = new Map(order.map((id, index) => [id, index]));
@@ -84,6 +86,9 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   const [authChecked, setAuthChecked] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[] | null>(null);
   const [guestSessions, setGuestSessions] = useState<GuestSession[]>([]);
+  const [sessionIndicators, setSessionIndicators] = useState<
+    Record<string, SessionIndicator>
+  >({});
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [workspaceTreeOpen, setWorkspaceTreeOpen] = useState(true);
   const [openWorkspaceIds, setOpenWorkspaceIds] = useState<Set<WorkspaceId>>(
@@ -156,6 +161,57 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname, currentSession]);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(
+        window.localStorage.getItem(SESSION_INDICATORS_KEY) ?? "{}"
+      );
+      if (stored && typeof stored === "object") {
+        setSessionIndicators(stored as Record<string, SessionIndicator>);
+      }
+    } catch {}
+  }, []);
+
+  const setSessionIndicator = useCallback(
+    (id: string, status: SessionIndicator) => {
+      const nextStatus =
+        id === currentSession && status !== "responding" ? "read" : status;
+      setSessionIndicators((current) => {
+        if (current[id] === nextStatus) return current;
+        const next = { ...current, [id]: nextStatus };
+        try {
+          window.localStorage.setItem(SESSION_INDICATORS_KEY, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    },
+    [currentSession]
+  );
+
+  useEffect(() => {
+    const onSessionIndicator = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ sessionId?: unknown; status?: unknown }>
+      ).detail;
+      if (
+        typeof detail?.sessionId !== "string" ||
+        (detail.status !== "read" &&
+          detail.status !== "unread" &&
+          detail.status !== "responding")
+      ) {
+        return;
+      }
+      setSessionIndicator(detail.sessionId, detail.status);
+    };
+    window.addEventListener("inschat-session-indicator", onSessionIndicator);
+    return () =>
+      window.removeEventListener("inschat-session-indicator", onSessionIndicator);
+  }, [setSessionIndicator]);
+
+  useEffect(() => {
+    if (currentSession) setSessionIndicator(currentSession, "read");
+  }, [currentSession, setSessionIndicator]);
 
   // Escape closes the mobile drawer (and any open row menu).
   useEffect(() => {
@@ -431,7 +487,19 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
           title={title}
           onClick={() => setMenuOpen(false)}
         >
-          <span className="session-placeholder-dot" aria-hidden="true" />
+          <span
+            className={`session-placeholder-dot session-status-${
+              sessionIndicators[id] ?? "read"
+            }`}
+            role="img"
+            aria-label={
+              sessionIndicators[id] === "responding"
+                ? "Responding"
+                : sessionIndicators[id] === "unread"
+                  ? "Unread response"
+                  : "Read"
+            }
+          />
           <FitTitle title={title} />
         </Link>
       )}
