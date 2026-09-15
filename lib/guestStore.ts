@@ -68,9 +68,9 @@ function normalizeSession(session: GuestSession): GuestSession {
 }
 
 export function listGuestSessions(): GuestSession[] {
-  return readJson<GuestSession[]>(SESSIONS_KEY, []).map(normalizeSession).sort(
-    (a, b) => b.updatedAt - a.updatedAt
-  );
+  return readJson<GuestSession[]>(SESSIONS_KEY, [])
+    .map(normalizeSession)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function getGuestSession(id: string): GuestSession | null {

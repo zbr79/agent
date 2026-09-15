@@ -242,7 +242,7 @@ export const EXTRA_STR = {
     "nav.more": "More options",
     "nav.openMenu": "Open menu",
     "nav.refresh": "Refresh",
-    "workspace.root": "Workspace",
+    "workspace.root": "Workspaces",
     "workspace.selectFolder": "Select a folder",
     "workspace.approvedProject": "Approved project folder",
     "workspace.add": "Add approved workspace",

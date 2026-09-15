@@ -11,6 +11,7 @@ import type {
   StoredMessage,
   WorkspaceId,
 } from "./types";
+import { WORKSPACE_IDS } from "./types";
 import type { ActivityEvent } from "./markers";
 import { DEFAULT_WORKSPACE_ID } from "./workspaces";
 
@@ -324,6 +325,30 @@ export async function listSessions(
     .limit(limit)
     .toArray();
   return docs.map(toChatSession);
+}
+
+export async function getWorkspaceOrder(userId: string): Promise<WorkspaceId[]> {
+  if (!ObjectId.isValid(userId)) return [];
+  const db = await getDb();
+  const user = await db
+    .collection<{ workspaceOrder?: WorkspaceId[] }>("users")
+    .findOne({ _id: new ObjectId(userId) }, { projection: { workspaceOrder: 1 } });
+  return (user?.workspaceOrder ?? []).filter((id): id is WorkspaceId =>
+    WORKSPACE_IDS.includes(id)
+  );
+}
+
+export async function setWorkspaceOrder(
+  userId: string,
+  orderedIds: WorkspaceId[]
+): Promise<void> {
+  if (!ObjectId.isValid(userId)) return;
+  const order = Array.from(new Set(orderedIds)).filter((id) => WORKSPACE_IDS.includes(id));
+  const db = await getDb();
+  await db.collection("users").updateOne(
+    { _id: new ObjectId(userId) },
+    { $set: { workspaceOrder: order } }
+  );
 }
 
 export async function getSessionWithMessages(
