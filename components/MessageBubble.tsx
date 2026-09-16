@@ -13,7 +13,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Check, ChevronDown, Copy, Pencil, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, Copy, Pencil, RefreshCw, X } from "lucide-react";
 import "highlight.js/styles/github.css";
 import ImageViewer from "./ImageViewer";
 import ToolCallGroup, {
@@ -280,7 +280,10 @@ export default function MessageBubble({
   activityMessageId = null,
   editingId = null,
   editingText = "",
+  editingImages,
+  editingError = null,
   onEditingText,
+  onEditingImages,
   onEditSave,
   onEditCancel,
 }: {
@@ -296,7 +299,10 @@ export default function MessageBubble({
   activityMessageId?: number | null;
   editingId?: number | null;
   editingText?: string;
+  editingImages?: Message["images"];
+  editingError?: string | null;
   onEditingText?: (text: string) => void;
+  onEditingImages?: (images: Message["images"]) => void;
   onEditSave?: (id: number) => void;
   onEditCancel?: () => void;
 }) {
@@ -305,6 +311,7 @@ export default function MessageBubble({
   const didScrollRef = useRef(false);
   const pinnedRef = useRef(true);
   const ignoreScrollUntilRef = useRef(0);
+  const editInputRef = useRef<HTMLTextAreaElement>(null);
   const [visibleCount, setVisibleCount] = useState(INITIAL_WINDOW);
   const hiddenCount = Math.max(0, messages.length - visibleCount);
   const visible = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
@@ -312,6 +319,22 @@ export default function MessageBubble({
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const lang = useUiLang();
   const t = STR[lang];
+
+  useEffect(() => {
+    const input = editInputRef.current;
+    if (!input || editingId === null) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
+  }, [editingId]);
+
+  useEffect(() => {
+    const input = editInputRef.current;
+    if (!input || editingId === null) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
+  }, [editingId, editingText]);
 
   // The real scrollable ancestor can be .main or .app-center depending on
   // which one gets stretched; only count it once it actually overflows.
@@ -472,6 +495,7 @@ export default function MessageBubble({
             ? imageUrls
             : null;
         const isEditing = editingId === message.id;
+        const editImages = editingImages ?? message.images ?? [];
         // Live run's global activity list wins for the in-flight message;
         // every other message reads its own persisted activities, so cards
         // and the changes summary survive refreshes.
@@ -508,13 +532,62 @@ export default function MessageBubble({
           <div className="message-body">
             {isEditing ? (
               <div className="bubble edit-bubble">
+                {editImages.length > 0 && (
+                  <div className="edit-images">
+                    {editImages.map((image, imageIndex) => {
+                      const url = dataUrl(image);
+                      return (
+                        <div key={imageIndex} className="edit-image">
+                          <img
+                            src={url}
+                            alt={t["composer.uploadedAlt"]}
+                            onClick={() => setViewer(url)}
+                          />
+                          <button
+                            type="button"
+                            className="image-remove"
+                            onClick={() =>
+                              onEditingImages?.(
+                                editImages.filter((_, index) => index !== imageIndex)
+                              )
+                            }
+                            aria-label={t["composer.removeImage"]}
+                          >
+                            <X size={14} strokeWidth={2.5} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <textarea
+                  ref={editInputRef}
                   className="edit-input"
                   value={editingText}
                   onChange={(event) => onEditingText?.(event.target.value)}
-                   aria-label={t["actions.edit"]}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      onEditCancel?.();
+                    } else if (
+                      event.key === "Enter" &&
+                      (event.metaKey || event.ctrlKey)
+                    ) {
+                      event.preventDefault();
+                      onEditSave?.(message.id);
+                    }
+                  }}
+                  aria-label={t["actions.edit"]}
                 />
+                {editingError && <p className="edit-error">{editingError}</p>}
                 <div className="edit-actions">
+                  <button
+                    type="button"
+                    className="edit-cancel"
+                    onClick={() => onEditCancel?.()}
+                  >
+                    {t["actions.cancel"]}
+                  </button>
                   <button
                     type="button"
                     className="edit-save"
@@ -522,13 +595,6 @@ export default function MessageBubble({
                     disabled={!editingText.trim()}
                   >
                     {t["actions.save"]}
-                  </button>
-                  <button
-                    type="button"
-                    className="edit-cancel"
-                    onClick={() => onEditCancel?.()}
-                  >
-                    {t["actions.cancel"]}
                   </button>
                 </div>
               </div>

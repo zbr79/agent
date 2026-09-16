@@ -63,6 +63,7 @@ function displayName(path: string): string {
 export default function ChangesSummary({ items }: { items: ActivityItem[] }) {
   const lang = useUiLang();
   const zh = lang === "zh";
+  const [open, setOpen] = useChangesOpen();
 
   const byPath = new Map<string, FileChange>();
   const touch = (path: string): FileChange | null => {
@@ -142,8 +143,6 @@ export default function ChangesSummary({ items }: { items: ActivityItem[] }) {
       : zh
         ? `${files.length} 个文件已修改`
         : `${files.length} files changed`;
-
-  const [open, setOpen] = useChangesOpen();
 
   return (
     <div className="changes-card">

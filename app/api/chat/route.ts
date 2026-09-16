@@ -94,6 +94,7 @@ export async function POST(req: Request) {
     mode: requestedMode,
     model,
     sessionId,
+    messageId,
     workspaceId: requestedWorkspaceId,
   } = parsed;
   // Guests are always read-only. Enforce this on the server as well as in the
@@ -451,6 +452,7 @@ export async function POST(req: Request) {
                   userId: requestUser._id,
                   workspaceId,
                   sessionId,
+                  messageId,
                   reason: "Before Build run",
                 });
                 checkpointId = checkpoint.id;

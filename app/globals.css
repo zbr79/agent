@@ -3953,26 +3953,102 @@ span.conclude-rank-badge {
 }
 
 /* ---- inline edit ---- */
+.message.user:has(.edit-bubble) .message-body {
+  width: 100%;
+  max-width: 100%;
+}
+
 .edit-bubble {
   width: 100%;
   display: flex;
   flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 18px;
+  background: var(--bg-soft) !important;
+}
+
+.message.user .bubble.edit-bubble {
+  padding: 12px;
+}
+
+.edit-images {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.edit-image {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+}
+
+.edit-image img {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: zoom-in;
 }
 
 .edit-input {
   width: 100%;
-  min-height: 60px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
+  min-height: 42px;
+  max-height: 220px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
   color: var(--text);
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.5;
-  padding: 10px 12px;
-  resize: vertical;
+  padding: 4px 2px;
+  resize: none;
   outline: none;
+}
+
+.edit-input:focus {
+  border-color: transparent;
+}
+
+.edit-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.chat-error-card {
+  width: min(100% - 32px, 560px);
+  margin: auto;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-soft);
+  color: var(--text);
+  text-align: center;
+}
+
+.chat-error-card p {
+  margin: 8px 0 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.chat-error-card button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 @media (max-width: 640px) {
@@ -3983,6 +4059,7 @@ span.conclude-rank-badge {
 
 .edit-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
@@ -3996,7 +4073,8 @@ span.conclude-rank-badge {
   font-family: var(--font);
   font-size: 12px;
   font-weight: 600;
-  padding: 4px 12px;
+  line-height: 1.2;
+  padding: 7px 14px;
   cursor: pointer;
 }
 
@@ -4008,7 +4086,27 @@ span.conclude-rank-badge {
 
 .edit-save:disabled {
   opacity: 0.4;
-  cursor: default;
+  cursor: wait;
+}
+
+.image-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.image-remove:hover {
+  color: var(--text);
+  background: var(--bg-soft);
 }
 
 /* ---- share chat button ---- */

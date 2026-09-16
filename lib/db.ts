@@ -30,7 +30,12 @@ function getClient(): Promise<MongoClient> {
     );
   }
   if (!clientPromise) {
-    const client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
+    const client = new MongoClient(uri, {
+      serverSelectionTimeoutMS: 12000,
+      connectTimeoutMS: 10000,
+      retryReads: true,
+      retryWrites: true,
+    });
     clientPromise = client.connect().catch((error) => {
       clientPromise = null;
       throw error;

@@ -1,8 +1,11 @@
 import {
   appendMessage,
   finalizePendingMessage,
+  getAgentBinding,
+  setAgentBinding,
   truncateMessages,
 } from "@/lib/db";
+import { deleteAgentSession } from "@/lib/agent";
 import { requireUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -144,8 +147,8 @@ export async function DELETE(
     const rawKeep = body && typeof body === "object"
       ? (body as { keep?: unknown }).keep
       : undefined;
-    if (typeof rawKeep !== "number" || !Number.isInteger(rawKeep) || rawKeep < 1) {
-      throw new Error('"keep" must be a positive integer.');
+    if (typeof rawKeep !== "number" || !Number.isInteger(rawKeep) || rawKeep < 0) {
+      throw new Error('"keep" must be a non-negative integer.');
     }
     keep = rawKeep;
   } catch (error) {
@@ -156,7 +159,12 @@ export async function DELETE(
   }
 
   try {
+    const binding = await getAgentBinding(auth._id, id);
     const removed = await truncateMessages(auth._id, id, keep);
+    if (binding) {
+      await deleteAgentSession(binding.sessionId, binding.workspaceId);
+    }
+    await setAgentBinding(auth._id, id, null);
     return Response.json({ removed });
   } catch (error) {
     const message =

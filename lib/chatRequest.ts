@@ -17,6 +17,7 @@ export interface ChatRequest {
   mode?: "build" | "plan";
   model?: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash";
   sessionId?: string;
+  messageId?: string;
   workspaceId?: WorkspaceId;
 }
 
@@ -148,6 +149,15 @@ export function parseChatBody(body: unknown): ChatRequest {
     sessionId = rawSessionId;
   }
 
+  const rawMessageId = (body as { messageId?: unknown }).messageId;
+  let messageId: string | undefined;
+  if (rawMessageId !== undefined && rawMessageId !== null) {
+    if (typeof rawMessageId !== "string" || rawMessageId.length > 64) {
+      throw new ChatValidationError('"messageId" is invalid.');
+    }
+    messageId = rawMessageId;
+  }
+
   const rawWorkspaceId = (body as { workspaceId?: unknown }).workspaceId;
   let workspaceId: WorkspaceId | undefined;
   if (rawWorkspaceId !== undefined) {
@@ -160,5 +170,15 @@ export function parseChatBody(body: unknown): ChatRequest {
     workspaceId = rawWorkspaceId as WorkspaceId;
   }
 
-  return { messages, timeZone, language, reasoning, mode, model, sessionId, workspaceId };
+  return {
+    messages,
+    timeZone,
+    language,
+    reasoning,
+    mode,
+    model,
+    sessionId,
+    messageId,
+    workspaceId,
+  };
 }

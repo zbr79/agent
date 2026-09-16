@@ -28,6 +28,7 @@ export interface CheckpointInfo {
   id: string;
   workspaceId: WorkspaceId;
   sessionId?: string;
+  messageId?: string;
   reason: string;
   kind: CheckpointKind;
   status: CheckpointStatus;
@@ -68,6 +69,7 @@ interface CheckpointDoc {
   userId: ObjectId;
   workspaceId: WorkspaceId;
   sessionId?: string;
+  messageId?: string;
   reason: string;
   kind: CheckpointKind;
   status: CheckpointStatus;
@@ -226,6 +228,7 @@ function toInfo(doc: CheckpointDoc): CheckpointInfo {
     id: doc._id.toString(),
     workspaceId: doc.workspaceId,
     sessionId: doc.sessionId,
+    messageId: doc.messageId,
     reason: doc.reason,
     kind: doc.kind,
     status: doc.status,
@@ -247,6 +250,7 @@ export async function createCheckpoint(input: {
   userId: string;
   workspaceId: WorkspaceId;
   sessionId?: string;
+  messageId?: string;
   reason: string;
   kind?: CheckpointKind;
 }): Promise<CheckpointInfo> {
@@ -287,9 +291,10 @@ export async function createCheckpoint(input: {
       userId: new ObjectId(input.userId),
       workspaceId: input.workspaceId,
       sessionId: input.sessionId,
+      messageId: input.messageId,
       reason,
       kind,
-      status: "captured",
+      status: kind === "recovery" ? "ready" : "captured",
       createdAt: now,
       updatedAt: now,
       files,
@@ -343,13 +348,19 @@ export async function finalizeCheckpoint(
 
 export async function listCheckpoints(
   userId: string,
-  workspaceId: WorkspaceId
+  workspaceId: WorkspaceId,
+  messageId?: string
 ): Promise<CheckpointInfo[]> {
   if (!ObjectId.isValid(userId)) return [];
   const db = await getDb();
   const docs = await db
     .collection<CheckpointDoc>("checkpoints")
-    .find({ userId: new ObjectId(userId), workspaceId, status: "ready" })
+    .find({
+      userId: new ObjectId(userId),
+      workspaceId,
+      status: "ready",
+      ...(messageId ? { messageId } : {}),
+    })
     .sort({ createdAt: -1 })
     .limit(50)
     .toArray();
@@ -360,8 +371,20 @@ async function currentFileHash(
   root: string,
   relativePath: string
 ): Promise<string | null> {
-  const file = await readWorkspaceFile(relativePath, root, false);
-  return file?.hash ?? null;
+  try {
+    const file = await readWorkspaceFile(relativePath, root, false);
+    return file?.hash ?? null;
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "ENOENT"
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function getCheckpointPreview(
@@ -379,7 +402,11 @@ export async function getCheckpointPreview(
       kind: change.kind,
       currentHash,
       expectedHash: change.afterHash,
-      conflict: currentHash !== change.afterHash,
+      // A created file that is already absent is the desired pre-run state.
+      // Treat restore retries as idempotent instead of reporting a conflict.
+      conflict:
+        !(change.kind === "created" && currentHash === null) &&
+        currentHash !== change.afterHash,
     });
   }
   return {
