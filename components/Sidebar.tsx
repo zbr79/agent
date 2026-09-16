@@ -90,7 +90,7 @@ function FitTitle({ title }: { title: string }) {
     setText(trimmed);
   }, [title]);
   return (
-    <span ref={ref} className="session-title" title={title}>
+    <span ref={ref} className="session-title" title={text !== title ? title : undefined}>
       {text}
     </span>
   );
@@ -496,7 +496,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
       <Link
         href={`/?workspace=${encodeURIComponent(workspaceId)}`}
         className="session-link"
-        title={t["nav.newChat"]}
         onClick={() => setMenuOpen(false)}
       >
         <span
@@ -544,7 +543,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
         <Link
           href={`/?session=${id}&workspace=${encodeURIComponent(workspaceId)}`}
           className="session-link"
-          title={title}
           onClick={() => setMenuOpen(false)}
         >
           <span
@@ -567,7 +565,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
         type="button"
         className="session-delete"
         aria-label={t["nav.delete"]}
-        title={t["nav.delete"]}
         disabled={deleting !== null}
         onClick={() => remove(id)}
       >
@@ -587,11 +584,10 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
           className="menu-button"
           onClick={() => setMenuOpen(true)}
           aria-label={t["nav.openMenu"]}
-          title={t["nav.openMenu"]}
         >
           <Menu size={20} />
         </button>
-        <Link href="/" className="mobile-brand" title={workspace ? t["nav.workspace"] : undefined}>
+        <Link href="/" className="mobile-brand">
           Agent
           {SHOW_WORKSPACE_PATH && workspace && (
             <span className="mobile-brand-ws">{workspaceBase}</span>
@@ -602,7 +598,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
           className="menu-button mobile-refresh"
           onClick={refreshApp}
           aria-label={t["nav.refresh"]}
-          title={t["nav.refresh"]}
         >
           <RotateCw size={18} />
         </button>
@@ -620,7 +615,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
           className="sidebar-expand"
           onClick={toggleCollapsed}
           aria-label={t["nav.showSidebar"]}
-          title={t["nav.showSidebar"]}
         >
           <PanelLeft size={18} />
         </button>
@@ -639,11 +633,10 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                 type="button"
                 className={`brand-workspace${workspaceCopied ? " copied" : ""}`}
                 onClick={copyWorkspace}
-                title={workspace}
                 aria-label={`${t["nav.workspace"]}: ${workspace}`}
               >
                 {workspaceCopied ? <Check size={12} /> : <Folder size={12} />}
-                <span className="brand-workspace-path">{workspace}</span>
+                <span className="brand-workspace-path" title={workspace}>{workspace}</span>
               </button>
             )}
           </span>
@@ -652,7 +645,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
             className="sidebar-hide"
             onClick={refreshApp}
             aria-label={t["nav.refresh"]}
-            title={t["nav.refresh"]}
           >
             <RotateCw size={16} />
           </button>
@@ -661,7 +653,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
             className="sidebar-hide"
             onClick={() => setSearchOpen(true)}
             aria-label={t["nav.search"]}
-            title={t["nav.search"]}
           >
             <Search size={16} />
           </button>
@@ -670,7 +661,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
             className="sidebar-hide"
             onClick={toggleCollapsed}
             aria-label={t["nav.hideSidebar"]}
-            title={t["nav.hideSidebar"]}
           >
             <PanelLeft size={16} />
           </button>
@@ -684,7 +674,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                 className="workspace-add-button"
                 onClick={() => setWorkspaceOpen(true)}
                 aria-label={t["workspace.add"]}
-                title={t["workspace.add"]}
               >
                 <FolderPlus size={16} />
               </button>
@@ -799,7 +788,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                               router.push(`/?workspace=${encodeURIComponent(item.id)}`);
                             }}
                             aria-label={t["nav.newChat"]}
-                            title={t["nav.newChat"]}
                           >
                             <Plus size={15} />
                           </button>
@@ -855,7 +843,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
               className="settings-button"
               onClick={() => setSettingsOpen(true)}
               aria-label={t["nav.settings"]}
-              title={t["nav.settings"]}
             >
               <Settings size={20} />
             </button>
@@ -868,7 +855,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                 className="login-circle"
                 onClick={() => setAuthOpen(true)}
                 aria-label={t["nav.signIn"]}
-                title={t["nav.signIn"]}
               >
                 <User size={20} />
               </button>
@@ -879,7 +865,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
               className="settings-button"
               onClick={() => setSettingsOpen(true)}
               aria-label={t["nav.settings"]}
-              title={t["nav.settings"]}
             >
               <Settings size={20} />
             </button>

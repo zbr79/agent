@@ -581,8 +581,7 @@ export default function Composer({
               setEffortOpen(false);
             }}
             aria-expanded={modelOpen}
-            aria-label={t["composer.model"]}
-            title={modelLocked ? t["composer.model.locked"] : t["composer.model"]}
+            aria-label={modelLocked ? t["composer.model.locked"] : t["composer.model"]}
             disabled={disabled}
           >
             <span className="composer-picker-model">
@@ -606,7 +605,7 @@ export default function Composer({
                     key={option}
                     type="button"
                     className={`picker-model${locked ? " locked" : ""}${active ? " active" : ""}`}
-                    title={locked ? t["composer.model.locked"] : undefined}
+                    aria-label={locked ? t["composer.model.locked"] : undefined}
                     disabled={locked || disabled}
                     onClick={() => {
                       setModel(option);
@@ -633,7 +632,6 @@ export default function Composer({
             }}
             aria-expanded={effortOpen}
             aria-label={t["composer.effort"]}
-            title={t["composer.effort"]}
             disabled={disabled}
           >
             <span className="composer-picker-effort">
@@ -670,7 +668,6 @@ export default function Composer({
           className="composer-mode"
           role="group"
           aria-label={t["composer.mode"]}
-          title={t["composer.mode.tab"]}
         >
           {(["build", "plan"] as ChatMode[]).map((value) => (
             <button
@@ -687,7 +684,7 @@ export default function Composer({
               disabled={disabled}
               aria-pressed={signedIn && effectiveMode === value}
               aria-disabled={value === "build" && !signedIn}
-              title={
+              aria-label={
                 value === "build" && !signedIn
                   ? t["composer.mode.buildLogin"]
                   : t[`composer.mode.${value}`]
@@ -703,7 +700,7 @@ export default function Composer({
             className="composer-git-button"
             onClick={() => void fetchGitMessage()}
             disabled={disabled || sending || gitBusy}
-            title={t["git.button"]}
+            aria-label={t["git.button"]}
           >
             {gitBusy ? <RefreshCw size={14} className="spin" /> : <Sparkles size={14} />}
             <span>{t["git.button"]}</span>
@@ -724,7 +721,6 @@ export default function Composer({
           className="icon-button"
           onClick={() => fileRef.current?.click()}
            aria-label={t["composer.attachImage"]}
-           title={t["composer.attachImage"]}
           disabled={images.length >= MAX_IMAGES || disabled}
         >
           <Plus size={18} />
@@ -752,7 +748,6 @@ export default function Composer({
           className={`icon-button composer-mic${voiceStatus === "recording" ? " recording" : ""}${voiceStatus === "transcribing" ? " transcribing" : ""}`}
           onClick={handleMic}
           aria-label={micLabel}
-          title={micLabel}
           aria-pressed={voiceStatus === "recording"}
           aria-busy={voiceStatus === "transcribing"}
           disabled={disabled || voiceStatus === "transcribing"}
@@ -771,7 +766,6 @@ export default function Composer({
             disabled={!canSend && !voiceBusy}
             aria-busy={shouldShowSendBusy}
              aria-label={voiceStatus === "recording" ? t["composer.finishAndSend"] : t["composer.send"]}
-            title={voiceStatus === "recording" ? t["composer.finishAndSend"] : undefined}
           >
             <ArrowUp size={18} />
           </button>

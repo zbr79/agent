@@ -169,7 +169,6 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
           className={`md-pre-copy${copied ? " copied" : ""}`}
           onClick={copy}
           aria-label="Copy code"
-          title="Copy"
         >
           {copied ? <Check size={12} /> : <Copy size={12} />}
         </button>
@@ -444,8 +443,7 @@ export default function MessageBubble({
       <button
         type="button"
         className={`action-button${copiedId === message.id ? " copied" : ""}`}
-        title={copiedId === message.id ? t["actions.copied"] : t["actions.copy"]}
-        aria-label={t["actions.copy"]}
+        aria-label={copiedId === message.id ? t["actions.copied"] : t["actions.copy"]}
         onClick={() => copy(message)}
       >
         {copiedId === message.id ? <Check size={14} /> : <Copy size={14} />}
@@ -454,7 +452,6 @@ export default function MessageBubble({
         <button
           type="button"
           className="action-button"
-          title={t["actions.edit"]}
           aria-label={t["actions.edit"]}
           onClick={() => onEdit(message.id)}
         >
@@ -465,7 +462,6 @@ export default function MessageBubble({
         <button
           type="button"
           className="action-button"
-          title={t["actions.regenerate"]}
           aria-label={t["actions.regenerate"]}
           onClick={() => onRegenerate(message.id)}
         >

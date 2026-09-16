@@ -1173,3 +1173,15 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 ### Disproved
 - Restoring only the target delta fails as soon as a later turn touched the same files (after-hash mismatch / leftover files).
 
+## 2026-09-16 — Disable Chrome native button tooltips
+
+### Solved
+- Icon and control buttons no longer set HTML `title`, so Chrome’s delayed native tooltip does not appear on hover. Screen readers still get `aria-label`.
+- Native `title` remains only for truncated overflow text (session names, file paths, trail lines).
+
+### Unresolved
+- n/a
+
+### Disproved
+- CSS cannot suppress the browser `title` tooltip; removing the attribute is required.
+
