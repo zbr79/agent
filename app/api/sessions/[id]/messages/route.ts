@@ -1,12 +1,9 @@
 import {
   appendMessage,
   finalizePendingMessage,
-  getAgentBinding,
-  setAgentBinding,
-  truncateMessages,
 } from "@/lib/db";
-import { deleteAgentSession } from "@/lib/agent";
 import { requireUser } from "@/lib/auth";
+import { CheckpointConflictError, rewindSession } from "@/lib/rewind";
 
 export const runtime = "nodejs";
 
@@ -142,15 +139,26 @@ export async function DELETE(
   const { id } = await params;
 
   let keep: number;
+  let restoreMessageId: string | undefined;
   try {
     const body: unknown = await req.json();
     const rawKeep = body && typeof body === "object"
       ? (body as { keep?: unknown }).keep
       : undefined;
+    const rawRestore =
+      body && typeof body === "object"
+        ? (body as { restoreMessageId?: unknown }).restoreMessageId
+        : undefined;
     if (typeof rawKeep !== "number" || !Number.isInteger(rawKeep) || rawKeep < 0) {
       throw new Error('"keep" must be a non-negative integer.');
     }
     keep = rawKeep;
+    if (rawRestore !== undefined && rawRestore !== null) {
+      if (typeof rawRestore !== "string" || rawRestore.length > 64) {
+        throw new Error('"restoreMessageId" is invalid.');
+      }
+      restoreMessageId = rawRestore;
+    }
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "Invalid request body." },
@@ -159,14 +167,20 @@ export async function DELETE(
   }
 
   try {
-    const binding = await getAgentBinding(auth._id, id);
-    const removed = await truncateMessages(auth._id, id, keep);
-    if (binding) {
-      await deleteAgentSession(binding.sessionId, binding.workspaceId);
-    }
-    await setAgentBinding(auth._id, id, null);
-    return Response.json({ removed });
+    const rewind = await rewindSession({
+      userId: auth._id,
+      sessionId: id,
+      keep,
+      restoreMessageId,
+    });
+    return Response.json({ removed: rewind.removed, restored: rewind.restored });
   } catch (error) {
+    if (error instanceof CheckpointConflictError) {
+      return Response.json(
+        { error: error.message, preview: error.preview },
+        { status: 409 }
+      );
+    }
     const message =
       error instanceof Error ? error.message : "Could not revert messages.";
     return Response.json({ error: message }, { status: 500 });

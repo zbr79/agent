@@ -1159,3 +1159,17 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 ### Disproved
 - n/a
 
+## 2026-09-16 — Multi-step checkpoint rewind
+
+### Solved
+- Restoring a prompt from N turns ago now applies that run’s **full pre-run snapshot** (write changed files, delete files created later), not only that run’s delta.
+- Conflicts are checked against the **latest Build checkpoint in the same session**. If disk still matches the last run, jumping back 5–10 messages is allowed; extra hand-edits still 409.
+- Edit and regenerate both rewind through `rewindSession`. Regenerating restores the previous user message’s snapshot. Later run checkpoints for truncated messages are deleted.
+- Snapshot apply lives in `lib/checkpointSnapshot.ts` and is tested against a temp git repo (`scripts/test-checkpoints.mts`).
+
+### Unresolved
+- Guests and Plan mode still have no checkpoints (chat truncate only).
+
+### Disproved
+- Restoring only the target delta fails as soon as a later turn touched the same files (after-hash mismatch / leftover files).
+

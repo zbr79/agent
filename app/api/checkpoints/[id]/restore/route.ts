@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import {
-  getCheckpointPreview,
+  getRestoreConflictPreview,
   restoreCheckpoint,
 } from "@/lib/checkpoints";
 
@@ -13,7 +13,7 @@ export async function POST(req: Request, { params }: Params) {
   if (auth instanceof Response) return auth;
   const { id } = await params;
   try {
-    const preview = await getCheckpointPreview(auth._id, id);
+    const preview = await getRestoreConflictPreview(auth._id, id);
     if (!preview) {
       return Response.json({ error: "Checkpoint not found." }, { status: 404 });
     }

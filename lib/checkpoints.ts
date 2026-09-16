@@ -1,25 +1,21 @@
-import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { ObjectId } from "mongodb";
 import { getDb } from "./db";
-import { assertAllowedAgentFile } from "./pathJail";
 import { workspaceRoot } from "./workspaces";
 import type { WorkspaceId } from "./types";
+import {
+  applySnapshotToRoot,
+  captureSnapshot,
+  currentFileHash,
+  hashPath,
+  type SnapshotFile,
+  type SnapshotFileMeta,
+} from "./checkpointSnapshot";
 
-const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const CHECKPOINT_ROOT =
   process.env.AGENT_CHECKPOINT_DIR?.trim() ||
   path.join(path.dirname(process.env.AGENT_WORKSPACE || "/home/ubuntu/agent"), ".agent-checkpoints");
-const EXCLUDED_SEGMENTS = new Set([
-  ".git",
-  ".next",
-  "build",
-  "coverage",
-  "dist",
-  "node_modules",
-]);
 
 export type CheckpointStatus = "captured" | "ready" | "failed";
 export type CheckpointKind = "run" | "recovery";
@@ -79,148 +75,12 @@ interface CheckpointDoc {
   changes: ChangeEntry[];
 }
 
-interface WorkspaceFile {
-  path: string;
-  absolute: string;
-  data: Buffer;
-  hash: string;
-  size: number;
-  mode: number;
-}
-
-interface WorkspaceFileMeta {
-  path: string;
-  absolute: string;
-  hash: string;
-  size: number;
-  mode: number;
-}
-
 function checkpointDir(id: string): string {
   return path.join(CHECKPOINT_ROOT, id);
 }
 
 function fileArtifactPath(id: string, artifact: string): string {
   return path.join(checkpointDir(id), "files", artifact);
-}
-
-function hashBuffer(data: Buffer): string {
-  return createHash("sha256").update(data).digest("hex");
-}
-
-function hashPath(relativePath: string): string {
-  return createHash("sha256").update(relativePath).digest("hex");
-}
-
-function isExcluded(relativePath: string): boolean {
-  if (relativePath.split(path.sep).some((segment) => EXCLUDED_SEGMENTS.has(segment))) {
-    return true;
-  }
-  const base = path.basename(relativePath);
-  return (
-    base === ".server-env" ||
-    base.startsWith(".env") ||
-    base === "id_rsa" ||
-    base === "id_ed25519" ||
-    base === "id_ecdsa" ||
-    base === "id_dsa" ||
-    base.endsWith("_rsa") ||
-    base.endsWith("_ed25519") ||
-    /\.pem$/i.test(base) ||
-    /\.ppk$/i.test(base) ||
-    (/\.key$/i.test(base) && base !== "package-lock.json")
-  );
-}
-
-function runGitFiles(root: string): Promise<string[]> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "git",
-      ["ls-files", "-co", "--exclude-standard", "-z"],
-      { cwd: root, stdio: ["ignore", "pipe", "pipe"], shell: false }
-    );
-    const chunks: Buffer[] = [];
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-    child.stderr.on("data", (chunk: Buffer | string) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", reject);
-    child.on("close", (code: number | null) => {
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || "Could not enumerate workspace files."));
-        return;
-      }
-      resolve(
-        Buffer.concat(chunks)
-          .toString("utf8")
-          .split("\0")
-          .filter(Boolean)
-      );
-    });
-  });
-}
-
-async function listWorkspacePaths(workspaceId: WorkspaceId, root: string): Promise<string[]> {
-  const paths = await runGitFiles(root);
-  const safe: string[] = [];
-  for (const relativePath of paths) {
-    if (isExcluded(relativePath)) continue;
-    const absolute = assertAllowedAgentFile(relativePath, root);
-    const stat = await fs.promises.lstat(absolute);
-    if (!stat.isFile() || stat.isSymbolicLink()) continue;
-    safe.push(relativePath);
-  }
-  if (!safe.length && workspaceId) {
-    // The workspace may be a valid, empty Git repository.
-    return [];
-  }
-  return safe;
-}
-
-async function readWorkspaceFile(
-  relativePath: string,
-  root: string,
-  includeData: boolean
-): Promise<WorkspaceFile | WorkspaceFileMeta | null> {
-  if (isExcluded(relativePath)) return null;
-  const absolute = assertAllowedAgentFile(relativePath, root);
-  const before = await fs.promises.lstat(absolute);
-  if (!before.isFile() || before.isSymbolicLink() || before.size > MAX_FILE_BYTES) {
-    return null;
-  }
-  const data = await fs.promises.readFile(absolute);
-  const after = await fs.promises.lstat(absolute);
-  if (
-    !after.isFile() ||
-    after.isSymbolicLink() ||
-    after.size !== before.size ||
-    after.mtimeMs !== before.mtimeMs
-  ) {
-    throw new Error(`Workspace file changed while checkpointing: ${relativePath}`);
-  }
-  const base = {
-    path: relativePath,
-    absolute,
-    hash: hashBuffer(data),
-    size: data.byteLength,
-    mode: before.mode & 0o777,
-  };
-  return includeData ? { ...base, data } : base;
-}
-
-async function captureWorkspace(
-  workspaceId: WorkspaceId,
-  root: string,
-  includeData: boolean
-): Promise<(WorkspaceFile | WorkspaceFileMeta)[]> {
-  const paths = await listWorkspacePaths(workspaceId, root);
-  const files: (WorkspaceFile | WorkspaceFileMeta)[] = [];
-  for (const relativePath of paths) {
-    const file = await readWorkspaceFile(relativePath, root, includeData);
-    if (file) files.push(file);
-  }
-  return files;
 }
 
 function toInfo(doc: CheckpointDoc): CheckpointInfo {
@@ -263,7 +123,7 @@ export async function createCheckpoint(input: {
   const now = new Date();
   await fs.promises.mkdir(artifactDir, { recursive: true, mode: 0o700 });
   try {
-    const captured = await captureWorkspace(input.workspaceId, root, true) as WorkspaceFile[];
+    const captured = (await captureSnapshot(root, true)) as SnapshotFile[];
     const files: FileEntry[] = [];
     for (const file of captured) {
       const artifact = hashPath(file.path);
@@ -316,7 +176,7 @@ export async function finalizeCheckpoint(
   const doc = await ownedCheckpoint(userId, checkpointId);
   if (!doc) return null;
   const root = workspaceRoot(doc.workspaceId);
-  const current = await captureWorkspace(doc.workspaceId, root, false) as WorkspaceFileMeta[];
+  const current = (await captureSnapshot(root, false)) as SnapshotFileMeta[];
   const before = new Map(doc.files.map((file) => [file.path, file]));
   const after = new Map(current.map((file) => [file.path, file]));
   const paths = new Set([...before.keys(), ...after.keys()]);
@@ -367,26 +227,6 @@ export async function listCheckpoints(
   return docs.map(toInfo);
 }
 
-async function currentFileHash(
-  root: string,
-  relativePath: string
-): Promise<string | null> {
-  try {
-    const file = await readWorkspaceFile(relativePath, root, false);
-    return file?.hash ?? null;
-  } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as { code?: unknown }).code === "ENOENT"
-    ) {
-      return null;
-    }
-    throw error;
-  }
-}
-
 export async function getCheckpointPreview(
   userId: string,
   checkpointId: string
@@ -416,13 +256,131 @@ export async function getCheckpointPreview(
   };
 }
 
+export class CheckpointConflictError extends Error {
+  preview: CheckpointPreview;
+  constructor(preview: CheckpointPreview, message?: string) {
+    super(message || "This run has newer file changes. Resolve them before editing the prompt.");
+    this.name = "CheckpointConflictError";
+    this.preview = preview;
+  }
+}
+
+export async function listRunCheckpoints(
+  userId: string,
+  workspaceId: WorkspaceId,
+  sessionId: string
+): Promise<CheckpointInfo[]> {
+  if (!ObjectId.isValid(userId) || !sessionId) return [];
+  const db = await getDb();
+  const docs = await db
+    .collection<CheckpointDoc>("checkpoints")
+    .find({
+      userId: new ObjectId(userId),
+      workspaceId,
+      sessionId,
+      kind: "run",
+      status: "ready",
+    })
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .toArray();
+  return docs.map(toInfo);
+}
+
+export async function latestSessionRunCheckpoint(
+  userId: string,
+  workspaceId: WorkspaceId,
+  sessionId: string
+): Promise<CheckpointInfo | null> {
+  return (await listRunCheckpoints(userId, workspaceId, sessionId))[0] ?? null;
+}
+
+export async function findRunCheckpointForMessage(
+  userId: string,
+  workspaceId: WorkspaceId,
+  messageId: string,
+  sessionId?: string
+): Promise<CheckpointInfo | null> {
+  if (!ObjectId.isValid(userId) || !messageId) return null;
+  const db = await getDb();
+  const doc = await db.collection<CheckpointDoc>("checkpoints").findOne(
+    {
+      userId: new ObjectId(userId),
+      workspaceId,
+      messageId,
+      kind: "run",
+      status: "ready",
+      ...(sessionId ? { sessionId } : {}),
+    },
+    { sort: { createdAt: -1 } }
+  );
+  return doc ? toInfo(doc) : null;
+}
+
+export async function deleteCheckpointsForMessages(
+  userId: string,
+  sessionId: string,
+  messageIds: string[]
+): Promise<number> {
+  if (!ObjectId.isValid(userId) || !sessionId || messageIds.length === 0) return 0;
+  const db = await getDb();
+  const docs = await db
+    .collection<CheckpointDoc>("checkpoints")
+    .find({
+      userId: new ObjectId(userId),
+      sessionId,
+      kind: "run",
+      messageId: { $in: messageIds },
+    })
+    .toArray();
+  if (!docs.length) return 0;
+  const result = await db.collection<CheckpointDoc>("checkpoints").deleteMany({
+    _id: { $in: docs.map((doc) => doc._id) },
+  });
+  await Promise.all(
+    docs.map((doc) =>
+      fs.promises.rm(checkpointDir(doc._id.toString()), { recursive: true, force: true })
+    )
+  );
+  return result.deletedCount ?? 0;
+}
+
+export async function getRestoreConflictPreview(
+  userId: string,
+  checkpointId: string
+): Promise<CheckpointPreview | null> {
+  const doc = await ownedCheckpoint(userId, checkpointId);
+  if (!doc || doc.status !== "ready") return null;
+  if (doc.sessionId) {
+    const latest = await latestSessionRunCheckpoint(userId, doc.workspaceId, doc.sessionId);
+    if (latest) return getCheckpointPreview(userId, latest.id);
+  }
+  return getCheckpointPreview(userId, checkpointId);
+}
+
+async function snapshotFilesFromDoc(doc: CheckpointDoc): Promise<SnapshotFile[]> {
+  const checkpointId = doc._id.toString();
+  const files: SnapshotFile[] = [];
+  for (const file of doc.files) {
+    const data = await fs.promises.readFile(fileArtifactPath(checkpointId, file.artifact));
+    files.push({
+      path: file.path,
+      hash: file.hash,
+      size: file.size,
+      mode: file.mode,
+      data,
+    });
+  }
+  return files;
+}
+
 export async function restoreCheckpoint(
   userId: string,
   checkpointId: string
 ): Promise<{ preview: CheckpointPreview; safety: CheckpointInfo | null } | null> {
   const doc = await ownedCheckpoint(userId, checkpointId);
   if (!doc || doc.status !== "ready") return null;
-  const preview = await getCheckpointPreview(userId, checkpointId);
+  const preview = await getRestoreConflictPreview(userId, checkpointId);
   if (!preview) return null;
   if (preview.conflicts.length) return { preview, safety: null };
 
@@ -434,19 +392,7 @@ export async function restoreCheckpoint(
     kind: "recovery",
   });
   const root = workspaceRoot(doc.workspaceId);
-  const entries = new Map(doc.files.map((file) => [file.path, file]));
-  for (const change of doc.changes) {
-    const absolute = assertAllowedAgentFile(change.path, root);
-    const before = entries.get(change.path);
-    if (before) {
-      const data = await fs.promises.readFile(fileArtifactPath(checkpointId, before.artifact));
-      await fs.promises.mkdir(path.dirname(absolute), { recursive: true });
-      await fs.promises.writeFile(absolute, data, { mode: before.mode });
-      await fs.promises.chmod(absolute, before.mode);
-    } else {
-      await fs.promises.rm(absolute, { force: true });
-    }
-  }
+  await applySnapshotToRoot(root, await snapshotFilesFromDoc(doc));
   const db = await getDb();
   await db.collection<CheckpointDoc>("checkpoints").updateOne(
     { _id: new ObjectId(checkpointId), userId: new ObjectId(userId) },
