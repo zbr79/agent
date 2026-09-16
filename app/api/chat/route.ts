@@ -37,6 +37,7 @@ import {
   updateGuestRunProgress,
   updateMessageProgress,
 } from "@/lib/db";
+import { createCheckpoint, finalizeCheckpoint } from "@/lib/checkpoints";
 import type { AgentBinding, ChatMessage, PendingQuestion, WorkspaceId } from "@/lib/types";
 import { DEFAULT_WORKSPACE_ID, workspaceRoot } from "@/lib/workspaces";
 
@@ -428,8 +429,32 @@ export async function POST(req: Request) {
           async function runBoundAgent(unbindOnMiss: boolean): Promise<"ok" | "busy" | "fail"> {
             if (!(await isAgentUp())) return "fail";
             let produced = false;
+            let checkpointId: string | null = null;
+            const finishCheckpoint = async () => {
+              if (!checkpointId || !runUserId) return;
+              try {
+                await finalizeCheckpoint(runUserId, checkpointId);
+              } catch (error) {
+                console.log(
+                  `[chat] checkpoint finalization failed → ${
+                    error instanceof Error ? error.message : String(error)
+                  }`
+                );
+              } finally {
+                checkpointId = null;
+              }
+            };
             const out: AgentRunResult = {};
             try {
+              if (accountBound && requestUser && mode === "build" && sessionId) {
+                const checkpoint = await createCheckpoint({
+                  userId: requestUser._id,
+                  workspaceId,
+                  sessionId,
+                  reason: "Before Build run",
+                });
+                checkpointId = checkpoint.id;
+              }
               for await (const text of tapped(
                 agentChat({
                   messages,
@@ -460,6 +485,7 @@ export async function POST(req: Request) {
                 });
                 binding = { sessionId: out.agentSessionId, tokens: out.lastInputTokens ?? 0 };
               }
+              await finishCheckpoint();
               finishRun("done");
               return "ok";
             } catch (error) {
@@ -467,6 +493,7 @@ export async function POST(req: Request) {
                 enqueue(
                   "\n\n[A reply is already in progress for this chat. Wait for it to finish.]"
                 );
+                await finishCheckpoint();
                 finishRun("failed", "\n\n[A reply is already in progress for this chat.]");
                 return "busy";
               }
@@ -481,9 +508,11 @@ export async function POST(req: Request) {
                     tokens: out.lastInputTokens ?? 0,
                   });
                 }
+                await finishCheckpoint();
                 finishRun("done");
                 return "ok";
               }
+              await finishCheckpoint();
               if (out.agentSessionId) {
                 binding = { sessionId: out.agentSessionId, tokens: binding?.tokens ?? 0 };
               }
