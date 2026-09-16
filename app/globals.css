@@ -520,8 +520,8 @@ body {
   gap: 9px;
   padding-left: 0;
   padding-right: 0;
-  padding-top: 8px;
-  padding-bottom: 8px;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 .workspace-child-sessions .session-row {
@@ -863,9 +863,13 @@ body {
 .session-time {
   flex: 0 0 24px;
   color: var(--text-muted);
+  font-family: var(--font);
   font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
   line-height: 1;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .session-delete {

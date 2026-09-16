@@ -22,6 +22,27 @@ const SESSION_INDICATORS_KEY = "inschat_session_indicators";
 const DEFAULT_WORKSPACE_ORDER: WorkspaceId[] = ["agent", "profile", "inschat", "rencipe"];
 type SessionIndicator = "read" | "unread" | "responding";
 
+function compactTimeAgo(value: string | number, now: number): string {
+  const timestamp =
+    typeof value === "number" ? value : Date.parse(value);
+  if (!Number.isFinite(timestamp) || timestamp > now) return "now";
+
+  const seconds = Math.round((now - timestamp) / 1000);
+  if (seconds < 60) return "now";
+  if (seconds < 60 * 60) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 60 * 60 * 24) return `${Math.round(seconds / (60 * 60))}h`;
+  if (seconds < 60 * 60 * 24 * 7) {
+    return `${Math.round(seconds / (60 * 60 * 24))}d`;
+  }
+  if (seconds < 60 * 60 * 24 * 30) {
+    return `${Math.round(seconds / (60 * 60 * 24 * 7))}w`;
+  }
+  if (seconds < 60 * 60 * 24 * 365) {
+    return `${Math.round(seconds / (60 * 60 * 24 * 30))}mo`;
+  }
+  return `${Math.round(seconds / (60 * 60 * 24 * 365))}y`;
+}
+
 function orderWorkspaces(items: WorkspaceInfo[], order: WorkspaceId[]): WorkspaceInfo[] {
   const rank = new Map(order.map((id, index) => [id, index]));
   return [...items].sort(
@@ -86,6 +107,7 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   const [authChecked, setAuthChecked] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[] | null>(null);
   const [guestSessions, setGuestSessions] = useState<GuestSession[]>([]);
+  const [clock, setClock] = useState<number | null>(null);
   const [sessionIndicators, setSessionIndicators] = useState<
     Record<string, SessionIndicator>
   >({});
@@ -161,6 +183,12 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname, currentSession]);
+
+  useEffect(() => {
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     try {
@@ -454,7 +482,8 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
     id: string,
     title: string,
     pinned: boolean,
-    workspaceId: WorkspaceId = "agent"
+    workspaceId: WorkspaceId = "agent",
+    updatedAt: string | number
   ) => (
     <div
       key={id}
@@ -514,7 +543,7 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
         <Trash2 size={14} />
       </button>
       <span className="session-time" aria-hidden="true">
-        4m
+        {clock === null ? "" : compactTimeAgo(updatedAt, clock)}
       </span>
     </div>
   );
@@ -762,7 +791,8 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                                     session._id,
                                     session.title,
                                     Boolean(session.pinned),
-                                    session.workspaceId
+                                    session.workspaceId,
+                                    session.updatedAt
                                   )
                                 )
                               : itemGuestList.map((session) =>
@@ -770,7 +800,8 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                                     session.id,
                                     session.title,
                                     Boolean(session.pinned),
-                                    session.workspaceId
+                                    session.workspaceId,
+                                    session.updatedAt
                                   )
                                 )}
                             {user && sessions === null && (
