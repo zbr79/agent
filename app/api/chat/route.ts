@@ -90,7 +90,6 @@ export async function POST(req: Request) {
   const {
     messages,
     language,
-    reasoning,
     mode: requestedMode,
     model,
     sessionId,
@@ -531,7 +530,7 @@ export async function POST(req: Request) {
             let produced = false;
             try {
               for await (const text of tapped(
-                streamChat(messages, language, reasoning, model)
+                streamChat(messages, language, model)
               )) {
                 produced = true;
                 enqueue(text);
@@ -552,7 +551,7 @@ export async function POST(req: Request) {
             }
           }
           for await (const text of tapped(
-            streamChat(messages, language, reasoning, model)
+            streamChat(messages, language, model)
           )) {
             enqueue(text);
           }

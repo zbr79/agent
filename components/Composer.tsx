@@ -20,7 +20,6 @@ import {
   useChatMode,
   useCompressImages,
   useDeepSeekPeak,
-  useReasoningEffort,
   useSelectedModel,
   type ChatMode,
   type SelectedModel,
@@ -101,11 +100,9 @@ export default function Composer({
   const lang = useUiLang();
   const t = STR[lang];
   const [compressOn] = useCompressImages();
-  const [reasoning, setReasoning] = useReasoningEffort();
   const [model, setModel] = useSelectedModel();
   const peak = useDeepSeekPeak();
   const [modelOpen, setModelOpen] = useState(false);
-  const [effortOpen, setEffortOpen] = useState(false);
   const [mode, setMode] = useChatMode();
   const [text, setText] = useState("");
   const [images, setImages] = useState<ChatImage[]>([]);
@@ -125,23 +122,18 @@ export default function Composer({
   const imagesRef = useRef(images);
   imagesRef.current = images;
   const pickerRef = useRef<HTMLDivElement>(null);
-  const effortRef = useRef<HTMLDivElement>(null);
   const textRef = useRef(text);
   textRef.current = text;
 
-  // Close the pickers on outside click / Escape.
+  // Close the model picker on outside click / Escape.
   useEffect(() => {
-    if (!modelOpen && !effortOpen) return;
+    if (!modelOpen) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (pickerRef.current && !pickerRef.current.contains(target)) setModelOpen(false);
-      if (effortRef.current && !effortRef.current.contains(target)) setEffortOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setModelOpen(false);
-        setEffortOpen(false);
-      }
+      if (event.key === "Escape") setModelOpen(false);
     };
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKey);
@@ -149,7 +141,7 @@ export default function Composer({
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKey);
     };
-  }, [modelOpen, effortOpen]);
+  }, [modelOpen]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -576,10 +568,7 @@ export default function Composer({
           <button
             type="button"
             className={`composer-reasoning composer-model-pill${modelOpen ? " open" : ""}${modelLocked ? " locked" : ""}`}
-            onClick={() => {
-              setModelOpen((prev) => !prev);
-              setEffortOpen(false);
-            }}
+            onClick={() => setModelOpen((prev) => !prev)}
             aria-expanded={modelOpen}
             aria-label={modelLocked ? t["composer.model.locked"] : t["composer.model"]}
             disabled={disabled}
@@ -619,48 +608,6 @@ export default function Composer({
                   </button>
                 );
               })}
-            </div>
-          )}
-        </div>
-        <div className="composer-picker" ref={effortRef}>
-          <button
-            type="button"
-            className={`composer-reasoning composer-effort-pill${effortOpen ? " open" : ""}`}
-            onClick={() => {
-              setEffortOpen((prev) => !prev);
-              setModelOpen(false);
-            }}
-            aria-expanded={effortOpen}
-            aria-label={t["composer.effort"]}
-            disabled={disabled}
-          >
-            <span className="composer-picker-effort">
-              {reasoning === "max" ? t["composer.effort.max"] : t["composer.effort.balance"]}
-            </span>
-            <ChevronDown size={14} />
-          </button>
-          {effortOpen && (
-            <div className="composer-picker-menu composer-effort-menu">
-              {(["balance", "max"] as const).map((effort) => (
-                <button
-                  key={effort}
-                  type="button"
-                  className={`picker-model${reasoning === effort ? " active" : ""}`}
-                  disabled={disabled}
-                  onClick={() => {
-                    setReasoning(effort);
-                    setEffortOpen(false);
-                  }}
-                >
-                  <span className="picker-model-text">
-                    <span className="picker-model-name">
-                      {effort === "max"
-                        ? t["composer.effort.max"]
-                        : t["composer.effort.balance"]}
-                    </span>
-                  </span>
-                </button>
-              ))}
             </div>
           )}
         </div>

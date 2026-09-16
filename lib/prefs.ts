@@ -37,52 +37,6 @@ export function useCompressImages(): [boolean, (on: boolean) => void] {
   return [on, setCompressImages];
 }
 
-export type ReasoningEffort = "balance" | "max";
-
-const REASONING_KEY = "inschat_reasoning";
-const REASONING_EVENT = "inschat-reasoning";
-
-// Reasoning effort is MAX by default; users can lower it to balance for
-// faster replies (vision + direct-fallback requests only — the opencode
-// agent keeps its own default). The opencode gateway itself still speaks
-// "medium"; the server maps "balance" back to it at the API boundary.
-export function getReasoningEffort(): ReasoningEffort {
-  if (typeof window === "undefined") return "max";
-  try {
-    const value = window.localStorage.getItem(REASONING_KEY);
-    if (value === "balance" || value === "medium") return "balance";
-    return "max";
-  } catch {
-    return "max";
-  }
-}
-
-export function setReasoningEffort(level: ReasoningEffort): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(REASONING_KEY, level);
-  } catch {}
-  window.dispatchEvent(new CustomEvent(REASONING_EVENT, { detail: level }));
-}
-
-export function useReasoningEffort(): [
-  ReasoningEffort,
-  (level: ReasoningEffort) => void
-] {
-  const [level, setLevel] = useState<ReasoningEffort>(() =>
-    getReasoningEffort()
-  );
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<string>).detail;
-      setLevel(detail === "balance" || detail === "medium" ? "balance" : "max");
-    };
-    window.addEventListener(REASONING_EVENT, handler);
-    return () => window.removeEventListener(REASONING_EVENT, handler);
-  }, []);
-  return [level, setReasoningEffort];
-}
-
 // The three user-selectable text models. DeepSeek V4 Flash is off-peak and
 // text-only (no image input); Qwen3.8 Flash is flat-priced and accepts images
 // (poorly); GLM-5.3-Flash is flat-priced and natively multimodal. Selection is

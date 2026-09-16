@@ -28,7 +28,7 @@ import {
 } from "@/lib/guestStore";
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
 import { STR, useUiLang } from "@/lib/i18n";
-import { useChatMode, useReasoningEffort, useSelectedModel } from "@/lib/prefs";
+import { useChatMode, useSelectedModel } from "@/lib/prefs";
 
 interface UiMessage {
   id: number;
@@ -391,7 +391,6 @@ export default function ChatApp() {
       : "agent";
   const lang = useUiLang();
   const t = STR[lang];
-  const [reasoningEffort] = useReasoningEffort();
   const [selectedModel] = useSelectedModel();
   const [chatMode] = useChatMode();
 
@@ -795,7 +794,7 @@ useEffect(() => {
             messages: history,
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             language: lang,
-            reasoning: reasoningEffort,
+            reasoning: "max",
             mode: isAuthed === true ? chatMode : "plan",
             model: selectedModel,
             sessionId: sessionIdRef.current ?? undefined,
@@ -1104,7 +1103,7 @@ useEffect(() => {
         }
       }
     },
-    [isAuthed, lang, reasoningEffort, chatMode, stopResume, startResume, startGuestResume]
+    [isAuthed, lang, chatMode, stopResume, startResume, startGuestResume]
   );
 
   const send = useCallback(

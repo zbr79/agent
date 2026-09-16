@@ -549,7 +549,6 @@ const MAX_TOOL_ROUNDS = 6;
 export async function* streamChat(
   messages: ChatMessage[],
   language?: "zh" | "en",
-  reasoning: "balance" | "max" = "max",
   modelOverride?: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash"
 ): AsyncGenerator<string> {
   const lastMessage = messages[messages.length - 1];
@@ -603,7 +602,7 @@ export async function* streamChat(
             working,
             model,
             useTools,
-            reasoning === "balance" ? "medium" : "max"
+            "max"
           );
           while (true) {
             const { done, value } = await gen.next();
