@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import MessageBubble from "./MessageBubble";
+import ChatErrorBoundary from "./ChatErrorBoundary";
 import Composer from "./Composer";
 import QuestionCard from "./QuestionCard";
 import ActivityPanel, {
@@ -326,12 +327,17 @@ function persistMessage(
     model?: string;
     elapsed?: number;
   }
-): Promise<unknown> {
+): Promise<{ message?: StoredLike } | null> {
   return fetch(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(message),
-  }).catch(() => {});
+  })
+    .then(async (response) => {
+      if (!response.ok) return null;
+      return (await response.json()) as { message?: StoredLike };
+    })
+    .catch(() => null);
 }
 
 function titleFrom(text: string, fallback: string): string {
@@ -401,6 +407,8 @@ export default function ChatApp() {
   const workspaceId: WorkspaceId = requestedWorkspaceId;
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
+  const [editingImages, setEditingImages] = useState<ChatImage[]>([]);
+  const [editingError, setEditingError] = useState<string | null>(null);
   // const [shareMsg, setShareMsg] = useState<"link" | "error" | null>(null); // share feature removed
   const [flashId, setFlashId] = useState<number | null>(null);
   const handledMsgRef = useRef<string | null>(null);
@@ -733,7 +741,7 @@ useEffect(() => {
   // Streams a model reply for the given message list (which already ends
   // with the user message that triggers it).
   const streamReply = useCallback(
-    async (base: UiMessage[]) => {
+    async (base: UiMessage[], triggerMessageId?: string) => {
       stopResume();
       const streamSessionId = sessionIdRef.current;
       emitSessionIndicator(streamSessionId, "responding");
@@ -790,6 +798,7 @@ useEffect(() => {
             mode: isAuthed === true ? chatMode : "plan",
             model: selectedModel,
             sessionId: sessionIdRef.current ?? undefined,
+            messageId: triggerMessageId,
             workspaceId: workspaceIdRef.current,
           }),
           signal: controller.signal,
@@ -1142,13 +1151,20 @@ useEffect(() => {
         }
       }
 
-      const userMessage: UiMessage = { id: nextId++, role: "user", text: trimmed, images };
+      let userMessage: UiMessage = { id: nextId++, role: "user", text: trimmed, images };
       if (sessionId) {
         if (authed) {
           // Await before starting the run: the server creates the pending
           // model placeholder the moment /api/chat lands, so the user doc
           // must already exist to keep createdAt order (question, answer).
-          await persistMessage(sessionId, { role: "user", text: trimmed, images });
+          const stored = await persistMessage(sessionId, {
+            role: "user",
+            text: trimmed,
+            images,
+          });
+          if (stored?.message?._id) {
+            userMessage = { ...userMessage, _id: stored.message._id };
+          }
         } else if (images && images.length > 0) {
           const keys = images.map((_, i) => `${sessionId}:${userMessage.id}:${i}`);
           const stored = await Promise.all(
@@ -1165,30 +1181,117 @@ useEffect(() => {
           appendGuestMessage(sessionId, { role: "user", text: trimmed });
         }
       }
-      await streamReply([...messages, userMessage]);
+      await streamReply([...messages, userMessage], userMessage._id);
     },
     [messages, sending, isAuthed, router, streamReply]
   );
 
   // Truncate persisted state up to the given message list (revert-style).
   const truncatePersisted = useCallback(
-    async (base: UiMessage[]) => {
+    async (base: UiMessage[]): Promise<boolean> => {
       const sessionId = sessionIdRef.current;
-      if (!sessionId) return;
+      if (!sessionId) return true;
       const keep = base.filter(
         (message) => message.role === "user" || !message.failed
       ).length;
       if (isAuthed) {
-        await fetch(`/api/sessions/${sessionId}/messages`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ keep }),
-        }).catch(() => {});
+        try {
+          const response = await fetch(`/api/sessions/${sessionId}/messages`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ keep }),
+          });
+          return response.ok;
+        } catch {
+          return false;
+        }
       } else {
         truncateGuestSession(sessionId, keep);
         // Drop the server-side opencode thread too: the model must not keep
         // "remembering" turns that were just reverted client-side.
-        fetch(`/api/guest-runs/${sessionId}`, { method: "DELETE" }).catch(() => {});
+        try {
+          const response = await fetch(`/api/guest-runs/${sessionId}`, { method: "DELETE" });
+          return response.ok;
+        } catch {
+          return false;
+        }
+      }
+    },
+    [isAuthed]
+  );
+
+  const restoreCheckpointForEdit = useCallback(
+    async (messageId?: string): Promise<{ ok: boolean; error?: string }> => {
+      if (isAuthed !== true || !sessionIdRef.current || !messageId) {
+        return { ok: true };
+      }
+      try {
+        const query = new URLSearchParams({
+          workspace: workspaceIdRef.current,
+          messageId,
+        });
+        const listResponse = await fetch(`/api/checkpoints?${query.toString()}`);
+        if (!listResponse.ok) {
+          return { ok: false, error: "Could not find the checkpoint for this message." };
+        }
+        const listBody = (await listResponse.json()) as {
+          checkpoints?: { id?: string }[];
+        };
+        const checkpointId = listBody.checkpoints?.[0]?.id;
+        if (!checkpointId) return { ok: true };
+
+        const previewResponse = await fetch(`/api/checkpoints/${checkpointId}`);
+        const preview = (await previewResponse.json()) as {
+          conflicts?: unknown[];
+          error?: string;
+        };
+        if (!previewResponse.ok) {
+          return {
+            ok: false,
+            error: preview.error || "Could not preview the file restore.",
+          };
+        }
+        if (preview.conflicts?.length) {
+          return {
+            ok: false,
+            error: "This run has newer file changes. Resolve them before editing the prompt.",
+          };
+        }
+
+        const restoreResponse = await fetch(
+          `/api/checkpoints/${checkpointId}/restore`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confirm: true }),
+          }
+        );
+        if (!restoreResponse.ok) {
+          const raw = await restoreResponse.text().catch(() => "");
+          let body: { error?: string; detail?: string } | null = null;
+          try {
+            body = raw
+              ? (JSON.parse(raw) as { error?: string; detail?: string })
+              : null;
+          } catch {}
+          return {
+            ok: false,
+            error:
+              (body?.error
+                ? `${body.error}${body.detail ? ` (${body.detail})` : ""}`
+                : undefined) ||
+              `Could not restore the files before editing (HTTP ${restoreResponse.status}).`,
+          };
+        }
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error:
+            error instanceof Error
+              ? `The file restore could not be completed: ${error.message}`
+              : "The file restore could not be completed.",
+        };
       }
     },
     [isAuthed]
@@ -1200,6 +1303,8 @@ useEffect(() => {
       if (!message || message.role !== "user") return;
       setEditingId(id);
       setEditingText(message.text);
+      setEditingImages(message.images ?? []);
+      setEditingError(null);
     },
     [messages]
   );
@@ -1208,14 +1313,35 @@ useEffect(() => {
     async (id: number) => {
       const index = messages.findIndex((m) => m.id === id);
       if (index < 0 || !editingText.trim()) return;
-      const edited: UiMessage = { ...messages[index], text: editingText.trim() };
+      const edited: UiMessage = {
+        ...messages[index],
+        text: editingText.trim(),
+        images: editingImages,
+      };
       const base = messages.slice(0, index);
-      setEditingId(null);
-      await truncatePersisted(base);
+      setEditingError(null);
+      const restored = await restoreCheckpointForEdit(messages[index]._id);
+      if (!restored.ok) {
+        setEditingError(restored.error ?? "The previous file state could not be restored.");
+        return;
+      }
+      if (!(await truncatePersisted(base))) {
+        setEditingError("The previous conversation could not be reset. Please try again.");
+        return;
+      }
       const sessionId = sessionIdRef.current;
       if (sessionId) {
         if (isAuthed) {
-          await persistMessage(sessionId, { role: "user", text: edited.text, images: edited.images });
+          const stored = await persistMessage(sessionId, {
+            role: "user",
+            text: edited.text,
+            images: edited.images,
+          });
+          if (!stored?.message?._id) {
+            setEditingError("The edited message could not be saved.");
+            return;
+          }
+          edited._id = stored.message._id;
         } else {
           appendGuestMessage(sessionId, {
             role: "user",
@@ -1224,9 +1350,19 @@ useEffect(() => {
           });
         }
       }
-      await streamReply([...base, edited]);
+      setEditingId(null);
+      setEditingImages([]);
+      await streamReply([...base, edited], edited._id);
     },
-    [messages, editingText, isAuthed, truncatePersisted, streamReply]
+    [
+      messages,
+      editingText,
+      editingImages,
+      isAuthed,
+      restoreCheckpointForEdit,
+      truncatePersisted,
+      streamReply,
+    ]
   );
 
   const regenerate = useCallback(
@@ -1236,7 +1372,7 @@ useEffect(() => {
       const previous = messages[index - 1];
       if (previous.role !== "user") return;
       const base = messages.slice(0, index);
-      await truncatePersisted(base);
+      if (!(await truncatePersisted(base))) return;
       await streamReply(base);
     },
     [messages, truncatePersisted, streamReply]
@@ -1428,21 +1564,30 @@ useEffect(() => {
             {composerDock}
           </main>
         ) : (
-          <MessageBubble
-            messages={messages}
-            guest={isAuthed === false}
-            flashId={flashId}
-            activities={activities}
-            activityMessageId={activitiesMsgId}
-            onEdit={startEdit}
-            onRegenerate={regenerate}
-            canAct={!sending}
-            editingId={editingId}
-            editingText={editingText}
-            onEditingText={setEditingText}
-            onEditSave={editSave}
-            onEditCancel={() => setEditingId(null)}
-          />
+          <ChatErrorBoundary>
+            <MessageBubble
+              messages={messages}
+              guest={isAuthed === false}
+              flashId={flashId}
+              activities={activities}
+              activityMessageId={activitiesMsgId}
+              onEdit={startEdit}
+              onRegenerate={regenerate}
+              canAct={!sending}
+              editingId={editingId}
+              editingText={editingText}
+              editingImages={editingImages}
+              editingError={editingError}
+              onEditingText={setEditingText}
+              onEditingImages={(images) => setEditingImages(images ?? [])}
+              onEditSave={editSave}
+              onEditCancel={() => {
+                setEditingId(null);
+                setEditingImages([]);
+                setEditingError(null);
+              }}
+            />
+          </ChatErrorBoundary>
         )}
         {messages.length > 0 && composerDock}
         {freeNotice && (
@@ -1468,21 +1613,30 @@ useEffect(() => {
             {composerDock}
           </main>
         ) : (
-          <MessageBubble
-            messages={messages}
-            guest={isAuthed === false}
-            flashId={flashId}
-            activities={activities}
-            activityMessageId={activitiesMsgId}
-            onEdit={startEdit}
-            onRegenerate={regenerate}
-            canAct={!sending}
-            editingId={editingId}
-            editingText={editingText}
-            onEditingText={setEditingText}
-            onEditSave={editSave}
-            onEditCancel={() => setEditingId(null)}
-          />
+          <ChatErrorBoundary>
+            <MessageBubble
+              messages={messages}
+              guest={isAuthed === false}
+              flashId={flashId}
+              activities={activities}
+              activityMessageId={activitiesMsgId}
+              onEdit={startEdit}
+              onRegenerate={regenerate}
+              canAct={!sending}
+              editingId={editingId}
+              editingText={editingText}
+              editingImages={editingImages}
+              editingError={editingError}
+              onEditingText={setEditingText}
+              onEditingImages={(images) => setEditingImages(images ?? [])}
+              onEditSave={editSave}
+              onEditCancel={() => {
+                setEditingId(null);
+                setEditingImages([]);
+                setEditingError(null);
+              }}
+            />
+          </ChatErrorBoundary>
         )}
         {messages.length > 0 && composerDock}
         {freeNotice && (
