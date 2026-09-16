@@ -151,7 +151,6 @@ export default function ChangesSummary({ items }: { items: ActivityItem[] }) {
         className="changes-head"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        title={open ? (zh ? "收起" : "Collapse") : zh ? "展开" : "Expand"}
       >
         <FilePenLine size={13} className="changes-head-icon" aria-hidden="true" />
         <span className="changes-label">{label}</span>

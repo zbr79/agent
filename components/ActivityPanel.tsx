@@ -375,7 +375,7 @@ export default function ActivityPanel({
             </span>
           </span>
           {durationLabel ? (
-            <span className="activity-duration" title={durationLabel}>
+            <span className="activity-duration">
               {durationLabel}
             </span>
           ) : (

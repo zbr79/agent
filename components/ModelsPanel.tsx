@@ -242,7 +242,7 @@ export default function ModelsPanel() {
                     {t[model.tier === "pro" ? "models.tierPro" : "models.tierFlash"]}
                   </span>
                   {model.vision && (
-                      <span className="model-tag" title={t["models.vision"]}>
+                      <span className="model-tag">
                         {t["models.vision"]}
                     </span>
                   )}
