@@ -274,8 +274,7 @@ body {
   background: transparent;
 }
 
-.workspace-picker-button:hover,
-.workspace-add-button:hover {
+.workspace-picker-button:hover {
   background: rgba(0, 0, 0, 0.05);
 }
 
@@ -331,14 +330,10 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.workspace-child-row {
   width: 100%;
   border-radius: 8px;
 }
 
-.workspace-root-button,
 .workspace-child-button,
 .workspace-child-new {
   border: none;
@@ -347,38 +342,24 @@ body {
   cursor: pointer;
 }
 
-.workspace-root-button {
+.workspace-root-label {
   flex: 1;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 9px 8px;
-  border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
-  text-align: left;
 }
 
-.workspace-root-button span {
-  flex: 1;
-}
-
-.workspace-root-button svg {
-  flex: none;
-  transform: rotate(-90deg);
-  transition: transform 160ms ease;
-}
-
-.workspace-root-button .workspace-chevron-open {
-  transform: rotate(0deg);
-}
-
-.workspace-root-button:hover,
+.workspace-root-row:hover,
 .workspace-child-row:hover,
 .workspace-child-row:hover .workspace-child-button,
 .workspace-child-new:hover {
   background: rgba(0, 0, 0, 0.05);
+}
+
+.workspace-root-row:hover .workspace-add-button,
+.workspace-add-button:hover {
+  background: transparent;
 }
 
 .workspace-child-row:hover .workspace-child-button,
@@ -671,21 +652,13 @@ body {
 }
 
 .workspace-modal-option-copy {
-  display: flex;
   flex: 1;
   min-width: 0;
-  flex-direction: column;
-  gap: 3px;
 }
 
 .workspace-modal-option-copy strong {
   font-size: 14px;
   font-weight: 600;
-}
-
-.workspace-modal-option-copy small {
-  color: var(--text-muted);
-  font-size: 11px;
 }
 
 .workspace-session-group {
@@ -837,6 +810,10 @@ body {
 .session-row.active {
   background: rgba(0, 0, 0, 0.08);
   font-weight: 500;
+}
+
+.session-row.session-draft .session-link {
+  cursor: default;
 }
 
 .session-link {
