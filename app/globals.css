@@ -4079,14 +4079,20 @@ span.conclude-rank-badge {
 }
 
 .edit-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 76px;
   background: var(--pill);
   color: var(--pill-text);
   border-color: var(--pill);
 }
 
-.edit-save:disabled {
-  opacity: 0.4;
-  cursor: wait;
+.edit-send {
+  background: linear-gradient(135deg, #8f6fd6, #6a48b3);
+  border-color: #6a48b3;
+  box-shadow: none;
 }
 
 .image-remove {
