@@ -1185,3 +1185,15 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 ### Disproved
 - CSS cannot suppress the browser `title` tooltip; removing the attribute is required.
 
+## 2026-09-16 — Remove Max/Balance effort picker
+
+### Solved
+- Composer no longer shows the Max/Balance dropdown. Every chat uses max reasoning.
+- The server ignores leftover client `reasoning` values so old tabs cannot opt into Balance.
+
+### Unresolved
+- n/a
+
+### Disproved
+- n/a
+

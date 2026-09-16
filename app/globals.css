@@ -2741,7 +2741,7 @@ span.conclude-rank-badge {
   }
 }
 
-/* toolbar row: model + effort + git left, build/plan mode pill right */
+/* toolbar row: model + git left, build/plan mode pill right */
 .composer-toolbar {
   display: flex;
   align-items: center;
@@ -3005,17 +3005,8 @@ span.conclude-rank-badge {
   justify-content: space-between;
 }
 
-.composer-picker-effort {
-  opacity: 0.85;
-}
-
-.composer-reasoning:hover .composer-picker-effort,
-.composer-reasoning.open .composer-picker-effort {
-  opacity: 1;
-}
-
-/* Popovers for the model and effort pickers. Opens upward because the
-   composer is pinned to the bottom of the viewport. */
+/* Popover for the model picker. Opens upward because the composer is
+   pinned to the bottom of the viewport. */
 .composer-picker {
   position: relative;
   flex-shrink: 0;
@@ -3040,10 +3031,6 @@ span.conclude-rank-badge {
 
 .composer-model-menu {
   min-width: 152px;
-}
-
-.composer-effort-menu {
-  min-width: 130px;
 }
 
 .picker-model {

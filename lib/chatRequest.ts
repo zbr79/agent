@@ -13,7 +13,7 @@ export interface ChatRequest {
   messages: ChatMessage[];
   timeZone?: string;
   language?: "zh" | "en";
-  reasoning?: "balance" | "max";
+  reasoning?: "max";
   mode?: "build" | "plan";
   model?: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash";
   sessionId?: string;
@@ -88,21 +88,9 @@ export function parseChatBody(body: unknown): ChatRequest {
     language = rawLanguage;
   }
 
-  const rawReasoning = (body as { reasoning?: unknown }).reasoning;
-  let reasoning: "balance" | "max" | undefined;
-  if (rawReasoning !== undefined) {
-    // Legacy clients may still send "medium" (old default label) or "low" —
-    // normalize both: medium → balance, low → max.
-    if (rawReasoning === "low") {
-      reasoning = "max";
-    } else if (rawReasoning === "medium") {
-      reasoning = "balance";
-    } else if (rawReasoning !== "max" && rawReasoning !== "balance") {
-      throw new ChatValidationError('"reasoning" must be "max" or "balance".');
-    } else {
-      reasoning = rawReasoning;
-    }
-  }
+  // Effort picker is gone; every chat uses max. Accept leftover client
+  // values so old tabs do not 400, then ignore them.
+  const reasoning: "max" = "max";
 
   const rawModel = (body as { model?: unknown }).model;
   let model: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash" | undefined;
