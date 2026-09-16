@@ -282,6 +282,7 @@ export default function MessageBubble({
   editingText = "",
   editingImages,
   editingError = null,
+  editingBusy = false,
   onEditingText,
   onEditingImages,
   onEditSave,
@@ -301,6 +302,7 @@ export default function MessageBubble({
   editingText?: string;
   editingImages?: Message["images"];
   editingError?: string | null;
+  editingBusy?: boolean;
   onEditingText?: (text: string) => void;
   onEditingImages?: (images: Message["images"]) => void;
   onEditSave?: (id: number) => void;
@@ -590,11 +592,12 @@ export default function MessageBubble({
                   </button>
                   <button
                     type="button"
-                    className="edit-save"
+                    className="edit-save edit-send"
                     onClick={() => onEditSave?.(message.id)}
-                    disabled={!editingText.trim()}
+                    aria-label={t["composer.send"]}
+                    aria-busy={editingBusy}
                   >
-                    {t["actions.save"]}
+                    {editingBusy ? t["actions.restoring"] : t["composer.send"]}
                   </button>
                 </div>
               </div>

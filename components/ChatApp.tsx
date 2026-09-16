@@ -409,6 +409,7 @@ export default function ChatApp() {
   const [editingText, setEditingText] = useState("");
   const [editingImages, setEditingImages] = useState<ChatImage[]>([]);
   const [editingError, setEditingError] = useState<string | null>(null);
+  const [editingBusy, setEditingBusy] = useState(false);
   // const [shareMsg, setShareMsg] = useState<"link" | "error" | null>(null); // share feature removed
   const [flashId, setFlashId] = useState<number | null>(null);
   const handledMsgRef = useRef<string | null>(null);
@@ -1220,83 +1221,6 @@ useEffect(() => {
     [isAuthed]
   );
 
-  const restoreCheckpointForEdit = useCallback(
-    async (messageId?: string): Promise<{ ok: boolean; error?: string }> => {
-      if (isAuthed !== true || !sessionIdRef.current || !messageId) {
-        return { ok: true };
-      }
-      try {
-        const query = new URLSearchParams({
-          workspace: workspaceIdRef.current,
-          messageId,
-        });
-        const listResponse = await fetch(`/api/checkpoints?${query.toString()}`);
-        if (!listResponse.ok) {
-          return { ok: false, error: "Could not find the checkpoint for this message." };
-        }
-        const listBody = (await listResponse.json()) as {
-          checkpoints?: { id?: string }[];
-        };
-        const checkpointId = listBody.checkpoints?.[0]?.id;
-        if (!checkpointId) return { ok: true };
-
-        const previewResponse = await fetch(`/api/checkpoints/${checkpointId}`);
-        const preview = (await previewResponse.json()) as {
-          conflicts?: unknown[];
-          error?: string;
-        };
-        if (!previewResponse.ok) {
-          return {
-            ok: false,
-            error: preview.error || "Could not preview the file restore.",
-          };
-        }
-        if (preview.conflicts?.length) {
-          return {
-            ok: false,
-            error: "This run has newer file changes. Resolve them before editing the prompt.",
-          };
-        }
-
-        const restoreResponse = await fetch(
-          `/api/checkpoints/${checkpointId}/restore`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ confirm: true }),
-          }
-        );
-        if (!restoreResponse.ok) {
-          const raw = await restoreResponse.text().catch(() => "");
-          let body: { error?: string; detail?: string } | null = null;
-          try {
-            body = raw
-              ? (JSON.parse(raw) as { error?: string; detail?: string })
-              : null;
-          } catch {}
-          return {
-            ok: false,
-            error:
-              (body?.error
-                ? `${body.error}${body.detail ? ` (${body.detail})` : ""}`
-                : undefined) ||
-              `Could not restore the files before editing (HTTP ${restoreResponse.status}).`,
-          };
-        }
-        return { ok: true };
-      } catch (error) {
-        return {
-          ok: false,
-          error:
-            error instanceof Error
-              ? `The file restore could not be completed: ${error.message}`
-              : "The file restore could not be completed.",
-        };
-      }
-    },
-    [isAuthed]
-  );
-
   const startEdit = useCallback(
     (id: number) => {
       const message = messages.find((m) => m.id === id);
@@ -1312,7 +1236,7 @@ useEffect(() => {
   const editSave = useCallback(
     async (id: number) => {
       const index = messages.findIndex((m) => m.id === id);
-      if (index < 0 || !editingText.trim()) return;
+      if (index < 0 || !editingText.trim() || editingBusy) return;
       const edited: UiMessage = {
         ...messages[index],
         text: editingText.trim(),
@@ -1320,46 +1244,68 @@ useEffect(() => {
       };
       const base = messages.slice(0, index);
       setEditingError(null);
-      const restored = await restoreCheckpointForEdit(messages[index]._id);
-      if (!restored.ok) {
-        setEditingError(restored.error ?? "The previous file state could not be restored.");
-        return;
-      }
-      if (!(await truncatePersisted(base))) {
-        setEditingError("The previous conversation could not be reset. Please try again.");
-        return;
-      }
-      const sessionId = sessionIdRef.current;
-      if (sessionId) {
-        if (isAuthed) {
-          const stored = await persistMessage(sessionId, {
-            role: "user",
-            text: edited.text,
-            images: edited.images,
+      setEditingBusy(true);
+      try {
+        const sessionId = sessionIdRef.current;
+        if (isAuthed === true) {
+          if (!sessionId) throw new Error("The session could not be identified.");
+          const keep = base.filter(
+            (message) => message.role === "user" || !message.failed
+          ).length;
+          const response = await fetch(`/api/sessions/${sessionId}/edit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messageId: messages[index]._id,
+              keep,
+              text: edited.text,
+              images: edited.images,
+            }),
           });
-          if (!stored?.message?._id) {
-            setEditingError("The edited message could not be saved.");
-            return;
+          const body = (await response.json().catch(() => null)) as {
+            message?: StoredLike;
+            error?: string;
+          } | null;
+          if (!response.ok) {
+            throw new Error(
+              body?.error || `The edited prompt could not be prepared (HTTP ${response.status}).`
+            );
           }
-          edited._id = stored.message._id;
+          if (!body?.message?._id) {
+            throw new Error("The edited message could not be saved.");
+          }
+          edited._id = body.message._id;
         } else {
-          appendGuestMessage(sessionId, {
-            role: "user",
-            text: edited.text,
-            images: edited.images,
-          });
+          if (sessionId) {
+            if (!(await truncatePersisted(base))) {
+              throw new Error("The previous conversation could not be reset. Please try again.");
+            }
+            appendGuestMessage(sessionId, {
+              role: "user",
+              text: edited.text,
+              images: edited.images,
+            });
+          }
         }
+        setEditingId(null);
+        setEditingImages([]);
+        await streamReply([...base, edited], edited._id);
+      } catch (error) {
+        setEditingError(
+          error instanceof Error
+            ? error.message
+            : "The edited prompt could not be prepared."
+        );
+      } finally {
+        setEditingBusy(false);
       }
-      setEditingId(null);
-      setEditingImages([]);
-      await streamReply([...base, edited], edited._id);
     },
     [
       messages,
       editingText,
       editingImages,
+      editingBusy,
       isAuthed,
-      restoreCheckpointForEdit,
       truncatePersisted,
       streamReply,
     ]
@@ -1578,10 +1524,12 @@ useEffect(() => {
               editingText={editingText}
               editingImages={editingImages}
               editingError={editingError}
+              editingBusy={editingBusy}
               onEditingText={setEditingText}
               onEditingImages={(images) => setEditingImages(images ?? [])}
               onEditSave={editSave}
               onEditCancel={() => {
+                if (editingBusy) return;
                 setEditingId(null);
                 setEditingImages([]);
                 setEditingError(null);
@@ -1627,10 +1575,12 @@ useEffect(() => {
               editingText={editingText}
               editingImages={editingImages}
               editingError={editingError}
+              editingBusy={editingBusy}
               onEditingText={setEditingText}
               onEditingImages={(images) => setEditingImages(images ?? [])}
               onEditSave={editSave}
               onEditCancel={() => {
+                if (editingBusy) return;
                 setEditingId(null);
                 setEditingImages([]);
                 setEditingError(null);
