@@ -1133,3 +1133,29 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 ### Disproved
 - The modal cannot be audited by Lighthouse directly (it audits page navigations, not client-side state) — Playwright probing is the correct tool.
 
+## 2026-09-16 — Hide empty workspace folders; unused new chat is ephemeral
+
+### Solved
+- Sidebar only lists a workspace folder when it has saved chats, or when you are currently in that folder (an unused `/?workspace=` draft or a `?session=` chat whose list row has not loaded yet).
+- FolderPlus / per-folder + still go to `/?workspace=<id>` with no session. The folder appears expanded with a selected "New chat" row; the session is still created on first send.
+- Leaving that unused chat (open another session, or start a draft in a different folder) drops the draft row. If the folder has no saved chats, it disappears.
+- Empty folders are not inserted as Mongo/guest sessions. URL + sidebar UI only, matching Cursor’s unused New Agent behavior.
+
+### Unresolved
+- Composer text in an unused new chat is still discarded on leave (same as Cursor).
+
+### Disproved
+- Creating a real empty session on + and deleting it on leave would fight the existing first-send create path and leave empty chats after refresh.
+
+## 2026-09-16 — Folder picker: drop subtitle, check every stored folder
+
+### Solved
+- Select-a-folder rows no longer show the “approved project folder” subtitle.
+- Check marks are per folder with a saved session, not the one you last opened. Opening the picker with three stored folders shows three checks.
+
+### Unresolved
+- n/a
+
+### Disproved
+- n/a
+

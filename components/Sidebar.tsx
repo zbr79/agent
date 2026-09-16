@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, ChevronDown, Languages, Gauge, LogOut, ImageDown, RotateCw, Folder, FolderPlus, Check } from "lucide-react";
+import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown, RotateCw, Folder, FolderPlus, Check } from "lucide-react";
 import type { ChatSession, WorkspaceId, WorkspaceInfo } from "@/lib/types";
 import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession, type GuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
@@ -112,7 +112,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
     Record<string, SessionIndicator>
   >({});
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
-  const [workspaceTreeOpen, setWorkspaceTreeOpen] = useState(true);
   const [openWorkspaceIds, setOpenWorkspaceIds] = useState<Set<WorkspaceId>>(
     () => new Set(DEFAULT_WORKSPACE_ORDER)
   );
@@ -141,6 +140,8 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
     const guest = guestSessions.find((session) => session.id === currentSession)?.workspaceId;
     return (owned ?? guest ?? "agent") as WorkspaceId;
   })();
+  const isChatDraft = pathname === "/" && !currentSession;
+  const draftWorkspaceId = isChatDraft ? currentWorkspaceId : null;
   const copyWorkspace = async () => {
     if (!workspace) return;
     try {
@@ -240,6 +241,16 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   useEffect(() => {
     if (currentSession) setSessionIndicator(currentSession, "read");
   }, [currentSession, setSessionIndicator]);
+
+  useEffect(() => {
+    if (!draftWorkspaceId) return;
+    setOpenWorkspaceIds((current) => {
+      if (current.has(draftWorkspaceId)) return current;
+      const next = new Set(current);
+      next.add(draftWorkspaceId);
+      return next;
+    });
+  }, [draftWorkspaceId]);
 
   // Escape closes the mobile drawer (and any open row menu).
   useEffect(() => {
@@ -426,7 +437,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
 
   const selectWorkspace = (id: WorkspaceId) => {
     setWorkspaceOpen(false);
-    setWorkspaceTreeOpen(true);
     setOpenWorkspaceIds((current) => new Set(current).add(id));
     setMenuOpen(false);
     router.push(`/?workspace=${encodeURIComponent(id)}`);
@@ -446,6 +456,9 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   );
   const guestList = [...guestSessions].sort(
     (a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false)
+  );
+  const storedWorkspaceIds = new Set(
+    (user ? ownerList : guestList).map((session) => session.workspaceId)
   );
 
   const persistWorkspaceOrder = (next: WorkspaceInfo[]) => {
@@ -477,6 +490,24 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
     setDragWorkspaceId(null);
     setWorkspaceDropTarget(null);
   };
+
+  const renderDraftRow = (workspaceId: WorkspaceId) => (
+    <div key={`${workspaceId}-draft`} className="session-row active session-draft">
+      <Link
+        href={`/?workspace=${encodeURIComponent(workspaceId)}`}
+        className="session-link"
+        title={t["nav.newChat"]}
+        onClick={() => setMenuOpen(false)}
+      >
+        <span
+          className="session-placeholder-dot session-status-read"
+          role="img"
+          aria-label={t["nav.newChat"]}
+        />
+        <FitTitle title={t["nav.newChat"]} />
+      </Link>
+    </div>
+  );
 
   const renderSessionRow = (
     id: string,
@@ -647,18 +678,7 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
         <div className="sidebar-scroll">
           <div className="workspace-tree">
             <div className="workspace-root-row">
-              <button
-                type="button"
-                className="workspace-root-button"
-                onClick={() => setWorkspaceTreeOpen((open) => !open)}
-                aria-expanded={workspaceTreeOpen}
-              >
-                <span className="workspace-root-label">{t["workspace.root"]}</span>
-                <ChevronDown
-                  size={16}
-                  className={workspaceTreeOpen ? "workspace-chevron-open" : ""}
-                />
-              </button>
+              <span className="workspace-root-label">{t["workspace.root"]}</span>
               <button
                 type="button"
                 className="workspace-add-button"
@@ -669,10 +689,9 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                 <FolderPlus size={16} />
               </button>
             </div>
-            {workspaceTreeOpen && (
-              <div
-                className="workspace-tree-children"
-                onDragOver={(event) => {
+            <div
+              className="workspace-tree-children"
+              onDragOver={(event) => {
                   if (!dragWorkspaceId) return;
                   event.preventDefault();
                   const element =
@@ -680,14 +699,17 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                   const folder = element?.closest<HTMLElement>(".workspace-folder");
                   const targetId = folder?.dataset.workspaceId as WorkspaceId | undefined;
                   if (!folder || !targetId || targetId === dragWorkspaceId) {
-                    const firstRow = event.currentTarget.querySelector(".workspace-child-row");
-                    const firstWorkspace = workspaces[0];
+                    const firstFolder =
+                      event.currentTarget.querySelector<HTMLElement>(".workspace-folder");
+                    const firstId = firstFolder?.dataset.workspaceId as
+                      | WorkspaceId
+                      | undefined;
                     if (
-                      firstRow instanceof HTMLElement &&
-                      firstWorkspace &&
-                      event.clientY < firstRow.getBoundingClientRect().top
+                      firstFolder &&
+                      firstId &&
+                      event.clientY < firstFolder.getBoundingClientRect().top
                     ) {
-                      setWorkspaceDropTarget({ id: firstWorkspace.id, before: true });
+                      setWorkspaceDropTarget({ id: firstId, before: true });
                     }
                     return;
                   }
@@ -715,9 +737,20 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                     const itemGuestList = guestList.filter(
                       (session) => session.workspaceId === item.id
                     );
+                    const savedCount = user
+                      ? itemOwnerList.length
+                      : itemGuestList.length;
+                    const isDraftHere = draftWorkspaceId === item.id;
+                    const isCurrentHere =
+                      currentWorkspaceId === item.id &&
+                      (isDraftHere || Boolean(currentSession));
+                    const isLoadingHere = Boolean(
+                      user && sessions === null && currentWorkspaceId === item.id
+                    );
+                    const showFolder =
+                      savedCount > 0 || isCurrentHere || isLoadingHere;
+                    if (!showFolder) return null;
                     const isOpen = openWorkspaceIds.has(item.id);
-                    const hasChats =
-                      user ? sessions === null || itemOwnerList.length > 0 : itemGuestList.length > 0;
                     return (
                       <div
                         key={item.id}
@@ -744,22 +777,17 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                           <button
                             type="button"
                             className="workspace-child-button"
-                            onClick={() => {
-                              if (hasChats) toggleWorkspaceOpen(item.id);
-                            }}
-                            aria-expanded={hasChats ? isOpen : undefined}
-                            disabled={!hasChats}
+                            onClick={() => toggleWorkspaceOpen(item.id)}
+                            aria-expanded={isOpen}
                           >
                             <span className="workspace-folder-icon" aria-hidden="true">
                               <Folder size={14} className="workspace-folder-glyph" />
-                              {hasChats && (
-                                <ChevronRight
-                                  size={14}
-                                  className={`workspace-folder-chevron${
-                                    isOpen ? " workspace-folder-chevron-open" : ""
-                                  }`}
-                                />
-                              )}
+                              <ChevronRight
+                                size={14}
+                                className={`workspace-folder-chevron${
+                                  isOpen ? " workspace-folder-chevron-open" : ""
+                                }`}
+                              />
                             </span>
                             <span>{item.label}</span>
                           </button>
@@ -783,8 +811,9 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                               aria-hidden="true"
                             />
                           )}
-                        {authChecked && isOpen && hasChats && (
+                        {authChecked && isOpen && (
                           <div className="workspace-child-sessions">
+                            {isDraftHere && renderDraftRow(item.id)}
                             {user
                               ? itemOwnerList.map((session) =>
                                   renderSessionRow(
@@ -804,7 +833,7 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                                     session.updatedAt
                                   )
                                 )}
-                            {user && sessions === null && (
+                            {isLoadingHere && (
                               <p className="session-hint">{t["nav.loading"]}</p>
                             )}
                           </div>
@@ -814,7 +843,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
                   })
                 )}
               </div>
-            )}
           </div>
         </div>
       <div className="sidebar-foot">
@@ -885,23 +913,25 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
             {workspaces.length === 0 ? (
               <p className="session-hint">{t["nav.loading"]}</p>
             ) : (
-              workspaces.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`workspace-modal-option${item.id === currentWorkspaceId ? " active" : ""}`}
-                  onClick={() => selectWorkspace(item.id)}
-                >
-                  <span className="workspace-modal-option-icon">
-                    <Folder size={18} />
-                  </span>
-                  <span className="workspace-modal-option-copy">
-                    <strong>{item.label}</strong>
-                    <small>{t["workspace.approvedProject"]}</small>
-                  </span>
-                  {item.id === currentWorkspaceId && <Check size={16} />}
-                </button>
-              ))
+              workspaces.map((item) => {
+                const hasStored = storedWorkspaceIds.has(item.id);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`workspace-modal-option${hasStored ? " active" : ""}`}
+                    onClick={() => selectWorkspace(item.id)}
+                  >
+                    <span className="workspace-modal-option-icon">
+                      <Folder size={18} />
+                    </span>
+                    <span className="workspace-modal-option-copy">
+                      <strong>{item.label}</strong>
+                    </span>
+                    {hasStored && <Check size={16} />}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
