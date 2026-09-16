@@ -1,13 +1,6 @@
-import { deleteAgentSession } from "@/lib/agent";
 import { requireUser } from "@/lib/auth";
-import { listCheckpoints, restoreCheckpoint } from "@/lib/checkpoints";
-import {
-  appendMessage,
-  getAgentBinding,
-  getSessionWorkspace,
-  setAgentBinding,
-  truncateMessages,
-} from "@/lib/db";
+import { CheckpointConflictError, rewindSession } from "@/lib/rewind";
+import { appendMessage, getSessionWorkspace } from "@/lib/db";
 import type { ChatImage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -84,41 +77,16 @@ export async function POST(
   }
 
   try {
-    const workspaceId = await getSessionWorkspace(auth._id, id);
-    if (!workspaceId) {
+    if (!(await getSessionWorkspace(auth._id, id))) {
       return Response.json({ error: "Session not found." }, { status: 404 });
     }
 
-    let restored = false;
-    if (messageId) {
-      const checkpoint = (await listCheckpoints(auth._id, workspaceId, messageId))[0];
-      if (checkpoint) {
-        const result = await restoreCheckpoint(auth._id, checkpoint.id);
-        if (!result) {
-          return Response.json(
-            { error: "The checkpoint could not be restored." },
-            { status: 409 }
-          );
-        }
-        if (result.preview.conflicts.length) {
-          return Response.json(
-            {
-              error: "This run has newer file changes. Resolve them before editing the prompt.",
-              preview: result.preview,
-            },
-            { status: 409 }
-          );
-        }
-        restored = true;
-      }
-    }
-
-    const binding = await getAgentBinding(auth._id, id);
-    const removed = await truncateMessages(auth._id, id, keep);
-    if (binding) {
-      await deleteAgentSession(binding.sessionId, binding.workspaceId);
-    }
-    await setAgentBinding(auth._id, id, null);
+    const rewind = await rewindSession({
+      userId: auth._id,
+      sessionId: id,
+      keep,
+      restoreMessageId: messageId,
+    });
 
     const message = await appendMessage(auth._id, id, {
       role: "user",
@@ -128,8 +96,17 @@ export async function POST(
     if (!message) {
       return Response.json({ error: "Session not found." }, { status: 404 });
     }
-    return Response.json({ message, removed, restored }, { status: 201 });
+    return Response.json(
+      { message, removed: rewind.removed, restored: rewind.restored },
+      { status: 201 }
+    );
   } catch (error) {
+    if (error instanceof CheckpointConflictError) {
+      return Response.json(
+        { error: error.message, preview: error.preview },
+        { status: 409 }
+      );
+    }
     console.error("[sessions/edit] failed", error);
     return Response.json(
       {

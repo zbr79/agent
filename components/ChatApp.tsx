@@ -1189,7 +1189,7 @@ useEffect(() => {
 
   // Truncate persisted state up to the given message list (revert-style).
   const truncatePersisted = useCallback(
-    async (base: UiMessage[]): Promise<boolean> => {
+    async (base: UiMessage[], restoreMessageId?: string): Promise<boolean> => {
       const sessionId = sessionIdRef.current;
       if (!sessionId) return true;
       const keep = base.filter(
@@ -1200,7 +1200,10 @@ useEffect(() => {
           const response = await fetch(`/api/sessions/${sessionId}/messages`, {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ keep }),
+            body: JSON.stringify({
+              keep,
+              ...(restoreMessageId ? { restoreMessageId } : {}),
+            }),
           });
           return response.ok;
         } catch {
@@ -1318,7 +1321,7 @@ useEffect(() => {
       const previous = messages[index - 1];
       if (previous.role !== "user") return;
       const base = messages.slice(0, index);
-      if (!(await truncatePersisted(base))) return;
+      if (!(await truncatePersisted(base, previous._id))) return;
       await streamReply(base);
     },
     [messages, truncatePersisted, streamReply]

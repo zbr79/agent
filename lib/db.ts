@@ -1199,23 +1199,23 @@ export async function truncateMessages(
   userId: string,
   sessionId: string,
   keep: number
-): Promise<number> {
-  if (!ObjectId.isValid(sessionId) || keep < 0) return 0;
+): Promise<{ removed: number; removedIds: string[] }> {
+  if (!ObjectId.isValid(sessionId) || keep < 0) return { removed: 0, removedIds: [] };
   const db = await getDb();
   const session = await db
     .collection<SessionDoc>("sessions")
     .findOne({ _id: new ObjectId(sessionId), userId: new ObjectId(userId) });
-  if (!session) return 0;
+  if (!session) return { removed: 0, removedIds: [] };
   const docs = await db
     .collection<MessageDoc>("messages")
     .find({ sessionId: new ObjectId(sessionId) })
     .sort({ createdAt: 1 })
     .toArray();
-  const removed = docs.slice(keep);
-  if (removed.length === 0) return 0;
+  const dropped = docs.slice(keep);
+  if (dropped.length === 0) return { removed: 0, removedIds: [] };
   await db
     .collection<MessageDoc>("messages")
-    .deleteMany({ _id: { $in: removed.map((doc) => doc._id) } });
+    .deleteMany({ _id: { $in: dropped.map((doc) => doc._id) } });
   await db
     .collection<SessionDoc>("sessions")
     .updateOne(
@@ -1227,7 +1227,10 @@ export async function truncateMessages(
         $unset: { opencodeSessionId: "", opencodePromptTokens: "", agentSessionId: "", agentTokens: "" },
       }
     );
-  return removed.length;
+  return {
+    removed: dropped.length,
+    removedIds: dropped.map((doc) => doc._id.toString()),
+  };
 }
 
 export async function setSessionTitle(
