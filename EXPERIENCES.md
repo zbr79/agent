@@ -1197,3 +1197,28 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 ### Disproved
 - n/a
 
+## 2026-09-16 — Commit & push sends a chat
+
+### Solved
+- The composer button no longer generates a commit-message sheet. It sends a normal chat asking the agent to stage, commit, and push, same pattern as Cursor.
+- That also avoids `fatal: pathspec 'XPERIENCES.md'`: porcelain `-z` has no extra space after the two-letter status, so `slice(3)` ate the first filename character.
+- Removed the unused `/api/git/*` helper routes. If the composer is in Plan, the click switches to Build so bash git is allowed.
+
+### Unresolved
+- n/a
+
+### Disproved
+- Generating a commit message in a side panel, then committing through a custom API, duplicated the agent’s git tools and broke on `-z` path parsing.
+
+## 2026-09-16 — Build snapshot ENOENT dropped file tools
+
+### Solved
+- Uncommitted deletes of tracked files (`git ls-files -c` still lists them) made `createCheckpoint` throw `ENOENT` on `lstat`. The chat route then fell back to `streamChat`, which only has `web_fetch`, so a logged-in Build turn claimed it had no filesystem access.
+- Snapshot listing now skips missing files. Checkpoint capture failure no longer aborts the opencode agent run.
+
+### Unresolved
+- n/a
+
+### Disproved
+- The Qwen “only a web fetcher” reply was not Plan-mode tool stripping. Logs show agent fail → direct engine on the same request.
+
