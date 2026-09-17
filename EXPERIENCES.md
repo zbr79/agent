@@ -1222,3 +1222,15 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 ### Disproved
 - The Qwen “only a web fetcher” reply was not Plan-mode tool stripping. Logs show agent fail → direct engine on the same request.
 
+## 2026-09-16 — Recycle waits for idle chats
+
+### Solved
+- Deferred `pm2 restart` no longer fires on a fixed 25s timer. It waits until `/api/chat` runs have ended (plus a 2s idle gap), so Commit & push after a Build is not killed mid-request.
+- The browser retries a chat POST once on 502/503/504 or a dropped connection, covering the short window while Next is coming back.
+
+### Unresolved
+- n/a
+
+### Disproved
+- A longer fixed sleep still races: the next user message can start after the sleep and still be alive when SIGTERM hits.
+

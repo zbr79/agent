@@ -33,7 +33,7 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 interface ComposerProps {
   sending: boolean;
-  onSend: (text: string, images?: ChatImage[]) => void;
+  onSend: (text: string, images?: ChatImage[], displayText?: string) => void;
   onStop: () => void;
   disabled?: boolean;
   placeholder?: string;
@@ -146,7 +146,7 @@ export default function Composer({
   const sendCommitPush = () => {
     if (disabled || sending) return;
     if (effectiveMode !== "build") setMode("build");
-    onSend(t["git.prompt"]);
+    onSend(t["git.prompt"], undefined, t["git.button"]);
   };
 
   const handleSend = () => {

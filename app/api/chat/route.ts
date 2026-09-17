@@ -38,6 +38,7 @@ import {
   updateMessageProgress,
 } from "@/lib/db";
 import { createCheckpoint, finalizeCheckpoint } from "@/lib/checkpoints";
+import { beginChatRun } from "@/lib/chatBusy";
 import type { AgentBinding, ChatMessage, PendingQuestion, WorkspaceId } from "@/lib/types";
 import { DEFAULT_WORKSPACE_ID, workspaceRoot } from "@/lib/workspaces";
 
@@ -369,6 +370,7 @@ export async function POST(req: Request) {
   }
 
   const encoder = new TextEncoder();
+  const releaseChat = beginChatRun();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       req.signal.addEventListener("abort", () => {
@@ -624,6 +626,7 @@ export async function POST(req: Request) {
         } catch {
           /* stream already closed / detached */
         }
+        releaseChat();
       }
     },
   });

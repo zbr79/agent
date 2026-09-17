@@ -34,6 +34,8 @@ interface UiMessage {
   id: number;
   role: "user" | "model";
   text: string;
+  /** Agent-facing prompt when it differs from the bubble text. */
+  sendText?: string;
   images?: ChatImage[];
   streaming?: boolean;
   failed?: boolean;
@@ -199,6 +201,28 @@ function emitSessionIndicator(
   );
 }
 
+function isTransientChatStatus(status: number): boolean {
+  return status === 502 || status === 503 || status === 504;
+}
+
+function waitFor(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function isConnectionLossError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === "AbortError") return true;
   if (!(error instanceof Error)) return false;
@@ -308,7 +332,11 @@ function toApiMessages(messages: UiMessage[]): ChatMessage[] {
       (message) =>
         !message.failed && (message.text || (message.images?.length ?? 0) > 0)
     )
-    .map(({ role, text, images }) => ({ role, text, images }));
+    .map(({ role, text, sendText, images }) => ({
+      role,
+      text: sendText || text,
+      images,
+    }));
 }
 
 
@@ -785,23 +813,43 @@ useEffect(() => {
       let modelText = "";
       let runPersisted = false;
       let runMessageId: string | null = null;
-      try {
-        const response = await fetch("/api/chat", {
+      const chatBody = JSON.stringify({
+        messages: history,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        language: lang,
+        reasoning: "max",
+        mode: isAuthed === true ? getChatMode() : "plan",
+        model: selectedModel,
+        sessionId: sessionIdRef.current ?? undefined,
+        messageId: triggerMessageId,
+        workspaceId: workspaceIdRef.current,
+      });
+      const fetchChat = () =>
+        fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: history,
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            language: lang,
-            reasoning: "max",
-            mode: isAuthed === true ? getChatMode() : "plan",
-            model: selectedModel,
-            sessionId: sessionIdRef.current ?? undefined,
-            messageId: triggerMessageId,
-            workspaceId: workspaceIdRef.current,
-          }),
+          body: chatBody,
           signal: controller.signal,
         });
+      try {
+        let response: Response;
+        try {
+          response = await fetchChat();
+        } catch (error) {
+          if (userStoppedRef.current || controller.signal.aborted) throw error;
+          if (!isConnectionLossError(error)) throw error;
+          await waitFor(2000, controller.signal);
+          response = await fetchChat();
+        }
+        if (
+          (!response.ok || !response.body) &&
+          isTransientChatStatus(response.status) &&
+          !userStoppedRef.current &&
+          !controller.signal.aborted
+        ) {
+          await waitFor(2000, controller.signal);
+          response = await fetchChat();
+        }
         if (!response.ok || !response.body) {
           let detail = "";
           try {
@@ -1106,8 +1154,9 @@ useEffect(() => {
   );
 
   const send = useCallback(
-    async (text: string, images?: ChatImage[]) => {
+    async (text: string, images?: ChatImage[], displayText?: string) => {
       const trimmed = text.trim();
+      const shown = (displayText ?? "").trim() || trimmed;
       if (
         (!trimmed && (images?.length ?? 0) === 0) ||
         sending ||
@@ -1125,7 +1174,7 @@ useEffect(() => {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                title: titleFrom(trimmed, t["nav.newChat"]),
+                title: titleFrom(shown, t["nav.newChat"]),
                 workspaceId: workspaceIdRef.current,
               }),
             });
@@ -1137,7 +1186,7 @@ useEffect(() => {
           }
         } else {
           sessionId = createGuestSession(
-            titleFrom(trimmed, t["nav.newChat"]),
+            titleFrom(shown, t["nav.newChat"]),
             workspaceIdRef.current
           ).id;
         }
@@ -1150,7 +1199,13 @@ useEffect(() => {
         }
       }
 
-      let userMessage: UiMessage = { id: nextId++, role: "user", text: trimmed, images };
+      let userMessage: UiMessage = {
+        id: nextId++,
+        role: "user",
+        text: shown,
+        sendText: shown === trimmed ? undefined : trimmed,
+        images,
+      };
       if (sessionId) {
         if (authed) {
           // Await before starting the run: the server creates the pending
@@ -1158,7 +1213,7 @@ useEffect(() => {
           // must already exist to keep createdAt order (question, answer).
           const stored = await persistMessage(sessionId, {
             role: "user",
-            text: trimmed,
+            text: shown,
             images,
           });
           if (stored?.message?._id) {
@@ -1172,12 +1227,12 @@ useEffect(() => {
           const keptImages = images.filter((_, i) => stored[i]);
           appendGuestMessage(sessionId, {
             role: "user",
-            text: trimmed,
+            text: shown,
             images: keptImages.length ? keptImages : images,
             imageKeys: stored.every(Boolean) ? keys : undefined,
           });
         } else {
-          appendGuestMessage(sessionId, { role: "user", text: trimmed });
+          appendGuestMessage(sessionId, { role: "user", text: shown });
         }
       }
       await streamReply([...messages, userMessage], userMessage._id);
