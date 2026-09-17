@@ -774,9 +774,40 @@ export async function finalizeMessage(
   await db
     .collection<MessageDoc>("messages")
     .updateOne(
-      { _id: new ObjectId(messageId) },
+      // Cancellation can win the race with the original /api/chat handler.
+      // Never let that handler revive a run that was already made terminal.
+      { _id: new ObjectId(messageId), status: "pending" },
       { $set: set, $unset: { pendingQuestion: "" } }
     );
+}
+
+/** Cancel every pending model run owned by this session. */
+export async function cancelPendingMessages(
+  userId: string,
+  sessionId: string,
+  text = "[Run stopped by user.]"
+): Promise<number> {
+  if (!ObjectId.isValid(userId) || !ObjectId.isValid(sessionId)) return 0;
+  const db = await getDb();
+  const owned = await db
+    .collection<SessionDoc>("sessions")
+    .findOne(
+      { _id: new ObjectId(sessionId), userId: new ObjectId(userId) },
+      { projection: { _id: 1 } }
+    );
+  if (!owned) return 0;
+  const result = await db.collection<MessageDoc>("messages").updateMany(
+    { sessionId: new ObjectId(sessionId), role: "model", status: "pending" },
+    {
+      $set: {
+        status: "failed",
+        text: text.slice(0, MAX_MESSAGE_TEXT),
+        updatedAt: new Date(),
+      },
+      $unset: { pendingQuestion: "" },
+    }
+  );
+  return result.modifiedCount;
 }
 
 // Client-driven finalize: the browser received a complete answer, so close
@@ -1014,6 +1045,27 @@ export async function finalizePendingGuestRun(
   const result = await col.updateOne(
     { _id: doc._id, status: "pending" },
     { $set: set, $unset: { pendingQuestion: "" } }
+  );
+  return result.matchedCount > 0;
+}
+
+/** Cancel the one pending guest run, if one exists. */
+export async function cancelPendingGuestRun(
+  sessionId: string,
+  text = "[Run stopped by user.]"
+): Promise<boolean> {
+  if (!isGuestSessionId(sessionId)) return false;
+  const db = await getDb();
+  const result = await db.collection<GuestRunDoc>("guestRuns").updateOne(
+    { sessionId, status: "pending" },
+    {
+      $set: {
+        status: "failed",
+        text: text.slice(0, MAX_MESSAGE_TEXT),
+        updatedAt: new Date(),
+      },
+      $unset: { pendingQuestion: "" },
+    }
   );
   return result.matchedCount > 0;
 }

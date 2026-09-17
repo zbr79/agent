@@ -423,6 +423,7 @@ export default function ChatApp() {
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
   const [questionBusy, setQuestionBusy] = useState(false);
   const [questionError, setQuestionError] = useState<string | null>(null);
@@ -443,6 +444,7 @@ export default function ChatApp() {
   const workspaceIdRef = useRef<WorkspaceId>(workspaceId);
   const abortRef = useRef<AbortController | null>(null);
   const userStoppedRef = useRef(false);
+  const stopRequestedRef = useRef(false);
   const [freeNotice, setFreeNotice] = useState(false);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [activitiesMsgId, setActivitiesMsgId] = useState<number | null>(null);
@@ -804,6 +806,7 @@ useEffect(() => {
       };
 
       userStoppedRef.current = false;
+      stopRequestedRef.current = false;
       const controller = new AbortController();
       abortRef.current = controller;
       const history = toApiMessages(base);
@@ -849,6 +852,12 @@ useEffect(() => {
         ) {
           await waitFor(2000, controller.signal);
           response = await fetchChat();
+        }
+        if (response.status === 409 && sessionIdRef.current) {
+          // Another request already owns the persisted run. Reattach to it
+          // instead of presenting a second error or starting a second turn.
+          keepQuestion = true;
+          return;
         }
         if (!response.ok || !response.body) {
           let detail = "";
@@ -1141,6 +1150,12 @@ useEffect(() => {
             if (isAuthed) startResume(id);
             else startGuestResume(id);
           }
+        } else if (stopRequestedRef.current) {
+          // The browser stream is already closed, but the explicit stop
+          // request is still finalizing the server-owned run. Keep the
+          // composer locked until that request confirms a terminal state.
+          setSending(true);
+          setActivityLive(true);
         } else {
           emitSessionIndicator(streamSessionId, "unread");
           setSending(false);
@@ -1475,13 +1490,63 @@ useEffect(() => {
   );
 
   const stop = useCallback(() => {
+    if (stopRequestedRef.current) return;
+    stopRequestedRef.current = true;
     userStoppedRef.current = true;
+    setStopping(true);
     const pending = pendingQuestionRef.current;
     if (pending && sessionIdRef.current) {
       void postQuestion("reject", undefined, true);
     }
     abortRef.current?.abort();
-  }, [postQuestion]);
+    const sessionId = sessionIdRef.current;
+    if (!sessionId) {
+      stopRequestedRef.current = false;
+      setStopping(false);
+      setSending(false);
+      setActivityLive(false);
+      return;
+    }
+    void (async () => {
+      try {
+        const response = await fetch("/api/chat/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            workspaceId: workspaceIdRef.current,
+          }),
+        });
+        if (!response.ok) throw new Error("stop failed");
+        if (isAuthed) {
+          const refreshed = await fetch(`/api/sessions/${sessionId}`);
+          if (refreshed.ok) {
+            const body = (await refreshed.json()) as { messages?: StoredLike[] };
+            setMessages((prev) => mapStoredMessages(body.messages ?? [], prev));
+          }
+        } else {
+          const refreshed = await fetch(`/api/guest-runs/${sessionId}`);
+          if (refreshed.ok) {
+            const body = (await refreshed.json()) as { run?: StoredLike | null };
+            if (body.run) setMessages((prev) => mergeGuestRun(prev, body.run!));
+          }
+        }
+        stopResume();
+        emitSessionIndicator(sessionId, "unread");
+        setPendingQuestion(null);
+        setQuestionBusy(false);
+        setSending(false);
+        setActivityLive(false);
+        setStopping(false);
+        stopRequestedRef.current = false;
+      } catch {
+        // Keep the stop control active. The server may still own the run, so
+        // unlocking the composer here would recreate the collision.
+        stopRequestedRef.current = false;
+        setStopping(false);
+      }
+    })();
+  }, [isAuthed, postQuestion, stopResume]);
 
 /* Revert feature commented out (2026-08-30) — edit/regenerate replaced it.
   // Revert: drop everything after the chosen message (locally + persisted).
@@ -1538,6 +1603,7 @@ useEffect(() => {
         onSend={send}
         onStop={stop}
         sending={sending}
+        stopping={stopping}
         disabled={Boolean(pendingQuestion)}
         placeholder={
           pendingQuestion ? t["question.composerLocked"] : t["composer.placeholder"]

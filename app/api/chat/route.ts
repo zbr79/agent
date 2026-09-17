@@ -7,6 +7,7 @@ import {
 } from "@/lib/opencode";
 import {
   AgentBusyError,
+  AgentCancelledError,
   agentChat,
   ensureBoundSession,
   injectVisionExchange,
@@ -28,6 +29,8 @@ import {
   finalizeMessage,
   getAgentBinding,
   getGuestAgentBinding,
+  getGuestRun,
+  getSessionWithMessages,
   getSessionWorkspace,
   listAgentTranscript,
   setAgentBinding,
@@ -111,6 +114,32 @@ export async function POST(req: Request) {
       return Response.json({ error: "Session belongs to another workspace." }, { status: 409 });
     }
     workspaceId = storedWorkspace;
+  }
+  // There is one server-owned run per chat. This protects refreshes, lost
+  // response headers, and old clients that no longer know their local state.
+  // Stale pending records are normalized by these readers before checking.
+  if (sessionId) {
+    if (requestUser) {
+      const current = await getSessionWithMessages(requestUser._id, sessionId);
+      const pending = current?.messages
+        .slice()
+        .reverse()
+        .find((message) => message.role === "model" && message.status === "pending");
+      if (pending) {
+        return Response.json(
+          { error: "A reply is already in progress for this chat.", runInProgress: true },
+          { status: 409 }
+        );
+      }
+    } else {
+      const current = await getGuestRun(sessionId);
+      if (current?.status === "pending") {
+        return Response.json(
+          { error: "A reply is already in progress for this chat.", runInProgress: true },
+          { status: 409 }
+        );
+      }
+    }
   }
   // Only the latest message decides whether this send is an image request;
   // earlier photos in the history must not re-route text sends to the
@@ -500,6 +529,11 @@ export async function POST(req: Request) {
               finishRun("done");
               return "ok";
             } catch (error) {
+              if (error instanceof AgentCancelledError) {
+                await finishCheckpoint();
+                finishRun("failed", "\n\n[Run stopped by user.]");
+                return "ok";
+              }
               if (error instanceof AgentBusyError) {
                 enqueue(
                   "\n\n[A reply is already in progress for this chat. Wait for it to finish.]"

@@ -33,6 +33,7 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 interface ComposerProps {
   sending: boolean;
+  stopping?: boolean;
   onSend: (text: string, images?: ChatImage[], displayText?: string) => void;
   onStop: () => void;
   disabled?: boolean;
@@ -71,6 +72,7 @@ function formatElapsed(ms: number): string {
 
 export default function Composer({
   sending,
+  stopping = false,
   onSend,
   onStop,
   disabled = false,
@@ -545,7 +547,14 @@ export default function Composer({
           <Mic size={18} />
         </button>
         {sending ? (
-           <button type="button" className="send-button" onClick={onStop} aria-label={t["composer.stop"]}>
+           <button
+             type="button"
+             className="send-button"
+             onClick={onStop}
+             disabled={stopping}
+             aria-busy={stopping}
+             aria-label={t["composer.stop"]}
+           >
             <Square size={15} fill="currentColor" />
           </button>
         ) : (

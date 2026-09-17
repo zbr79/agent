@@ -25,7 +25,7 @@ export class AgentBusyError extends Error {
 
 const inflightOwners = new Map<
   string,
-  { sessionId: string | null; at: number; hold?: boolean }
+  { sessionId: string | null; at: number; hold?: boolean; cancelled?: boolean }
 >();
 const inflightSessions = new Map<string, string>();
 
@@ -64,6 +64,19 @@ export function releaseAgentTurn(ownerKey: string | null | undefined): void {
   const current = inflightOwners.get(ownerKey);
   if (current?.sessionId) inflightSessions.delete(current.sessionId);
   inflightOwners.delete(ownerKey);
+}
+
+/** Mark a live turn for cancellation before its session id is known. */
+export function cancelAgentTurn(ownerKey: string | null | undefined): string | null {
+  if (!ownerKey) return null;
+  const current = inflightOwners.get(ownerKey);
+  if (!current) return null;
+  current.cancelled = true;
+  return current.sessionId;
+}
+
+export function agentTurnCancelled(ownerKey: string | null | undefined): boolean {
+  return Boolean(ownerKey && inflightOwners.get(ownerKey)?.cancelled);
 }
 
 function clip(text: string, max: number): string {
