@@ -493,6 +493,7 @@ export default function Composer({
             aria-label={t["git.button"]}
           >
             <span>{t["git.button"]}</span>
+            <ArrowUp size={15} className="composer-git-icon" aria-hidden="true" />
           </button>
         ) : null}
       </div>

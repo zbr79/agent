@@ -2774,6 +2774,11 @@ span.conclude-rank-badge {
   cursor: default;
 }
 
+/* up-arrow stands in for the label on the compact toolbar (phones) */
+.composer-git-icon {
+  display: none;
+}
+
 .spin {
   animation: git-spin 0.9s linear infinite;
 }
@@ -2944,6 +2949,10 @@ span.conclude-rank-badge {
 
   .composer-git-button span {
     display: none;
+  }
+
+  .composer-git-button .composer-git-icon {
+    display: block;
   }
 }
 
