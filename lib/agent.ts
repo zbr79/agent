@@ -14,6 +14,8 @@ import { AGENT_ROOT } from "./pathJail";
 import type { AgentBinding, ChatMessage, WorkspaceId } from "./types";
 import { DEFAULT_WORKSPACE_ID, workspaceRoot } from "./workspaces";
 import {
+  agentTurnCancelled,
+  cancelAgentTurn,
   claimAgentTurn,
   compactAt,
   FALLBACK_CONTEXT_TOKENS,
@@ -34,6 +36,13 @@ export class AgentImageUnsupported extends Error {
   constructor() {
     super("Bound agent model cannot attach images.");
     this.name = "AgentImageUnsupported";
+  }
+}
+
+export class AgentCancelledError extends Error {
+  constructor() {
+    super("Run stopped by user.");
+    this.name = "AgentCancelledError";
   }
 }
 
@@ -264,6 +273,15 @@ export async function abortAgentSession(
   } catch {
     /* already gone */
   }
+}
+
+/** Cancel a live turn even when its browser stream has already closed. */
+export async function abortAgentTurn(
+  ownerKey: string | null | undefined,
+  workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID
+): Promise<void> {
+  const sessionId = cancelAgentTurn(ownerKey);
+  await abortAgentSession(sessionId, workspaceId);
 }
 
 export class QuestionExpiredError extends Error {
@@ -601,31 +619,49 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
   const agent = getAgentClient();
   const system = getSystemPrompt(language, agentTools, mode === "plan");
   const requestId = Math.random().toString(36).slice(2, 8);
+  const ownerKey = opts.ownerKey ?? null;
+  let claimed = false;
+
+  // Claim before any model lookup. Stop can arrive while provider metadata is
+  // loading; the owner must already be cancellable during that interval.
+  if (ownerKey) {
+    claimAgentTurn(ownerKey, AGENT_PROMPT_TIMEOUT_MS);
+    claimed = true;
+    if (agentTurnCancelled(ownerKey)) {
+      releaseAgentTurn(ownerKey);
+      claimed = false;
+      throw new AgentCancelledError();
+    }
+  }
 
   if (process.env.OPENCODE_TEST_LIMIT === "1") {
+    if (claimed) releaseAgentTurn(ownerKey);
     throw new Error(
       "Monthly usage limit reached. Resets in 20 days. (test-limit simulation)"
     );
   }
 
-  const ownerKey = opts.ownerKey ?? null;
   const prior = opts.priorTurns ?? messages.slice(0, -1);
   const last = messages[messages.length - 1];
   // Resolve the actual model once, up front, so the pin, the context-window
   // gate, and the prompt all agree before we send anything.
-  const modelId = resolveAgentModel(pinnedModel);
-  const promptModel = { providerID: AGENT_PROVIDER_ID, modelID: modelId };
-  const modelWindow = await lookupAgentModel(modelId);
-  const gate = modelWindow.compactAt;
-  const wantsImage = (last?.images?.length ?? 0) > 0;
-  if (wantsImage && !modelWindow.image) {
-    throw new AgentImageUnsupported();
-  }
-
-  let claimed = false;
-  if (ownerKey) {
-    claimAgentTurn(ownerKey, AGENT_PROMPT_TIMEOUT_MS);
-    claimed = true;
+  let modelId: string;
+  let promptModel: { providerID: string; modelID: string };
+  let modelWindow: AgentModelWindow;
+  let gate: number;
+  let wantsImage: boolean;
+  try {
+    modelId = resolveAgentModel(pinnedModel);
+    promptModel = { providerID: AGENT_PROVIDER_ID, modelID: modelId };
+    modelWindow = await lookupAgentModel(modelId);
+    gate = modelWindow.compactAt;
+    wantsImage = (last?.images?.length ?? 0) > 0;
+    if (wantsImage && !modelWindow.image) {
+      throw new AgentImageUnsupported();
+    }
+  } catch (error) {
+    if (claimed) releaseAgentTurn(ownerKey);
+    throw error;
   }
 
   let sessionId: string | null = binding?.sessionId ?? null;
@@ -636,6 +672,10 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
   async function createBound(): Promise<string> {
     const created = (await agent.session.create({ query: directory, body: { title } })).data.id;
     if (ownerKey) noteInflightSession(ownerKey, created);
+    if (agentTurnCancelled(ownerKey)) {
+      await abortAgentSession(created, workspaceId);
+      throw new AgentCancelledError();
+    }
     return created;
   }
 
@@ -713,6 +753,12 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
   out.agentSessionId = sessionId;
   out.rebound = rebound || !continued;
   onSessionReady?.(sessionId);
+  if (agentTurnCancelled(ownerKey)) {
+    await abortAgentSession(sessionId, workspaceId);
+    if (claimed) releaseAgentTurn(ownerKey);
+    claimed = false;
+    throw new AgentCancelledError();
+  }
   const attachImages = wantsImage && modelWindow.image;
   const promptText =
     (last?.text ?? "").trim() || (attachImages ? "Please look at the attached photo." : "");
@@ -1187,6 +1233,9 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
       promptResult ?? (await promptResultPromise);
     promptResult = settledResult;
 
+    if (agentTurnCancelled(ownerKey)) {
+      throw new AgentCancelledError();
+    }
 
     // The event stream often delivers the first token before message.updated
     // (which carries the model id), leaving modelName null — the UI chip and

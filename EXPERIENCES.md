@@ -1234,3 +1234,22 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 ### Disproved
 - A longer fixed sleep still races: the next user message can start after the sleep and still be alive when SIGTERM hits.
 
+## 2026-09-17 — Stop is a server-owned state transition
+
+### Solved
+- Stop no longer only aborts the browser stream. It asks the server to abort
+  the agent session and close the persisted pending run before unlocking the
+  composer.
+- The server rejects a second request while a session still has a pending run.
+  If an old client hits that guard, it reattaches to the existing run instead
+  of creating a second turn.
+- Finalization is status-guarded, so a late original handler cannot revive a
+  run that the user already stopped.
+
+### Unresolved
+- n/a
+
+### Disproved
+- Treating `AbortController.abort()` in the browser as cancellation was
+  insufficient: the detached server handler continued owning the agent turn.
+
