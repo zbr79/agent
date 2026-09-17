@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown, RotateCw, Folder, FolderPlus, Check } from "lucide-react";
+import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown, Folder, FolderPlus, Check } from "lucide-react";
 import type { ChatSession, WorkspaceId, WorkspaceInfo } from "@/lib/types";
 import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession, type GuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
@@ -165,11 +165,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
       return false;
     }
   });
-
-  const refreshApp = () => {
-    setMenuOpen(false);
-    window.location.reload();
-  };
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -593,14 +588,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
             <span className="mobile-brand-ws">{workspaceBase}</span>
           )}
         </Link>
-        <button
-          type="button"
-          className="menu-button mobile-refresh"
-          onClick={refreshApp}
-          aria-label={t["nav.refresh"]}
-        >
-          <RotateCw size={18} />
-        </button>
       </div>
       {menuOpen && (
         <div
@@ -640,14 +627,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
               </button>
             )}
           </span>
-          <button
-            type="button"
-            className="sidebar-hide"
-            onClick={refreshApp}
-            aria-label={t["nav.refresh"]}
-          >
-            <RotateCw size={16} />
-          </button>
           <button
             type="button"
             className="sidebar-hide"
