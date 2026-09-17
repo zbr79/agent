@@ -86,13 +86,30 @@ function runGitFiles(root: string): Promise<string[]> {
   });
 }
 
+function isEnoent(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "ENOENT"
+  );
+}
+
 export async function listSnapshotPaths(root: string): Promise<string[]> {
   const paths = await runGitFiles(root);
   const safe: string[] = [];
   for (const relativePath of paths) {
     if (isExcluded(relativePath)) continue;
     const absolute = assertAllowedAgentFile(relativePath, root);
-    const stat = await fs.promises.lstat(absolute);
+    let stat;
+    try {
+      stat = await fs.promises.lstat(absolute);
+    } catch (error) {
+      // git ls-files -c still lists tracked files after they are deleted from
+      // disk. Skip them so an uncommitted delete cannot abort a Build run.
+      if (isEnoent(error)) continue;
+      throw error;
+    }
     if (!stat.isFile() || stat.isSymbolicLink()) continue;
     safe.push(relativePath);
   }
@@ -150,14 +167,7 @@ export async function currentFileHash(
     const file = await readSnapshotFile(relativePath, root, false);
     return file?.hash ?? null;
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as { code?: unknown }).code === "ENOENT"
-    ) {
-      return null;
-    }
+    if (isEnoent(error)) return null;
     throw error;
   }
 }

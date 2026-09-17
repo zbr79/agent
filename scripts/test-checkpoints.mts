@@ -14,7 +14,6 @@ import {
   captureSnapshot,
   type SnapshotFile,
 } from "../lib/checkpointSnapshot.ts";
-import { PathJailError } from "../lib/pathJail.ts";
 
 const exec = promisify(execFile);
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-checkpoint-"));
@@ -106,8 +105,18 @@ try {
             data: Buffer.from("nope"),
           },
         ]),
-      (error: unknown) => error instanceof PathJailError
+      (error: unknown) =>
+        error instanceof Error && error.name === "PathJailError"
     );
+  });
+
+  await writeTracked("gone.txt", "gone\n");
+  await git("add", "gone.txt");
+  await git("commit", "-m", "tracked file we will delete from disk");
+  await fs.unlink(path.join(root, "gone.txt"));
+  await check("snapshot skips tracked files deleted from disk", async () => {
+    const captured = await snap();
+    assert.equal(captured.some((file) => file.path === "gone.txt"), false);
   });
 } finally {
   await fs.rm(root, { recursive: true, force: true });

@@ -447,14 +447,22 @@ export async function POST(req: Request) {
             const out: AgentRunResult = {};
             try {
               if (accountBound && requestUser && mode === "build" && sessionId) {
-                const checkpoint = await createCheckpoint({
-                  userId: requestUser._id,
-                  workspaceId,
-                  sessionId,
-                  messageId,
-                  reason: "Before Build run",
-                });
-                checkpointId = checkpoint.id;
+                try {
+                  const checkpoint = await createCheckpoint({
+                    userId: requestUser._id,
+                    workspaceId,
+                    sessionId,
+                    messageId,
+                    reason: "Before Build run",
+                  });
+                  checkpointId = checkpoint.id;
+                } catch (error) {
+                  console.log(
+                    `[chat] checkpoint capture failed → ${
+                      error instanceof Error ? error.message : String(error)
+                    }`.slice(0, 200)
+                  );
+                }
               }
               for await (const text of tapped(
                 agentChat({

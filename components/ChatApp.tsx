@@ -28,7 +28,7 @@ import {
 } from "@/lib/guestStore";
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
 import { STR, useUiLang } from "@/lib/i18n";
-import { useChatMode, useSelectedModel } from "@/lib/prefs";
+import { getChatMode, useSelectedModel } from "@/lib/prefs";
 
 interface UiMessage {
   id: number;
@@ -392,7 +392,6 @@ export default function ChatApp() {
   const lang = useUiLang();
   const t = STR[lang];
   const [selectedModel] = useSelectedModel();
-  const [chatMode] = useChatMode();
 
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -795,7 +794,7 @@ useEffect(() => {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             language: lang,
             reasoning: "max",
-            mode: isAuthed === true ? chatMode : "plan",
+            mode: isAuthed === true ? getChatMode() : "plan",
             model: selectedModel,
             sessionId: sessionIdRef.current ?? undefined,
             messageId: triggerMessageId,
@@ -1103,7 +1102,7 @@ useEffect(() => {
         }
       }
     },
-    [isAuthed, lang, chatMode, stopResume, startResume, startGuestResume]
+    [isAuthed, lang, stopResume, startResume, startGuestResume]
   );
 
   const send = useCallback(
@@ -1489,7 +1488,6 @@ useEffect(() => {
           pendingQuestion ? t["question.composerLocked"] : t["composer.placeholder"]
         }
         signedIn={isAuthed === true}
-        workspaceId={workspaceIdRef.current}
         onRequireAuth={() => {
           window.dispatchEvent(new CustomEvent("inschat-open-auth"));
         }}
