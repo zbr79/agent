@@ -2622,6 +2622,32 @@ span.conclude-rank-badge {
   color: var(--text);
 }
 
+.input-row.composer-expanded {
+  flex-wrap: wrap;
+}
+
+.input-row.composer-expanded textarea {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.composer-input-footer {
+  display: flex;
+  align-items: center;
+  flex: 1 0 100%;
+  gap: 8px;
+  min-width: 0;
+}
+
+.composer-input-footer .composer-picker {
+  flex-shrink: 0;
+}
+
+.composer-input-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
 .input-row textarea::placeholder {
   color: var(--text-muted);
 }
@@ -2871,6 +2897,18 @@ span.conclude-rank-badge {
 
 .composer-reasoning.open {
   border-color: var(--text);
+  color: var(--text);
+}
+
+.input-row .composer-reasoning {
+  border-color: transparent;
+  background: transparent;
+}
+
+.input-row .composer-reasoning:hover,
+.input-row .composer-reasoning.open {
+  border-color: transparent;
+  background: rgba(0, 0, 0, 0.06);
   color: var(--text);
 }
 

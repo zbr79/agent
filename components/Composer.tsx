@@ -106,6 +106,7 @@ export default function Composer({
   const [modelOpen, setModelOpen] = useState(false);
   const [mode, setMode] = useChatMode();
   const [text, setText] = useState("");
+  const [multiLineText, setMultiLineText] = useState(false);
   const [images, setImages] = useState<ChatImage[]>([]);
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
   const [documentBusy, setDocumentBusy] = useState(false);
@@ -161,6 +162,12 @@ export default function Composer({
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
+    const style = window.getComputedStyle(el);
+    const lineHeight = Number.parseFloat(style.lineHeight) || 21;
+    const verticalPadding =
+      (Number.parseFloat(style.paddingTop) || 0) +
+      (Number.parseFloat(style.paddingBottom) || 0);
+    setMultiLineText(el.scrollHeight > lineHeight + verticalPadding + 1);
   }, [text]);
 
   useEffect(() => {
@@ -465,6 +472,63 @@ export default function Composer({
         ? t["composer.transcribing"]
         : t["composer.record"];
 
+  const composerExpanded =
+    multiLineText ||
+    images.length > 0 ||
+    documents.length > 0 ||
+    documentStatus.busy ||
+    voiceStatus !== "idle";
+
+  const modelPicker = (
+    <div className="composer-picker" ref={pickerRef}>
+      <button
+        type="button"
+        className={`composer-reasoning composer-model-pill${modelOpen ? " open" : ""}${modelLocked ? " locked" : ""}`}
+        onClick={() => setModelOpen((prev) => !prev)}
+        aria-expanded={modelOpen}
+        aria-label={modelLocked ? t["composer.model.locked"] : t["composer.model"]}
+        disabled={disabled}
+      >
+        <span className="composer-picker-model">
+          {t[`composer.model.${modelKey}`]}
+        </span>
+        {modelLocked ? <Lock size={12} /> : <ChevronDown size={14} />}
+      </button>
+      {modelOpen && (
+        <div className="composer-picker-menu composer-model-menu">
+          {(
+            [
+              ["deepseek-v4-flash", t["composer.model.ds"]],
+              ["qwen3.8-flash", t["composer.model.qwen"]],
+              ["glm-5.3-flash", t["composer.model.glm"]],
+            ] as [SelectedModel, string][]
+          ).map(([option, label]) => {
+            const locked = peak && option === "deepseek-v4-flash";
+            const active = model === option;
+            return (
+              <button
+                key={option}
+                type="button"
+                className={`picker-model${locked ? " locked" : ""}${active ? " active" : ""}`}
+                aria-label={locked ? t["composer.model.locked"] : undefined}
+                disabled={locked || disabled}
+                onClick={() => {
+                  setModel(option);
+                  setModelOpen(false);
+                }}
+              >
+                <span className="picker-model-text">
+                  <span className="picker-model-name">{label}</span>
+                </span>
+                {locked && <Lock size={12} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
   const attachmentLayer = (
     (images.length > 0 ||
       documents.length > 0 ||
@@ -566,56 +630,82 @@ export default function Composer({
     )
   );
 
+  const voiceTimer =
+    voiceStatus !== "idle" ? (
+      <span
+        className={`composer-mic-timer${voiceStatus === "transcribing" ? " dim" : ""}`}
+        aria-live="polite"
+      >
+        {formatElapsed(elapsedMs)}
+      </span>
+    ) : null;
+
+  const micButton = (
+    <button
+      type="button"
+      className={`icon-button composer-mic${voiceStatus === "recording" ? " recording" : ""}${voiceStatus === "transcribing" ? " transcribing" : ""}`}
+      onClick={handleMic}
+      aria-label={micLabel}
+      aria-pressed={voiceStatus === "recording"}
+      aria-busy={voiceStatus === "transcribing"}
+      disabled={disabled || voiceStatus === "transcribing"}
+    >
+      <Mic size={18} />
+    </button>
+  );
+
+  const sendButton = sending ? (
+    <button
+      type="button"
+      className="send-button"
+      onClick={onStop}
+      disabled={stopping}
+      aria-busy={stopping}
+      aria-label={t["composer.stop"]}
+    >
+      <Square size={15} fill="currentColor" />
+    </button>
+  ) : (
+    <button
+      type="button"
+      className={`send-button${voiceStatus === "recording" ? " finish" : ""}`}
+      onClick={handleSend}
+      disabled={!canSend && !voiceBusy}
+      aria-busy={shouldShowSendBusy}
+      aria-label={voiceStatus === "recording" ? t["composer.finishAndSend"] : t["composer.send"]}
+    >
+      <ArrowUp size={18} />
+    </button>
+  );
+
+  const documentPicker = (
+    <DocumentPicker
+      documents={documents}
+      imageCount={images.length}
+      imageNames={images.map((image) => image.name ?? "")}
+      onChange={setDocuments}
+      onBusyChange={setDocumentBusy}
+      onImagesSelected={handleImageFiles}
+      onValidationError={showAttachmentError}
+      onStatusChange={handleDocumentStatus}
+      disabled={disabled}
+      renderTrigger={(open, triggerDisabled) => (
+        <button
+          type="button"
+          className="icon-button"
+          onClick={open}
+          aria-label={t["composer.attachFile"]}
+          disabled={triggerDisabled}
+        >
+          <Plus size={18} />
+        </button>
+      )}
+    />
+  );
+
   return (
     <div className="composer">
       <div className="composer-toolbar">
-        <div className="composer-picker" ref={pickerRef}>
-          <button
-            type="button"
-            className={`composer-reasoning composer-model-pill${modelOpen ? " open" : ""}${modelLocked ? " locked" : ""}`}
-            onClick={() => setModelOpen((prev) => !prev)}
-            aria-expanded={modelOpen}
-            aria-label={modelLocked ? t["composer.model.locked"] : t["composer.model"]}
-            disabled={disabled}
-          >
-            <span className="composer-picker-model">
-              {t[`composer.model.${modelKey}`]}
-            </span>
-            {modelLocked ? <Lock size={12} /> : <ChevronDown size={14} />}
-          </button>
-          {modelOpen && (
-            <div className="composer-picker-menu composer-model-menu">
-              {(
-                [
-                  ["deepseek-v4-flash", t["composer.model.ds"]],
-                  ["qwen3.8-flash", t["composer.model.qwen"]],
-                  ["glm-5.3-flash", t["composer.model.glm"]],
-                ] as [SelectedModel, string][]
-              ).map(([option, label]) => {
-                const locked = peak && option === "deepseek-v4-flash";
-                const active = model === option;
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    className={`picker-model${locked ? " locked" : ""}${active ? " active" : ""}`}
-                    aria-label={locked ? t["composer.model.locked"] : undefined}
-                    disabled={locked || disabled}
-                    onClick={() => {
-                      setModel(option);
-                      setModelOpen(false);
-                    }}
-                  >
-                    <span className="picker-model-text">
-                      <span className="picker-model-name">{label}</span>
-                    </span>
-                    {locked && <Lock size={12} />}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
         <div
           className="composer-mode"
           role="group"
@@ -671,29 +761,8 @@ export default function Composer({
         ) : null}
       </div>
       {attachmentLayer}
-      <div className={`input-row mode-${effectiveMode}`}>
-        <DocumentPicker
-          documents={documents}
-          imageCount={images.length}
-          imageNames={images.map((image) => image.name ?? "")}
-          onChange={setDocuments}
-          onBusyChange={setDocumentBusy}
-          onImagesSelected={handleImageFiles}
-          onValidationError={showAttachmentError}
-          onStatusChange={handleDocumentStatus}
-          disabled={disabled}
-          renderTrigger={(open, triggerDisabled) => (
-            <button
-              type="button"
-              className="icon-button"
-              onClick={open}
-              aria-label={t["composer.attachFile"]}
-              disabled={triggerDisabled}
-            >
-              <Plus size={18} />
-            </button>
-          )}
-        />
+      <div className={`input-row mode-${effectiveMode}${composerExpanded ? " composer-expanded" : ""}`}>
+        {!composerExpanded && documentPicker}
         <textarea
           ref={textareaRef}
           rows={1}
@@ -704,47 +773,19 @@ export default function Composer({
           onKeyDown={handleKeyDown}
            aria-label={t["composer.message"]}
         />
-        {voiceStatus !== "idle" && (
-          <span
-            className={`composer-mic-timer${voiceStatus === "transcribing" ? " dim" : ""}`}
-            aria-live="polite"
-          >
-            {formatElapsed(elapsedMs)}
-          </span>
-        )}
-        <button
-          type="button"
-          className={`icon-button composer-mic${voiceStatus === "recording" ? " recording" : ""}${voiceStatus === "transcribing" ? " transcribing" : ""}`}
-          onClick={handleMic}
-          aria-label={micLabel}
-          aria-pressed={voiceStatus === "recording"}
-          aria-busy={voiceStatus === "transcribing"}
-          disabled={disabled || voiceStatus === "transcribing"}
-        >
-          <Mic size={18} />
-        </button>
-        {sending ? (
-           <button
-             type="button"
-             className="send-button"
-             onClick={onStop}
-             disabled={stopping}
-             aria-busy={stopping}
-             aria-label={t["composer.stop"]}
-           >
-            <Square size={15} fill="currentColor" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            className={`send-button${voiceStatus === "recording" ? " finish" : ""}`}
-            onClick={handleSend}
-            disabled={!canSend && !voiceBusy}
-            aria-busy={shouldShowSendBusy}
-             aria-label={voiceStatus === "recording" ? t["composer.finishAndSend"] : t["composer.send"]}
-          >
-            <ArrowUp size={18} />
-          </button>
+        {!composerExpanded && modelPicker}
+        {!composerExpanded && voiceTimer}
+        {!composerExpanded && micButton}
+        {!composerExpanded && sendButton}
+        {composerExpanded && (
+          <div className="composer-input-footer">
+            {documentPicker}
+            {modelPicker}
+            <span className="composer-input-spacer" />
+            {voiceTimer}
+            {micButton}
+            {sendButton}
+          </div>
         )}
       </div>
       {hint && <p className="hint">{hint}</p>}
