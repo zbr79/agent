@@ -31,12 +31,14 @@ import { modelLabel } from "@/lib/modelLabels";
 import { formatElapsed, stripDoneLines } from "@/lib/format";
 import { toWorkspaceRelative } from "@/lib/workspacePath";
 import type { ActivityEvent } from "@/lib/markers";
+import type { DocumentAttachment } from "@/lib/documents/types";
 
 interface Message {
   id: number;
   role: "user" | "model";
   text: string;
   images?: { mimeType: string; data: string }[];
+  documents?: DocumentAttachment[];
   streaming?: boolean;
   failed?: boolean;
   model?: string;
@@ -48,6 +50,25 @@ interface Message {
 
 function dataUrl(image: { mimeType: string; data: string }): string {
   return `data:${image.mimeType};base64,${image.data}`;
+}
+
+function documentType(document: DocumentAttachment): string {
+  const extension = document.name.split(".").pop()?.toUpperCase();
+  return extension || document.mimeType.split("/").pop()?.toUpperCase() || "FILE";
+}
+
+function DocumentChips({ documents }: { documents?: DocumentAttachment[] }) {
+  if (!documents?.length) return null;
+  return (
+    <div className="message-document-chips">
+      {documents.map((document) => (
+        <span className="message-document-chip" key={document.id}>
+          <strong>{documentType(document)}</strong>
+          <span>{document.name}</span>
+        </span>
+      ))}
+    </div>
+  );
 }
 
 // Initial render cap: on load we show only the tail so the window opens at the
@@ -609,6 +630,7 @@ export default function MessageBubble({
                   </div>
                 ))}
                 <div className="bubble">
+                  <DocumentChips documents={message.documents} />
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     rehypePlugins={[rehypeHighlight]}
@@ -628,6 +650,7 @@ export default function MessageBubble({
                     onClick={() => setViewer(url)}
                   />
                 ))}
+                <DocumentChips documents={message.documents} />
                 {processWaiting && (
                   <div className="process-panel" aria-live="polite">
                     <span className="thinking">
@@ -702,6 +725,7 @@ export default function MessageBubble({
                     onClick={() => setViewer(url)}
                   />
                 ))}
+                <DocumentChips documents={message.documents} />
                 {message.text && (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}

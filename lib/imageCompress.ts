@@ -31,5 +31,5 @@ export async function compressImage(
   if (!ctx) return image;
   ctx.drawImage(img, 0, 0, width, height);
   const data = canvas.toDataURL("image/jpeg", JPEG_QUALITY).split(",")[1];
-  return { mimeType: "image/jpeg", data };
+  return { mimeType: "image/jpeg", data, name: image.name };
 }

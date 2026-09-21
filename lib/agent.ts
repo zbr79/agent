@@ -9,6 +9,7 @@ import {
   type ActivityStatus,
 } from "./markers";
 import { insertCall } from "./db";
+import { MAX_ATTACHMENTS } from "./attachments/limits";
 import { resolveAgentModel, type TextModelPin } from "./models";
 import { AGENT_ROOT } from "./pathJail";
 import type { AgentBinding, ChatMessage, WorkspaceId } from "./types";
@@ -206,7 +207,7 @@ async function sessionOwnedBy(
 }
 
 function imageFileParts(message: ChatMessage | undefined) {
-  return (message?.images ?? []).slice(0, 3).map((image, index) => ({
+  return (message?.images ?? []).slice(0, MAX_ATTACHMENTS).map((image, index) => ({
     type: "file",
     mime: image.mimeType,
     filename: `photo-${index + 1}`,
@@ -411,16 +412,22 @@ function buildTranscript(messages: ChatMessage[]): string {
   if (
     messages.length === 1 &&
     messages[0].role === "user" &&
-    (messages[0].images?.length ?? 0) === 0
+    (messages[0].images?.length ?? 0) === 0 &&
+    (messages[0].documents?.length ?? 0) === 0
   ) {
     return messages[0].text;
   }
   const lines = messages.map((message) => {
     const speaker = message.role === "model" ? "Assistant" : "User";
-    const content =
-      (message.images?.length ?? 0) > 0
-        ? `${message.text} [photo attached]`
-        : message.text;
+    const markers = [
+      (message.images?.length ?? 0) > 0 ? "[photo attached]" : "",
+      ...(message.documents ?? []).map(
+        (document) => `\n[document attached: ${document.name}]\n${document.text}`
+      ),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const content = `${message.text}${markers}`;
     return `${speaker}: ${content}`;
   });
   return `Here is the conversation so far:\n\n${lines.join(
@@ -760,8 +767,16 @@ export async function* agentChat(opts: AgentChatOptions): AsyncGenerator<string>
     throw new AgentCancelledError();
   }
   const attachImages = wantsImage && modelWindow.image;
+  const documentText = (last?.documents ?? [])
+    .map((document) => `\n\nAttached document: ${document.name}\n${document.text}`)
+    .join("");
   const promptText =
-    (last?.text ?? "").trim() || (attachImages ? "Please look at the attached photo." : "");
+    `${(last?.text ?? "").trim()}${documentText}`.trim() ||
+    (attachImages
+      ? "Please look at the attached photo."
+      : documentText
+        ? "Please review the attached document."
+        : "");
   const promptParts = [
     { type: "text", text: promptText },
     ...(attachImages ? imageFileParts(last) : []),

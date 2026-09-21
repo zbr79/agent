@@ -1,9 +1,18 @@
 import type { PendingQuestion } from "./question";
 import type { ActivityEvent } from "./markers";
+import type { DocumentAttachment } from "./documents/types";
+import { MAX_ATTACHMENTS } from "./attachments/limits";
 
 export interface ChatImage {
   mimeType: string;
   data: string;
+  name?: string;
+}
+
+export interface WorkspaceChanges {
+  additions: number;
+  deletions: number;
+  files: number;
 }
 
 export const WORKSPACE_IDS = ["agent", "profile", "inschat", "rencipe"] as const;
@@ -18,6 +27,7 @@ export interface ChatMessage {
   role: "user" | "model";
   text: string;
   images?: ChatImage[];
+  documents?: DocumentAttachment[];
 }
 
 /** One persistent opencode thread bound to a chat. Stored as
@@ -97,6 +107,7 @@ export interface StoredMessage {
   role: "user" | "model";
   text: string;
   images?: ChatImage[];
+  documents?: DocumentAttachment[];
   model?: string;
   elapsed?: number;
   createdAt: string;
@@ -112,7 +123,8 @@ export interface StoredMessage {
 }
 
 export const MAX_MESSAGES = 20;
-export const MAX_IMAGES = 3;
+export { MAX_ATTACHMENTS };
+export const MAX_IMAGES = MAX_ATTACHMENTS;
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 

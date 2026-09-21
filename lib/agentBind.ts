@@ -88,13 +88,19 @@ function clip(text: string, max: number): string {
 function lineFor(message: ChatMessage): string {
   const speaker = message.role === "model" ? "Assistant" : "User";
   const photo = (message.images?.length ?? 0) > 0 ? " [photo]" : "";
-  const text = message.text.trim() || (photo ? "[photo attached]" : "");
+  const documents = (message.documents ?? [])
+    .map((document) => ` [document: ${document.name}] ${document.text}`)
+    .join("");
+  const text = `${message.text.trim()}${documents}` || (photo ? "[photo attached]" : "");
   return `${speaker}: ${clip(text, SUMMARY_TURN_CHARS)}${photo}`;
 }
 
 function usableTurns(messages: ChatMessage[]): ChatMessage[] {
   return messages.filter(
-    (message) => message.text.trim().length > 0 || (message.images?.length ?? 0) > 0
+    (message) =>
+      message.text.trim().length > 0 ||
+      (message.images?.length ?? 0) > 0 ||
+      (message.documents?.length ?? 0) > 0
   );
 }
 

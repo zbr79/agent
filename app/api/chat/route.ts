@@ -433,6 +433,7 @@ export async function POST(req: Request) {
             const fromRequest = messages.slice(0, -1).map((message) => ({
               role: message.role,
               text: message.text,
+              documents: message.documents,
             }));
             if (accountBound && runUserId && sessionId) {
               try {

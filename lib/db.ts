@@ -11,6 +11,7 @@ import type {
   StoredMessage,
   WorkspaceId,
 } from "./types";
+import type { DocumentAttachment } from "./documents/types";
 import { WORKSPACE_IDS } from "./types";
 import type { ActivityEvent } from "./markers";
 import { DEFAULT_WORKSPACE_ID } from "./workspaces";
@@ -238,6 +239,7 @@ interface MessageDoc {
   role: "user" | "model";
   text: string;
   images?: ChatImage[];
+  documents?: DocumentAttachment[];
   model?: string;
   elapsed?: number;
   createdAt: Date;
@@ -286,6 +288,7 @@ function toStoredMessage(doc: MessageDoc): StoredMessage {
     role: doc.role,
     text: doc.text,
     images: doc.images,
+    documents: doc.documents,
     model: doc.model,
     elapsed: doc.elapsed,
     createdAt: doc.createdAt.toISOString(),
@@ -510,10 +513,13 @@ export async function listAgentTranscript(
     if (doc.status === "failed" && !(doc.text || "").trim()) continue;
     const text = (doc.text || "").trim();
     const hasImage = (doc.images?.length ?? 0) > 0;
-    if (!text && !hasImage) continue;
+    const hasDocument = (doc.documents?.length ?? 0) > 0;
+    if (!text && !hasImage && !hasDocument) continue;
     out.push({
       role: doc.role,
-      text: text || "[photo attached]",
+      text: text || (hasImage ? "[photo attached]" : "[document attached]"),
+      images: doc.images,
+      documents: doc.documents,
     });
   }
   return out.slice(-80);
@@ -560,6 +566,7 @@ export async function appendMessage(
     role: "user" | "model";
     text: string;
     images?: ChatImage[];
+    documents?: DocumentAttachment[];
     model?: string;
     elapsed?: number;
   }
@@ -579,6 +586,7 @@ export async function appendMessage(
     role: input.role,
     text: input.text,
     images: input.images,
+    documents: input.documents,
     model: input.model,
     elapsed: input.elapsed,
     createdAt: now,

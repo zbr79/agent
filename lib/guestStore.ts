@@ -1,5 +1,6 @@
 "use client";
 
+import type { DocumentAttachment } from "./documents/types";
 import type { ChatImage, SessionConclusion, WorkspaceId } from "./types";
 import type { ActivityEvent } from "./markers";
 
@@ -7,6 +8,7 @@ export interface GuestMessage {
   role: "user" | "model";
   text: string;
   images?: ChatImage[];
+  documents?: DocumentAttachment[];
   imageKeys?: string[];
   model?: string;
   elapsed?: number;

@@ -4,6 +4,12 @@ import {
 } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { CheckpointConflictError, rewindSession } from "@/lib/rewind";
+import { parseDocumentAttachment } from "@/lib/chatRequest";
+import { MAX_ATTACHMENTS } from "@/lib/attachments/limits";
+import { hasDuplicateAttachmentNames } from "@/lib/attachments/validation";
+import { MAX_DOCUMENTS, MAX_TOTAL_DOCUMENT_TEXT } from "@/lib/documents/limits";
+import type { DocumentAttachment } from "@/lib/documents/types";
+import type { ChatImage } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -63,14 +69,23 @@ export async function POST(
 
   let role: "user" | "model";
   let text: string;
-  let images: { mimeType: string; data: string }[] | undefined;
+  let images: ChatImage[] | undefined;
+  let documents: DocumentAttachment[] | undefined;
   let model: string | undefined;
   let elapsed: number | undefined;
   try {
-    const { role: rawRole, text: rawText, images: rawImages, model: rawModel, elapsed: rawElapsed } = body as {
+    const {
+      role: rawRole,
+      text: rawText,
+      images: rawImages,
+      documents: rawDocuments,
+      model: rawModel,
+      elapsed: rawElapsed,
+    } = body as {
       role?: unknown;
       text?: unknown;
       images?: unknown;
+      documents?: unknown;
       model?: unknown;
       elapsed?: unknown;
     };
@@ -83,20 +98,39 @@ export async function POST(
     }
     text = rawText;
     if (rawImages !== undefined && rawImages !== null) {
-      if (!Array.isArray(rawImages) || rawImages.length > 3) {
-        throw new Error('"images" must be an array of at most 3 images.');
+      if (!Array.isArray(rawImages) || rawImages.length > MAX_ATTACHMENTS) {
+        throw new Error(`"images" must be an array of at most ${MAX_ATTACHMENTS} images.`);
       }
       images = rawImages.map((rawImage) => {
         if (
           typeof rawImage !== "object" ||
           rawImage === null ||
           typeof (rawImage as { mimeType?: unknown }).mimeType !== "string" ||
-          typeof (rawImage as { data?: unknown }).data !== "string"
+          typeof (rawImage as { data?: unknown }).data !== "string" ||
+          ((rawImage as { name?: unknown }).name !== undefined &&
+            typeof (rawImage as { name?: unknown }).name !== "string")
         ) {
           throw new Error('"images" contains an invalid image.');
         }
-        return rawImage as { mimeType: string; data: string };
+        return rawImage as ChatImage;
       });
+    }
+    if (rawDocuments !== undefined && rawDocuments !== null) {
+      if (!Array.isArray(rawDocuments) || rawDocuments.length > MAX_DOCUMENTS) {
+        throw new Error(`"documents" must be an array of at most ${MAX_DOCUMENTS} documents.`);
+      }
+      documents = rawDocuments.map((document, index) =>
+        parseDocumentAttachment(document, index)
+      );
+      if (documents.reduce((sum, document) => sum + document.text.length, 0) > MAX_TOTAL_DOCUMENT_TEXT) {
+        throw new Error('"documents" contain too much extracted text.');
+      }
+    }
+    if ((images?.length ?? 0) + (documents?.length ?? 0) > MAX_ATTACHMENTS) {
+      throw new Error(`Attachments must contain at most ${MAX_ATTACHMENTS} items.`);
+    }
+    if (hasDuplicateAttachmentNames(images, documents)) {
+      throw new Error("Attachments contain duplicate file names.");
     }
     if (rawModel !== undefined && rawModel !== null) {
       if (typeof rawModel !== "string" || rawModel.length > 100) {
@@ -118,7 +152,14 @@ export async function POST(
   }
 
   try {
-    const message = await appendMessage(auth._id, id, { role, text, images, model, elapsed });
+    const message = await appendMessage(auth._id, id, {
+      role,
+      text,
+      images,
+      documents,
+      model,
+      elapsed,
+    });
     if (!message) {
       return Response.json({ error: "Session not found." }, { status: 404 });
     }

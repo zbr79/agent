@@ -17,7 +17,14 @@ import ActivityPanel, {
   upsertActivity,
   type ActivityItem,
 } from "./ActivityPanel";
-import type { ChatImage, ChatMessage, PendingQuestion, WorkspaceId } from "@/lib/types";
+import type { DocumentAttachment } from "@/lib/documents/types";
+import type {
+  ChatImage,
+  ChatMessage,
+  PendingQuestion,
+  WorkspaceChanges,
+  WorkspaceId,
+} from "@/lib/types";
 import { ModelMarkerParser, type ActivityEvent } from "@/lib/markers";
 import {
   appendGuestMessage,
@@ -37,6 +44,7 @@ interface UiMessage {
   /** Agent-facing prompt when it differs from the bubble text. */
   sendText?: string;
   images?: ChatImage[];
+  documents?: DocumentAttachment[];
   streaming?: boolean;
   failed?: boolean;
   model?: string;
@@ -54,6 +62,7 @@ interface StoredLike {
   role: string;
   text: string;
   images?: ChatImage[];
+  documents?: DocumentAttachment[];
   model?: string;
   elapsed?: number;
   status?: "pending" | "done" | "failed";
@@ -116,6 +125,7 @@ function mapStoredMessages(list: StoredLike[], prev: UiMessage[] = []): UiMessag
       role: message.role === "model" ? "model" : "user",
       text: withRestoredTrail(message.text ?? "", processSteps, pending),
       images: message.images,
+      documents: message.documents,
       model: message.model,
       elapsed: message.elapsed,
       status,
@@ -330,12 +340,16 @@ function toApiMessages(messages: UiMessage[]): ChatMessage[] {
   return messages
     .filter(
       (message) =>
-        !message.failed && (message.text || (message.images?.length ?? 0) > 0)
+        !message.failed &&
+        (message.text ||
+          (message.images?.length ?? 0) > 0 ||
+          (message.documents?.length ?? 0) > 0)
     )
-    .map(({ role, text, sendText, images }) => ({
+    .map(({ role, text, sendText, images, documents }) => ({
       role,
       text: sendText || text,
       images,
+      documents,
     }));
 }
 
@@ -352,6 +366,7 @@ function persistMessage(
     role: "user" | "model";
     text: string;
     images?: ChatImage[];
+    documents?: DocumentAttachment[];
     model?: string;
     elapsed?: number;
   }
@@ -359,7 +374,7 @@ function persistMessage(
   return fetch(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(message),
+      body: JSON.stringify(message),
   })
     .then(async (response) => {
       if (!response.ok) return null;
@@ -431,6 +446,7 @@ export default function ChatApp() {
   pendingQuestionRef.current = pendingQuestion;
   const [loading, setLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
+  const [workspaceChanges, setWorkspaceChanges] = useState<WorkspaceChanges | null>(null);
   const workspaceId: WorkspaceId = requestedWorkspaceId;
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
@@ -459,6 +475,43 @@ export default function ChatApp() {
   useEffect(() => {
     if (!sessionParam) workspaceIdRef.current = workspaceId;
   }, [sessionParam, workspaceId]);
+
+  useEffect(() => {
+    if (isAuthed !== true) {
+      setWorkspaceChanges(null);
+      return;
+    }
+    let cancelled = false;
+    const refreshChanges = async () => {
+      try {
+        const response = await fetch(
+          `/api/changes?workspace=${encodeURIComponent(workspaceId)}`,
+          { cache: "no-store" }
+        );
+        if (!response.ok || cancelled) return;
+        const payload = (await response.json()) as Partial<WorkspaceChanges>;
+        if (
+          Number.isFinite(payload.additions) &&
+          Number.isFinite(payload.deletions) &&
+          Number.isFinite(payload.files)
+        ) {
+          setWorkspaceChanges({
+            additions: Math.max(0, Number(payload.additions)),
+            deletions: Math.max(0, Number(payload.deletions)),
+            files: Math.max(0, Number(payload.files)),
+          });
+        }
+      } catch {
+        /* Keep the last known workspace totals during transient failures. */
+      }
+    };
+    void refreshChanges();
+    const timer = window.setInterval(refreshChanges, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isAuthed, workspaceId]);
 
   // Re-attach to a run that is still going (or was left pending) on the
   // server: poll the session until the placeholder flips to done/failed.
@@ -696,6 +749,7 @@ useEffect(() => {
             id: nextId++,
             role: (message.role === "model" ? "model" : "user") as "user" | "model",
             text: message.text,
+            documents: message.documents,
             images: message.images?.length
               ? message.images
               : message.imageKeys?.length
@@ -1169,11 +1223,16 @@ useEffect(() => {
   );
 
   const send = useCallback(
-    async (text: string, images?: ChatImage[], displayText?: string) => {
+    async (
+      text: string,
+      images?: ChatImage[],
+      displayText?: string,
+      documents?: DocumentAttachment[]
+    ) => {
       const trimmed = text.trim();
       const shown = (displayText ?? "").trim() || trimmed;
       if (
-        (!trimmed && (images?.length ?? 0) === 0) ||
+        (!trimmed && (images?.length ?? 0) === 0 && (documents?.length ?? 0) === 0) ||
         sending ||
         pendingQuestionRef.current ||
         isAuthed === null
@@ -1220,6 +1279,7 @@ useEffect(() => {
         text: shown,
         sendText: shown === trimmed ? undefined : trimmed,
         images,
+        documents,
       };
       if (sessionId) {
         if (authed) {
@@ -1230,6 +1290,7 @@ useEffect(() => {
             role: "user",
             text: shown,
             images,
+            documents,
           });
           if (stored?.message?._id) {
             userMessage = { ...userMessage, _id: stored.message._id };
@@ -1245,9 +1306,10 @@ useEffect(() => {
             text: shown,
             images: keptImages.length ? keptImages : images,
             imageKeys: stored.every(Boolean) ? keys : undefined,
+            documents,
           });
         } else {
-          appendGuestMessage(sessionId, { role: "user", text: shown });
+          appendGuestMessage(sessionId, { role: "user", text: shown, documents });
         }
       }
       await streamReply([...messages, userMessage], userMessage._id);
@@ -1331,6 +1393,7 @@ useEffect(() => {
               keep,
               text: edited.text,
               images: edited.images,
+              documents: edited.documents,
             }),
           });
           const body = (await response.json().catch(() => null)) as {
@@ -1355,6 +1418,7 @@ useEffect(() => {
               role: "user",
               text: edited.text,
               images: edited.images,
+              documents: edited.documents,
             });
           }
         }
@@ -1609,6 +1673,7 @@ useEffect(() => {
           pendingQuestion ? t["question.composerLocked"] : t["composer.placeholder"]
         }
         signedIn={isAuthed === true}
+        changes={workspaceChanges}
         onRequireAuth={() => {
           window.dispatchEvent(new CustomEvent("inschat-open-auth"));
         }}
@@ -1627,7 +1692,6 @@ useEffect(() => {
         ) : messages.length === 0 ? (
           <main className="welcome">
             <h2>{t["welcome.title"]}</h2>
-            <p className="build-stamp">{UI_BUILD}</p>
             {composerDock}
           </main>
         ) : (
@@ -1678,7 +1742,6 @@ useEffect(() => {
         ) : messages.length === 0 ? (
           <main className="welcome">
             <h2>{t["welcome.title"]}</h2>
-            <p className="build-stamp">{UI_BUILD}</p>
             {composerDock}
           </main>
         ) : (

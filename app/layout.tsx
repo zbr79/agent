@@ -2,6 +2,7 @@
 // <!-- qa-refresh-20260907 -->
 import { Suspense } from "react";
 import type { Metadata, Viewport } from "next";
+import AppToaster from "@/components/AppToaster";
 import Sidebar from "@/components/Sidebar";
 import { AGENT_ROOT } from "@/lib/pathJail";
 import "./globals.css";
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </Suspense>
           <div className="main">{children}</div>
         </div>
+        <AppToaster />
       </body>
     </html>
   );

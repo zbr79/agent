@@ -1,4 +1,5 @@
 import { insertShare } from "@/lib/db";
+import { MAX_ATTACHMENTS } from "@/lib/attachments/limits";
 
 export const runtime = "nodejs";
 
@@ -55,8 +56,10 @@ export async function POST(req: Request) {
       }
       let parsedImages: { mimeType: string; data: string }[] | undefined;
       if (images !== undefined && images !== null) {
-        if (!Array.isArray(images) || images.length > 3) {
-          throw new Error(`messages[${index}].images must be an array of at most 3 images.`);
+        if (!Array.isArray(images) || images.length > MAX_ATTACHMENTS) {
+          throw new Error(
+            `messages[${index}].images must be an array of at most ${MAX_ATTACHMENTS} images.`
+          );
         }
         parsedImages = images.map((image) => {
           if (

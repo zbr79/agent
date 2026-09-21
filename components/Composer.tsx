@@ -1,17 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertCircle,
   ArrowUp,
   ChevronDown,
+  File,
+  FileCode2,
+  FileSpreadsheet,
+  FileText,
+  FileType,
   Lock,
+  LoaderCircle,
   Mic,
   Plus,
   Square,
   X,
 } from "lucide-react";
-import type { ChatImage } from "@/lib/types";
-import { GUEST_MAX_AUDIO_MS, MAX_AUDIO_BYTES, MAX_IMAGES, USER_MAX_AUDIO_MS } from "@/lib/types";
+import type { DocumentAttachment } from "@/lib/documents/types";
+import type { ChatImage, WorkspaceChanges } from "@/lib/types";
+import { GUEST_MAX_AUDIO_MS, MAX_AUDIO_BYTES, USER_MAX_AUDIO_MS } from "@/lib/types";
+import { MAX_ATTACHMENTS } from "@/lib/attachments/limits";
+import { toastError } from "@/lib/toast";
 import { STR, useUiLang } from "@/lib/i18n";
 import {
   useChatMode,
@@ -28,18 +38,25 @@ import {
   VoiceInputError,
   type VoiceRecordHandle,
 } from "@/lib/audioRecorder";
+import DocumentPicker, { type DocumentPickerStatus } from "./DocumentPicker";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 interface ComposerProps {
   sending: boolean;
   stopping?: boolean;
-  onSend: (text: string, images?: ChatImage[], displayText?: string) => void;
+  onSend: (
+    text: string,
+    images?: ChatImage[],
+    displayText?: string,
+    documents?: DocumentAttachment[]
+  ) => void;
   onStop: () => void;
   disabled?: boolean;
   placeholder?: string;
   signedIn?: boolean;
   onRequireAuth?: () => void;
+  changes?: WorkspaceChanges | null;
 }
 
 function readImage(
@@ -56,7 +73,7 @@ function readImage(
       const dataUrl = reader.result as string;
       const [head, data] = dataUrl.split(",");
       const mimeType = head.match(/data:(.*?);/)?.[1] ?? file.type;
-      resolve({ mimeType, data });
+      resolve({ mimeType, data, name: file.name });
     };
     reader.onerror = () => reject(new Error(errors.read));
     reader.readAsDataURL(file);
@@ -79,6 +96,7 @@ export default function Composer({
   placeholder,
   signedIn = false,
   onRequireAuth,
+  changes = null,
 }: ComposerProps) {
   const lang = useUiLang();
   const t = STR[lang];
@@ -89,19 +107,36 @@ export default function Composer({
   const [mode, setMode] = useChatMode();
   const [text, setText] = useState("");
   const [images, setImages] = useState<ChatImage[]>([]);
+  const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
+  const [documentBusy, setDocumentBusy] = useState(false);
+  const [documentStatus, setDocumentStatus] = useState<DocumentPickerStatus>({
+    busy: false,
+    progress: 0,
+    phase: null,
+    uploadNames: [],
+    errors: [],
+  });
   const [imageError, setImageError] = useState<string | null>(null);
   const [voiceHint, setVoiceHint] = useState<string | null>(null);
   const [voiceStatus, setVoiceStatus] = useState<"idle" | "recording" | "transcribing">("idle");
   const [elapsedMs, setElapsedMs] = useState(0);
-  const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const voiceRef = useRef<VoiceRecordHandle | null>(null);
   const autoSendRef = useRef(false);
   const imagesRef = useRef(images);
   imagesRef.current = images;
+  const documentsRef = useRef(documents);
+  documentsRef.current = documents;
   const pickerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef(text);
   textRef.current = text;
+
+  const handleDocumentStatus = useCallback((status: DocumentPickerStatus) => {
+    setDocumentStatus(status);
+  }, []);
+  const showAttachmentError = useCallback((message: string) => {
+    toastError(message);
+  }, []);
 
   // Close the model picker on outside click / Escape.
   useEffect(() => {
@@ -138,7 +173,11 @@ export default function Composer({
   const modelKey =
     model === "qwen3.8-flash" ? "qwen" : model === "glm-5.3-flash" ? "glm" : "ds";
   const effectiveMode: ChatMode = signedIn ? mode : "plan";
-  const canSend = (text.trim().length > 0 || images.length > 0) && !sending && !disabled;
+  const canSend =
+    (text.trim().length > 0 || images.length > 0 || documents.length > 0) &&
+    !sending &&
+    !disabled &&
+    !documentBusy;
   // During the voice flow the send button stays live: pressing it queues an
   // auto-send once the transcript lands.
   const voiceBusy = voiceStatus !== "idle" && !sending && !disabled;
@@ -169,9 +208,15 @@ export default function Composer({
       return;
     }
     if (!canSend) return;
-    onSend(text.trim(), images.length > 0 ? images : undefined);
+    onSend(
+      text.trim(),
+      images.length > 0 ? images : undefined,
+      undefined,
+      documents.length > 0 ? documents : undefined
+    );
     setText("");
     setImages([]);
+    setDocuments([]);
     setImageError(null);
   };
 
@@ -235,14 +280,16 @@ export default function Composer({
     }
   };
 
-  const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (files.length === 0) return;
-    const room = MAX_IMAGES - images.length;
+  const handleImageFiles = async (files: File[]): Promise<number> => {
+    if (files.length === 0) return 0;
+    const room = MAX_ATTACHMENTS - images.length - documents.length;
+    if (room <= 0) {
+      showAttachmentError(t["composer.maxAttachmentsReached"]);
+      return 0;
+    }
     const selected = files.slice(0, room);
     if (files.length > room) {
-      setImageError(t["composer.maxImages"].replace("{count}", String(MAX_IMAGES)));
+      showAttachmentError(t["composer.maxAttachments"]);
     }
     try {
       const loaded: ChatImage[] = [];
@@ -265,15 +312,36 @@ export default function Composer({
           } catch {}
         }
       }
-      setImages((prev) => [...prev, ...loaded].slice(0, MAX_IMAGES));
+      setImages((prev) =>
+        [...prev, ...loaded].slice(0, Math.max(0, MAX_ATTACHMENTS - documents.length))
+      );
       if (loaded.length > 0) setImageError(null);
+      return loaded.length;
     } catch (error) {
       setImageError(error instanceof Error ? error.message : t["composer.readError"]);
+      return 0;
     }
   };
 
   const removeImage = (index: number) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const documentInfo = (document: DocumentAttachment) => {
+    const extension = document.name.split(".").pop()?.toLowerCase();
+    if (extension === "xlsx") {
+      return { Icon: FileSpreadsheet, label: lang === "zh" ? "电子表格" : "Spreadsheet", tone: "xlsx" };
+    }
+    if (extension === "docx") {
+      return { Icon: FileType, label: lang === "zh" ? "Word 文档" : "Word document", tone: "docx" };
+    }
+    if (extension === "pdf") {
+      return { Icon: FileText, label: lang === "zh" ? "PDF 文档" : "PDF document", tone: "pdf" };
+    }
+    if (extension === "txt") {
+      return { Icon: FileCode2, label: lang === "zh" ? "文本文件" : "Text file", tone: "txt" };
+    }
+    return { Icon: File, label: lang === "zh" ? "文件" : "File", tone: "file" };
   };
 
   const transcribe = async (blob: Blob, durationMs: number) => {
@@ -321,9 +389,16 @@ export default function Composer({
         const imgs = imagesRef.current;
         const trimmed = merged.trim();
         if (trimmed || imgs.length > 0) {
-          onSend(trimmed, imgs.length > 0 ? imgs : undefined);
+          const docs = documentsRef.current;
+          onSend(
+            trimmed,
+            imgs.length > 0 ? imgs : undefined,
+            undefined,
+            docs.length > 0 ? docs : undefined
+          );
           setText("");
           setImages([]);
+          setDocuments([]);
           setImageError(null);
         }
       }
@@ -390,24 +465,109 @@ export default function Composer({
         ? t["composer.transcribing"]
         : t["composer.record"];
 
+  const attachmentLayer = (
+    (images.length > 0 ||
+      documents.length > 0 ||
+      documentStatus.busy ||
+      documentStatus.errors.length > 0) && (
+      <div className="composer-attachments">
+        <div className="composer-attachment-items">
+          <div className="preview-grid">
+            {images.map((image, index) => (
+              <div key={index} className="preview">
+                <img src={`data:${image.mimeType};base64,${image.data}`} alt={t["composer.previewAlt"]} />
+                <button
+                  type="button"
+                  onClick={() => removeImage(index)}
+                  aria-label={t["composer.removeImage"]}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+          {documents.length > 0 && (
+            <div className="document-chip-grid" aria-label={t["composer.documents"]}>
+              {documents.map((document) => (
+                <div className="document-chip" key={document.id}>
+                  {(() => {
+                    const { Icon, label, tone } = documentInfo(document);
+                    return (
+                      <Icon
+                        className={`document-chip-icon document-chip-icon-${tone}`}
+                        size={26}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                    );
+                  })()}
+                  <span className="document-chip-body">
+                    <span className="document-chip-name" title={document.name}>
+                      {document.name}
+                    </span>
+                    <span className="document-chip-format">
+                      {documentInfo(document).label}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDocuments((current) =>
+                        current.filter((item) => item.id !== document.id)
+                      )
+                    }
+                    aria-label={`${t["composer.removeDocument"]}: ${document.name}`}
+                    disabled={disabled || documentBusy}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {documentStatus.busy && (
+            <>
+              {documentStatus.uploadNames.length > 0 ? (
+                documentStatus.uploadNames.map((name, index) => (
+                  <div className="document-upload-card" key={`${name}-${index}`} aria-live="polite">
+                    <LoaderCircle size={22} className="spin document-upload-icon" aria-hidden="true" />
+                    <span className="document-upload-body">
+                      <strong title={name}>{name}</strong>
+                      <span>
+                        {documentStatus.phase === "processing"
+                          ? t["composer.processingDocument"]
+                          : t["composer.uploadingDocuments"].replace("{count}", "1")}
+                      </span>
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="document-upload-card" aria-live="polite">
+                  <LoaderCircle size={22} className="spin document-upload-icon" aria-hidden="true" />
+                  <span className="document-upload-body">
+                    <strong>{t["composer.processingDocuments"]}</strong>
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {documentStatus.errors.length > 0 && (
+          <div className="document-errors" role="alert">
+            <AlertCircle size={14} aria-hidden="true" />
+            <ul>
+              {documentStatus.errors.map((message, index) => (
+                <li key={`${message}-${index}`}>{message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    )
+  );
+
   return (
     <div className="composer">
-      {images.length > 0 && (
-        <div className="preview-grid">
-          {images.map((image, index) => (
-            <div key={index} className="preview">
-               <img src={`data:${image.mimeType};base64,${image.data}`} alt={t["composer.previewAlt"]} />
-              <button
-                type="button"
-                onClick={() => removeImage(index)}
-                 aria-label={t["composer.removeImage"]}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
       <div className="composer-toolbar">
         <div className="composer-picker" ref={pickerRef}>
           <button
@@ -486,6 +646,17 @@ export default function Composer({
             </button>
           ))}
         </div>
+        {signedIn && changes && (changes.additions > 0 || changes.deletions > 0) ? (
+          <div
+            className="composer-changes-pill"
+            title={`${t["composer.changes"]}: +${changes.additions} −${changes.deletions}`}
+            aria-label={`${t["composer.changes"]}: +${changes.additions} −${changes.deletions}`}
+          >
+            <span>{t["composer.changes"]}</span>
+            <span className="composer-changes-add">+{changes.additions}</span>
+            <span className="composer-changes-del">−{changes.deletions}</span>
+          </div>
+        ) : null}
         {signedIn ? (
           <button
             type="button"
@@ -499,24 +670,30 @@ export default function Composer({
           </button>
         ) : null}
       </div>
+      {attachmentLayer}
       <div className={`input-row mode-${effectiveMode}`}>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          multiple
-          hidden
-          onChange={handleFiles}
+        <DocumentPicker
+          documents={documents}
+          imageCount={images.length}
+          imageNames={images.map((image) => image.name ?? "")}
+          onChange={setDocuments}
+          onBusyChange={setDocumentBusy}
+          onImagesSelected={handleImageFiles}
+          onValidationError={showAttachmentError}
+          onStatusChange={handleDocumentStatus}
+          disabled={disabled}
+          renderTrigger={(open, triggerDisabled) => (
+            <button
+              type="button"
+              className="icon-button"
+              onClick={open}
+              aria-label={t["composer.attachFile"]}
+              disabled={triggerDisabled}
+            >
+              <Plus size={18} />
+            </button>
+          )}
         />
-        <button
-          type="button"
-          className="icon-button"
-          onClick={() => fileRef.current?.click()}
-           aria-label={t["composer.attachImage"]}
-          disabled={images.length >= MAX_IMAGES || disabled}
-        >
-          <Plus size={18} />
-        </button>
         <textarea
           ref={textareaRef}
           rows={1}

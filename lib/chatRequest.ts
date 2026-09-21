@@ -1,7 +1,16 @@
 import { ChatValidationError } from "./errors";
+import { MAX_ATTACHMENTS } from "./attachments/limits";
+import { hasDuplicateAttachmentNames } from "./attachments/validation";
+import {
+  MAX_DOCUMENTS,
+  MAX_DOCUMENT_SOURCE_TEXT,
+  MAX_DOCUMENT_SOURCES,
+  MAX_DOCUMENT_TEXT,
+  MAX_TOTAL_DOCUMENT_TEXT,
+} from "./documents/limits";
+import type { DocumentAttachment, DocumentSource } from "./documents/types";
 import { isValidTimeZone } from "./prompt";
 import {
-  MAX_IMAGES,
   MAX_MESSAGES,
   WORKSPACE_IDS,
   type ChatImage,
@@ -26,11 +35,60 @@ function parseImage(raw: unknown, index: number): ChatImage {
     typeof raw !== "object" ||
     raw === null ||
     typeof (raw as { mimeType?: unknown }).mimeType !== "string" ||
-    typeof (raw as { data?: unknown }).data !== "string"
+    typeof (raw as { data?: unknown }).data !== "string" ||
+    ((raw as { name?: unknown }).name !== undefined &&
+      typeof (raw as { name?: unknown }).name !== "string")
   ) {
     throw new ChatValidationError(`messages[${index}].images contains an invalid image.`);
   }
   return raw as ChatImage;
+}
+
+function parseDocumentSource(raw: unknown, index: number): DocumentSource {
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    typeof (raw as { locator?: unknown }).locator !== "string" ||
+    typeof (raw as { label?: unknown }).label !== "string" ||
+    typeof (raw as { text?: unknown }).text !== "string"
+  ) {
+    throw new ChatValidationError(`messages[${index}].documents contains an invalid source.`);
+  }
+  const source = raw as DocumentSource;
+  if (source.text.length > MAX_DOCUMENT_SOURCE_TEXT) {
+    throw new ChatValidationError(`messages[${index}].documents contains an oversized source.`);
+  }
+  return source;
+}
+
+export function parseDocumentAttachment(raw: unknown, index = 0): DocumentAttachment {
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    typeof (raw as { id?: unknown }).id !== "string" ||
+    typeof (raw as { name?: unknown }).name !== "string" ||
+    typeof (raw as { mimeType?: unknown }).mimeType !== "string" ||
+    typeof (raw as { size?: unknown }).size !== "number" ||
+    typeof (raw as { text?: unknown }).text !== "string" ||
+    !Array.isArray((raw as { sources?: unknown }).sources)
+  ) {
+    throw new ChatValidationError(`messages[${index}].documents contains an invalid document.`);
+  }
+  const document = raw as DocumentAttachment;
+  if (
+    document.id.length > 128 ||
+    document.name.length > 160 ||
+    document.size < 0 ||
+    document.text.length === 0 ||
+    document.text.length > MAX_DOCUMENT_TEXT ||
+    document.sources.length > MAX_DOCUMENT_SOURCES
+  ) {
+    throw new ChatValidationError(`messages[${index}].documents contains an invalid document.`);
+  }
+  return {
+    ...document,
+    sources: document.sources.map((source) => parseDocumentSource(source, index)),
+  };
 }
 
 export function parseChatBody(body: unknown): ChatRequest {
@@ -47,10 +105,11 @@ export function parseChatBody(body: unknown): ChatRequest {
       if (!raw || typeof raw !== "object") {
         throw new ChatValidationError(`messages[${index}] is invalid.`);
       }
-      const { role, text, images } = raw as {
+      const { role, text, images, documents } = raw as {
         role?: unknown;
         text?: unknown;
         images?: unknown;
+        documents?: unknown;
       };
       if (role !== "user" && role !== "model") {
         throw new ChatValidationError(`messages[${index}].role must be "user" or "model".`);
@@ -60,14 +119,38 @@ export function parseChatBody(body: unknown): ChatRequest {
       }
       let parsedImages: ChatImage[] | undefined;
       if (images !== undefined && images !== null) {
-        if (!Array.isArray(images) || images.length > MAX_IMAGES) {
+        if (!Array.isArray(images) || images.length > MAX_ATTACHMENTS) {
           throw new ChatValidationError(
-            `messages[${index}].images must be an array of at most ${MAX_IMAGES} images.`
+            `messages[${index}].images must be an array of at most ${MAX_ATTACHMENTS} images.`
           );
         }
         parsedImages = images.map((image) => parseImage(image, index));
       }
-      return { role, text, images: parsedImages };
+      let parsedDocuments: DocumentAttachment[] | undefined;
+      if (documents !== undefined && documents !== null) {
+        if (!Array.isArray(documents) || documents.length > MAX_DOCUMENTS) {
+          throw new ChatValidationError(
+            `messages[${index}].documents must be an array of at most ${MAX_DOCUMENTS} documents.`
+          );
+        }
+        parsedDocuments = documents.map((document) => parseDocumentAttachment(document, index));
+        const totalText = parsedDocuments.reduce((sum, document) => sum + document.text.length, 0);
+        if (totalText > MAX_TOTAL_DOCUMENT_TEXT) {
+          throw new ChatValidationError(
+            `messages[${index}].documents contain too much extracted text.`
+          );
+        }
+      }
+      const attachmentCount = (parsedImages?.length ?? 0) + (parsedDocuments?.length ?? 0);
+      if (attachmentCount > MAX_ATTACHMENTS) {
+        throw new ChatValidationError(
+          `messages[${index}] must contain at most ${MAX_ATTACHMENTS} attachments.`
+        );
+      }
+      if (hasDuplicateAttachmentNames(parsedImages, parsedDocuments)) {
+        throw new ChatValidationError(`messages[${index}] contains duplicate attachment names.`);
+      }
+      return { role, text, images: parsedImages, documents: parsedDocuments };
     });
 
   const rawZone = (body as { timeZone?: unknown }).timeZone;

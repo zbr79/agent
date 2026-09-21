@@ -221,10 +221,13 @@ function toOpenAiMessages(
   ];
   for (const message of messages) {
     const role = message.role === "model" ? "assistant" : "user";
+    const documentText = (message.documents ?? [])
+      .map((document) => `\n\nAttached document: ${document.name}\n${document.text}`)
+      .join("");
     if (message.images && message.images.length > 0) {
       const parts: OpenAiContentPart[] = [];
-      if (message.text.trim()) {
-        parts.push({ type: "text", text: message.text });
+      if (message.text.trim() || documentText) {
+        parts.push({ type: "text", text: `${message.text}${documentText}`.trim() });
       }
       for (const image of message.images) {
         const mimeType = image.mimeType.toLowerCase();
@@ -247,8 +250,8 @@ function toOpenAiMessages(
       out.push({ role, content: parts });
       continue;
     }
-    if (!message.text.trim()) continue;
-    out.push({ role, content: message.text });
+    if (!message.text.trim() && !documentText) continue;
+    out.push({ role, content: `${message.text}${documentText}`.trim() });
   }
   return out;
 }
