@@ -160,6 +160,11 @@ export default function Composer({
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    if (text.length === 0) {
+      el.style.height = "";
+      setMultiLineText(false);
+      return;
+    }
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
     const style = window.getComputedStyle(el);
