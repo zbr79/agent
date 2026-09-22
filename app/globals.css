@@ -4229,6 +4229,11 @@ span.conclude-rank-badge {
   background: rgba(0, 0, 0, 0.05);
 }
 
+.sidebar-hide.active {
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.08);
+}
+
 .sidebar-search {
   display: flex;
   align-items: center;
@@ -4322,8 +4327,93 @@ span.conclude-rank-badge {
   border-radius: 12px;
 }
 
-.account-row:hover {
+.account-identity {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-identity:hover {
   background: rgba(0, 0, 0, 0.05);
+}
+
+.account-settings-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 14px;
+  font-size: 15px;
+}
+
+.account-settings-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-display-trigger {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-display-trigger:hover {
+  color: var(--text-muted);
+}
+
+.account-display-trigger strong,
+.account-settings-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-display-input {
+  width: min(240px, 100%);
+  padding: 4px 7px;
+  font-size: 15px;
+}
+
+.account-settings-copy > span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.settings-input {
+  min-width: 0;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.settings-input:focus {
+  border-color: var(--pill);
 }
 
 .avatar {
@@ -4480,6 +4570,19 @@ span.conclude-rank-badge {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+.change-password-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.change-password-actions .auth-toggle {
+  margin: 0;
+  padding: 10px 12px;
 }
 
 .settings-select {

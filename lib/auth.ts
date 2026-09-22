@@ -1,11 +1,13 @@
 import crypto from "node:crypto";
 import {
   deleteAuthToken,
+  findUserById,
   findUserByTokenHash,
   findUserByUsername,
   insertAuthToken,
   insertUser,
   type UserDoc,
+  updateUserPassword,
 } from "./accounts";
 
 export const AUTH_COOKIE = "inschat_token";
@@ -14,6 +16,7 @@ const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const USERNAME_PATTERN = /^[a-zA-Z0-9_]{3,32}$/;
 export const PASSWORD_MIN = 8;
 export const PASSWORD_MAX = 128;
+export const DISPLAY_NAME_MAX = 64;
 
 function hashPassword(password: string, salt: string): string {
   return crypto.scryptSync(password, salt, 64).toString("hex");
@@ -42,6 +45,25 @@ export async function verifyLogin(
       Buffer.from(user.passwordHash, "hex")
     );
   return valid ? user : null;
+}
+
+export async function changeUserPassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<boolean> {
+  const user = await findUserById(userId);
+  if (!user) return false;
+  const candidate = hashPassword(currentPassword, user.salt);
+  const valid =
+    candidate.length === user.passwordHash.length &&
+    crypto.timingSafeEqual(
+      Buffer.from(candidate, "hex"),
+      Buffer.from(user.passwordHash, "hex")
+    );
+  if (!valid) return false;
+  const salt = crypto.randomBytes(16).toString("hex");
+  return updateUserPassword(userId, hashPassword(newPassword, salt), salt);
 }
 
 export async function issueToken(userId: string): Promise<string> {
@@ -77,6 +99,7 @@ function tokenFromRequest(req: Request): string | null {
 export interface AuthUser {
   _id: string;
   username: string;
+  displayName: string;
 }
 
 export async function getUserFromRequest(req: Request): Promise<AuthUser | null> {
@@ -85,7 +108,11 @@ export async function getUserFromRequest(req: Request): Promise<AuthUser | null>
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
   const user = await findUserByTokenHash(tokenHash);
   if (!user || !user._id) return null;
-  return { _id: user._id.toString(), username: user.username };
+  return {
+    _id: user._id.toString(),
+    username: user.username,
+    displayName: user.displayName?.trim() || user.username,
+  };
 }
 
 export async function requireUser(req: Request): Promise<AuthUser | Response> {

@@ -4,6 +4,7 @@ import { getDb } from "./db";
 export interface UserDoc {
   _id?: ObjectId;
   username: string;
+  displayName?: string;
   passwordHash: string;
   salt: string;
   createdAt: Date;
@@ -22,13 +23,24 @@ export async function findUserByUsername(username: string): Promise<UserDoc | nu
   return db.collection<UserDoc>("users").findOne({ username });
 }
 
+export async function findUserById(userId: string): Promise<UserDoc | null> {
+  if (!ObjectId.isValid(userId)) return null;
+  const db = await getDb();
+  return db.collection<UserDoc>("users").findOne({ _id: new ObjectId(userId) });
+}
+
 export async function insertUser(input: {
   username: string;
+  displayName?: string;
   passwordHash: string;
   salt: string;
 }): Promise<UserDoc> {
   const db = await getDb();
-  const doc: UserDoc = { ...input, createdAt: new Date() };
+  const doc: UserDoc = {
+    ...input,
+    displayName: input.displayName?.trim() || input.username,
+    createdAt: new Date(),
+  };
   const result = await db.collection<UserDoc>("users").insertOne(doc);
   const user: UserDoc = { ...doc, _id: result.insertedId };
   // The first user claims all pre-account data (sessions/messages/records),
@@ -61,6 +73,33 @@ export async function insertAuthToken(input: {
     expiresAt: input.expiresAt,
   };
   await db.collection<AuthTokenDoc>("auth_tokens").insertOne(doc);
+}
+
+export async function updateUserPassword(
+  userId: string,
+  passwordHash: string,
+  salt: string
+): Promise<boolean> {
+  if (!ObjectId.isValid(userId)) return false;
+  const db = await getDb();
+  const result = await db.collection<UserDoc>("users").updateOne(
+    { _id: new ObjectId(userId) },
+    { $set: { passwordHash, salt } }
+  );
+  return result.matchedCount > 0;
+}
+
+export async function updateUserDisplayName(
+  userId: string,
+  displayName: string
+): Promise<boolean> {
+  if (!ObjectId.isValid(userId)) return false;
+  const db = await getDb();
+  const result = await db.collection<UserDoc>("users").updateOne(
+    { _id: new ObjectId(userId) },
+    { $set: { displayName } }
+  );
+  return result.matchedCount > 0;
 }
 
 export async function findUserByTokenHash(tokenHash: string): Promise<UserDoc | null> {

@@ -63,7 +63,12 @@ export async function POST(req: Request) {
     }
     const token = await issueToken(user._id.toString());
     return Response.json(
-      { user: { username: user.username } },
+      {
+        user: {
+          username: user.username,
+          displayName: user.displayName?.trim() || user.username,
+        },
+      },
       { status: 201, headers: { "Set-Cookie": authCookie(token) } }
     );
   } catch (error) {

@@ -3,17 +3,20 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, ImageDown, Folder, FolderPlus, Check } from "lucide-react";
+import { Menu, X, Plus, Search, PanelLeft, Pin, PinOff, Settings, User, MoreHorizontal, Pencil, Trash2, ChevronRight, Languages, Gauge, LogOut, KeyRound, ImageDown, Folder, FolderPlus, Check } from "lucide-react";
 import type { ChatSession, WorkspaceId, WorkspaceInfo } from "@/lib/types";
 import { deleteGuestSession, clearGuestSessions, listGuestSessions, pinGuestSession, renameGuestSession, type GuestSession } from "@/lib/guestStore";
 import { STR, useUiLang, setUiLang } from "@/lib/i18n";
 import SearchModal from "./SearchModal";
 import AuthModal from "./AuthModal";
+import ChangePasswordModal from "./ChangePasswordModal";
 import { useCompressImages } from "@/lib/prefs";
+import { toastSuccess } from "@/lib/toast";
 
 interface MeUser {
   _id: string;
   username: string;
+  displayName?: string;
 }
 
 const COLLAPSED_KEY = "inschat_sidebar_collapsed";
@@ -125,6 +128,12 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [displayNameDraft, setDisplayNameDraft] = useState("");
+  const [displayNameEditing, setDisplayNameEditing] = useState(false);
+  const [displayNameBusy, setDisplayNameBusy] = useState(false);
+  const [displayNameError, setDisplayNameError] = useState<string | null>(null);
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authNonce, setAuthNonce] = useState(0);
@@ -313,6 +322,13 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
       .catch(() => {});
   }, [authChecked, user]);
 
+  useEffect(() => {
+    if (!accountSettingsOpen || !user) return;
+    setDisplayNameDraft(user.displayName?.trim() || user.username);
+    setDisplayNameEditing(false);
+    setDisplayNameError(null);
+  }, [accountSettingsOpen, user]);
+
   // Deep link /?auth=1 (redirect target of the old /login page) opens the
   // auth modal automatically.
   useEffect(() => {
@@ -427,6 +443,50 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
       setUser(null);
       window.dispatchEvent(new CustomEvent("inschat-auth"));
       router.replace("/");
+    }
+  };
+
+  const saveDisplayName = async () => {
+    if (!user || displayNameBusy) return;
+    const displayName = displayNameDraft.trim();
+    if (!displayName) {
+      setDisplayNameError(t["settings.displayNameRequired"]);
+      return;
+    }
+    if (displayName === (user.displayName?.trim() || user.username)) return;
+    setDisplayNameBusy(true);
+    setDisplayNameError(null);
+    try {
+      const response = await fetch("/api/auth/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        user?: MeUser;
+        errorCode?: string;
+        max?: number;
+      };
+      if (!response.ok) {
+        setDisplayNameError(
+          body.errorCode === "displayNameLength"
+            ? t["settings.displayNameLength"].replace("{max}", String(body.max ?? 64))
+            : body.errorCode === "displayNameRequired"
+              ? t["settings.displayNameRequired"]
+              : t["settings.displayNameFailed"]
+        );
+        return;
+      }
+      setUser((current) =>
+        current
+          ? { ...current, displayName: body.user?.displayName ?? displayName }
+          : current
+      );
+      toastSuccess(t["settings.displayNameSaved"]);
+    } catch {
+      setDisplayNameError(t["settings.displayNameFailed"]);
+    } finally {
+      setDisplayNameBusy(false);
     }
   };
 
@@ -635,6 +695,17 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
           >
             <Search size={16} />
           </button>
+          {user && (
+            <button
+              type="button"
+              className={`sidebar-hide${pathname === "/usage" ? " active" : ""}`}
+              onClick={() => router.push("/usage")}
+              aria-label={t["nav.usage"]}
+              aria-current={pathname === "/usage" ? "page" : undefined}
+            >
+              <Gauge size={16} />
+            </button>
+          )}
           <button
             type="button"
             className="sidebar-hide"
@@ -815,8 +886,19 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
       <div className="sidebar-foot">
         {user ? (
           <div className="account-row">
-            <span className="avatar">{user.username.charAt(0).toUpperCase()}</span>
-            <span className="account-name">{user.username}</span>
+            <button
+              type="button"
+              className="account-identity"
+              onClick={() => setAccountSettingsOpen(true)}
+              aria-label={t["settings.accountTitle"]}
+            >
+              <span className="avatar">
+                {(user.displayName?.trim() || user.username).charAt(0).toUpperCase()}
+              </span>
+              <span className="account-name">
+                {user.displayName?.trim() || user.username}
+              </span>
+            </button>
             <button
               type="button"
               className="settings-button"
@@ -912,6 +994,98 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
         router.replace("/");
       }}
     />
+    {accountSettingsOpen && user && (
+      <>
+        <div
+          className="settings-backdrop"
+          onClick={() => setAccountSettingsOpen(false)}
+          aria-hidden="true"
+        />
+        <div className="settings-modal" role="dialog" aria-modal="true">
+          <div className="settings-head">
+            <span className="settings-title">{t["settings.accountTitle"]}</span>
+            <button
+              type="button"
+              className="settings-close"
+              onClick={() => setAccountSettingsOpen(false)}
+              aria-label={t["actions.cancel"]}
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="account-settings-identity">
+            <span className="avatar">
+              {(user.displayName?.trim() || user.username).charAt(0).toUpperCase()}
+            </span>
+            <span className="account-settings-copy">
+              {displayNameEditing ? (
+                <input
+                  id="account-display-name"
+                  className="settings-input account-display-input"
+                  value={displayNameDraft}
+                  onChange={(event) => setDisplayNameDraft(event.target.value)}
+                  onBlur={() => {
+                    void saveDisplayName();
+                    setDisplayNameEditing(false);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
+                  maxLength={64}
+                  autoComplete="nickname"
+                  autoFocus
+                  aria-label={t["settings.displayName"]}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="account-display-trigger"
+                  onClick={() => {
+                    setDisplayNameError(null);
+                    setDisplayNameEditing(true);
+                  }}
+                  aria-label={t["settings.displayName"]}
+                >
+                  <strong>{user.displayName?.trim() || user.username}</strong>
+                  <Pencil size={14} aria-hidden="true" />
+                </button>
+              )}
+              <span>@{user.username}</span>
+            </span>
+          </div>
+          {displayNameError && <p className="conclusion-error">{displayNameError}</p>}
+          <button
+            type="button"
+            className="settings-row settings-link"
+            onClick={() => {
+              setAccountSettingsOpen(false);
+              setChangePasswordOpen(true);
+            }}
+          >
+            <span className="settings-row-icon">
+              <KeyRound size={16} />
+            </span>
+            <span className="settings-label">{t["settings.changePassword"]}</span>
+            <ChevronRight size={16} />
+          </button>
+          <button
+            type="button"
+            className="settings-row settings-link settings-signout"
+            onClick={() => {
+              setAccountSettingsOpen(false);
+              void logout();
+            }}
+            aria-label={t["nav.signOut"]}
+          >
+            <span className="settings-row-icon settings-danger-icon">
+              <LogOut size={16} />
+            </span>
+            <span className="settings-label">{t["nav.signOut"]}</span>
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </>
+    )}
     {settingsOpen && (
       <>
         <div
@@ -921,7 +1095,7 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
         />
         <div className="settings-modal" role="dialog" aria-modal="true">
           <div className="settings-head">
-            <span className="settings-title">{t["settings.title"]}</span>
+            <span className="settings-title">{t["settings.systemTitle"]}</span>
             <button
               type="button"
               className="settings-close"
@@ -961,37 +1135,6 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
               <span className="switch-knob" />
             </button>
           </label>
-          <button
-            type="button"
-            className="settings-row settings-link"
-            onClick={() => {
-              setSettingsOpen(false);
-              setMenuOpen(false);
-              router.push("/usage");
-            }}
-          >
-            <span className="settings-row-icon">
-              <Gauge size={16} />
-            </span>
-            <span className="settings-label">{t["nav.usage"]}</span>
-            <ChevronRight size={16} />
-          </button>
-          {user && (
-            <button
-              type="button"
-              className="settings-row settings-link settings-signout"
-              onClick={() => {
-                setSettingsOpen(false);
-                void logout();
-              }}
-              aria-label={t["nav.signOut"]}
-            >
-              <span className="settings-row-icon settings-danger-icon">
-                <LogOut size={16} />
-              </span>
-              <span className="settings-label">{t["nav.signOut"]}</span>
-            </button>
-          )}
           {!user && (
             <div className="settings-row settings-danger">
               <span className="settings-row-icon settings-danger-icon">
@@ -1023,6 +1166,9 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
           )}
         </div>
       </>
+    )}
+    {changePasswordOpen && (
+      <ChangePasswordModal onClose={() => setChangePasswordOpen(false)} />
     )}
     </>
   );
