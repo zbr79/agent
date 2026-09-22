@@ -2,7 +2,7 @@
 
 Minimalist AI chatbot — text chat + image upload, streaming responses. Powered by the **opencode-go subscription** (`https://opencode.ai/zen/go/v1`).
 
-**Live:** https://agent.renstoolbox.com
+**Live:** https://agent.rwkit.com
 
 ## Features
 

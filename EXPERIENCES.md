@@ -17,7 +17,7 @@ Format per entry:
 - What was tried and didn't work (and why).
 ```
 
-Companion file: `PLAN.md` (read-first decision log + roadmap).
+Current setup and usage instructions live in `README.md`; this file is the historical log.
 
 ---
 
@@ -499,7 +499,7 @@ Companion file: `PLAN.md` (read-first decision log + roadmap).
 - Main chat now streams from opencode-go: text → `deepseek-v4-pro` with `deepseek-v4-flash` fallback; images auto-route to `deepseek-v4-flash-vision-exp`. Verified live: text reply + `2s · deepseek-v4-pro` meta; image reply correctly described the test screenshot in zh.
 - Conclude runs on `deepseek-v4-flash` → `deepseek-v4-pro` with `response_format: json_object` (system prompt = CONCLUDE_PROMPT + language rule via new `systemPrompt` option on `completeOpenCode`). Verified: 血糖 140 mg/dL + 时间 + 早餐 meal extracted exactly like the Gemini version.
 - `/models` rebuilt on the opencode-go catalog (24 chat/completions-capable models, vision flags from vendor-doc research); `/usage` rebuilt (official quota windows from `/zen/go/v1/usage` + per-model 30d call counts + official percent bars). Health probe rewritten (`completeOpenCode` max_tokens 16, 20s timeout; "not supported/ModelError" → retired).
-- Gemini code fully removed: `lib/gemini.ts` + `lib/usage.ts` deleted, `@google/genai` uninstalled; `getSystemPrompt` moved to `lib/prompt.ts`, `ChatValidationError` to `lib/errors.ts`; README/.env.example/PLAN.md updated; CallsPanel text de-Gemini'd. Chains/retries/markers (TRYING/MODEL) behave exactly like the old Gemini engine, so the client needed zero changes.
+- Gemini code fully removed: `lib/gemini.ts` + `lib/usage.ts` deleted, `@google/genai` uninstalled; `getSystemPrompt` moved to `lib/prompt.ts`, `ChatValidationError` to `lib/errors.ts`; README/.env.example updated; CallsPanel text de-Gemini'd. Chains/retries/markers (TRYING/MODEL) behave exactly like the old Gemini engine, so the client needed zero changes.
 
 ### Unresolved
 - `/api/models` + `/api/health` remain owner-only (auth) — guest can't pin models or run probes (unchanged behavior).
@@ -1252,4 +1252,20 @@ Context: user wants a separate private app (proposed: local, 127.0.0.1) to manag
 ### Disproved
 - Treating `AbortController.abort()` in the browser as cancellation was
   insufficient: the detached server handler continued owning the agent turn.
+
+## 2026-09-22 — Documentation consolidation
+
+### Solved
+- Consolidated project history into this append-only log.
+- Retired the completed InsChat roadmap and insulin-mode migration plan after
+  their code changes were merged and verified.
+- Removed empty demo and live-test marker files; operational instructions remain
+  in `AGENTS.md` and `README.md`.
+
+### Unresolved
+- n/a
+
+### Disproved
+- Keeping completed plans and empty marker documents as separate top-level files
+  added maintenance cost without supporting the running app.
 
