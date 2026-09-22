@@ -13,19 +13,15 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Check, ChevronDown, Copy, Pencil, RefreshCw, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Copy, Pencil, RefreshCw, X } from "lucide-react";
 import "highlight.js/styles/github.css";
 import ImageViewer from "./ImageViewer";
 import ToolCallGroup, {
   buildActivityQueues,
-  fileTarget,
   takeMatchedActivities,
 } from "./ToolCallCards";
 import ChangesSummary from "./ChangesSummary";
-import {
-  toolVerb,
-  type ActivityItem,
-} from "./ActivityPanel";
+import { type ActivityItem } from "./ActivityPanel";
 import { STR, useUiLang } from "@/lib/i18n";
 import { modelLabel } from "@/lib/modelLabels";
 import { formatElapsed, stripDoneLines } from "@/lib/format";
@@ -37,6 +33,7 @@ interface Message {
   id: number;
   role: "user" | "model";
   text: string;
+  command?: "commit-push";
   images?: { mimeType: string; data: string }[];
   documents?: DocumentAttachment[];
   streaming?: boolean;
@@ -68,6 +65,16 @@ function DocumentChips({ documents }: { documents?: DocumentAttachment[] }) {
         </span>
       ))}
     </div>
+  );
+}
+
+function isCommitPushCommand(message: Message, labels: Record<string, string>): boolean {
+  return (
+    message.role === "user" &&
+    (message.command === "commit-push" ||
+      message.text.trim() === labels["git.button"] ||
+      message.text.trim() === "Commit & push" ||
+      message.text.trim() === "提交并推送")
   );
 }
 
@@ -200,20 +207,6 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
 }
 
 const MARKDOWN_COMPONENTS = { pre: MarkdownPre };
-
-function phaseLabel(
-  activities: ActivityItem[] | null | undefined,
-  lang: Parameters<typeof toolVerb>[1],
-  fallback: string
-): string {
-  const running = (activities ?? [])
-    .filter((item) => item.status === "running")
-    .pop();
-  if (!running) return fallback;
-  const verb = toolVerb(running.tool, lang);
-  const target = fileTarget(running);
-  return target ? `${verb} ${target}` : `${verb}…`;
-}
 
 // The agent's own "Files changed: a.ts, b.ts" manifest line — redundant next
 // to the ChangesSummary card, so it is dropped from the rendered prose.
@@ -507,8 +500,14 @@ export default function MessageBubble({
           {t["messages.loadEarlier"].replace("{count}", String(hiddenCount))}
         </button>
       )}
-      {visible.map((message) => {
+      {visible.map((message, visibleIndex) => {
         const imageUrls = (message.images ?? []).map((image) => dataUrl(image));
+        const commandMessage = isCommitPushCommand(message, t);
+        const previousMessage = visible[visibleIndex - 1];
+        const commandResult =
+          message.role === "model" &&
+          previousMessage != null &&
+          isCommitPushCommand(previousMessage, t);
         const splitImages =
           message.role === "user" && imageUrls.length > 0 && message.text
             ? imageUrls
@@ -541,12 +540,14 @@ export default function MessageBubble({
           if (steps.length) segments.unshift({ type: "wave", items: steps });
         }
         const processWaiting =
-          message.streaming && segments.length === 0 && message.role === "model";
+          message.streaming &&
+          message.role === "model" &&
+          !segments.some((segment) => segment.type === "prose");
         return (
         <div
           key={message.id}
           id={`msg-${message.id}`}
-          className={`message ${message.role}${message.role === "model" ? " transcript" : ""}${flashId === message.id ? " flash" : ""}`}
+          className={`message ${message.role}${message.role === "model" ? " transcript" : ""}${commandMessage ? " command-message" : ""}${commandResult ? " command-result" : ""}${flashId === message.id ? " flash" : ""}`}
         >
           <div className="message-body">
             {isEditing ? (
@@ -642,6 +643,11 @@ export default function MessageBubble({
               </>
             ) : message.role === "model" ? (
               <div className="transcript-entry">
+                {commandResult && !message.streaming && message.elapsed !== undefined && (
+                  <div className="command-worked">
+                    {t["message.workedFor"]} {formatElapsed(message.elapsed, lang)}
+                  </div>
+                )}
                 {imageUrls.map((url, imageIndex) => (
                   <img
                     key={imageIndex}
@@ -653,14 +659,11 @@ export default function MessageBubble({
                 <DocumentChips documents={message.documents} />
                 {processWaiting && (
                   <div className="process-panel" aria-live="polite">
-                    <span className="thinking">
-                      <span className="thinking-label">
-                        {phaseLabel(
-                          activities,
-                          lang,
-                          t["process.working"] || t["thinking"]
-                        )}
-                      </span>
+                    <span
+                      className="thinking"
+                      role="status"
+                      aria-label={t["process.working"] || t["thinking"]}
+                    >
                       <span className="thinking-dots" aria-hidden="true">
                         <i />
                         <i />
@@ -704,7 +707,6 @@ export default function MessageBubble({
                     </div>
                   );
                 })}
-                {message.streaming && segments.length > 0 && <span className="cursor" />}
                 {effectiveActivities && !processWaiting ? (
                   <ChangesSummary items={effectiveActivities} />
                 ) : null}
@@ -714,6 +716,11 @@ export default function MessageBubble({
                   segments.length > 0 && (
                     <div className="done-rule" aria-hidden="true" />
                   )}
+              </div>
+            ) : commandMessage ? (
+              <div className="bubble command-bubble" aria-label={message.text}>
+                <ArrowUp size={16} strokeWidth={2.4} aria-hidden="true" />
+                <span>{message.text}</span>
               </div>
             ) : (
               <div className="bubble">
@@ -735,7 +742,6 @@ export default function MessageBubble({
                     {preserveLineBreaks(message.text)}
                   </ReactMarkdown>
                 )}
-                {message.streaming && message.text && <span className="cursor" />}
               </div>
             )}
             {message.role === "model" ? (
@@ -746,6 +752,7 @@ export default function MessageBubble({
                   </div>
                 )}
                 {!message.failed &&
+                  !commandResult &&
                   (message.model ||
                     (!message.streaming && message.elapsed !== undefined)) && (
                   <div className={`model-meta${message.streaming ? " live" : ""}`}>

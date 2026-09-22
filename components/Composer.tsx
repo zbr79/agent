@@ -49,7 +49,8 @@ interface ComposerProps {
     text: string,
     images?: ChatImage[],
     displayText?: string,
-    documents?: DocumentAttachment[]
+    documents?: DocumentAttachment[],
+    command?: "commit-push"
   ) => void;
   onStop: () => void;
   disabled?: boolean;
@@ -104,6 +105,7 @@ export default function Composer({
   const [model, setModel] = useSelectedModel();
   const peak = useDeepSeekPeak();
   const [modelOpen, setModelOpen] = useState(false);
+  const [isPhone, setIsPhone] = useState(false);
   const [mode, setMode] = useChatMode();
   const [text, setText] = useState("");
   const [multiLineText, setMultiLineText] = useState(false);
@@ -176,6 +178,14 @@ export default function Composer({
   }, [text]);
 
   useEffect(() => {
+    const media = window.matchMedia("(max-width: 560px)");
+    const sync = () => setIsPhone(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
     return () => {
       voiceRef.current?.cancel();
     };
@@ -199,7 +209,7 @@ export default function Composer({
   const sendCommitPush = () => {
     if (disabled || sending) return;
     if (effectiveMode !== "build") setMode("build");
-    onSend(t["git.prompt"], undefined, t["git.button"]);
+    onSend(t["git.prompt"], undefined, t["git.button"], undefined, "commit-push");
   };
 
   const handleSend = () => {
@@ -483,6 +493,39 @@ export default function Composer({
     documents.length > 0 ||
     documentStatus.busy ||
     voiceStatus !== "idle";
+  // Phones never switch to the footer layout: the pickers stay inline and the
+  // model pill stays in its own row under the bubble, so growing the input
+  // cannot make controls jump around.
+  const useFooter = composerExpanded && !isPhone;
+
+  const modeToggle = (
+    <div className="composer-mode" role="group" aria-label={t["composer.mode"]}>
+      {(["build", "plan"] as ChatMode[]).map((value) => (
+        <button
+          key={value}
+          type="button"
+          className={`composer-mode-btn composer-mode-btn-${value}${effectiveMode === value ? " active" : ""}${value === "build" && !signedIn ? " locked" : ""}`}
+          onClick={() => {
+            if (value === "build" && !signedIn) {
+              onRequireAuth?.();
+              return;
+            }
+            setMode(value);
+          }}
+          disabled={disabled}
+          aria-pressed={signedIn && effectiveMode === value}
+          aria-disabled={value === "build" && !signedIn}
+          aria-label={
+            value === "build" && !signedIn
+              ? t["composer.mode.buildLogin"]
+              : t[`composer.mode.${value}`]
+          }
+        >
+          {t[`composer.mode.${value}`]}
+        </button>
+      ))}
+    </div>
+  );
 
   const modelPicker = (
     <div className="composer-picker" ref={pickerRef}>
@@ -710,64 +753,39 @@ export default function Composer({
 
   return (
     <div className="composer">
-      <div className="composer-toolbar">
-        <div
-          className="composer-mode"
-          role="group"
-          aria-label={t["composer.mode"]}
-        >
-          {(["build", "plan"] as ChatMode[]).map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`composer-mode-btn composer-mode-btn-${value}${effectiveMode === value ? " active" : ""}${value === "build" && !signedIn ? " locked" : ""}`}
-              onClick={() => {
-                if (value === "build" && !signedIn) {
-                  onRequireAuth?.();
-                  return;
-                }
-                setMode(value);
-              }}
-              disabled={disabled}
-              aria-pressed={signedIn && effectiveMode === value}
-              aria-disabled={value === "build" && !signedIn}
-              aria-label={
-                value === "build" && !signedIn
-                  ? t["composer.mode.buildLogin"]
-                  : t[`composer.mode.${value}`]
-              }
+      {!isPhone || signedIn ? (
+        <div className="composer-toolbar">
+          {!isPhone && modeToggle}
+          {signedIn && changes && (changes.additions > 0 || changes.deletions > 0) ? (
+            <div
+              className="composer-changes-pill"
+              title={`${t["composer.changes"]}: +${changes.additions} −${changes.deletions}`}
+              aria-label={`${t["composer.changes"]}: +${changes.additions} −${changes.deletions}`}
             >
-              {t[`composer.mode.${value}`]}
+              <span>{t["composer.changes"]}</span>
+              <span className="composer-changes-add">+{changes.additions}</span>
+              <span className="composer-changes-del">−{changes.deletions}</span>
+            </div>
+          ) : null}
+          {signedIn ? (
+            <button
+              type="button"
+              className="composer-git-button"
+              onClick={sendCommitPush}
+              disabled={disabled || sending}
+              aria-label={t["git.button"]}
+            >
+              <span>{t["git.button"]}</span>
+              <ArrowUp size={15} className="composer-git-icon" aria-hidden="true" />
             </button>
-          ))}
+          ) : null}
         </div>
-        {signedIn && changes && (changes.additions > 0 || changes.deletions > 0) ? (
-          <div
-            className="composer-changes-pill"
-            title={`${t["composer.changes"]}: +${changes.additions} −${changes.deletions}`}
-            aria-label={`${t["composer.changes"]}: +${changes.additions} −${changes.deletions}`}
-          >
-            <span>{t["composer.changes"]}</span>
-            <span className="composer-changes-add">+{changes.additions}</span>
-            <span className="composer-changes-del">−{changes.deletions}</span>
-          </div>
-        ) : null}
-        {signedIn ? (
-          <button
-            type="button"
-            className="composer-git-button"
-            onClick={sendCommitPush}
-            disabled={disabled || sending}
-            aria-label={t["git.button"]}
-          >
-            <span>{t["git.button"]}</span>
-            <ArrowUp size={15} className="composer-git-icon" aria-hidden="true" />
-          </button>
-        ) : null}
-      </div>
+      ) : null}
       {attachmentLayer}
-      <div className={`input-row mode-${effectiveMode}${composerExpanded ? " composer-expanded" : ""}`}>
-        {!composerExpanded && documentPicker}
+      <div
+        className={`input-row mode-${effectiveMode}${composerExpanded ? " composer-expanded" : ""}`}
+      >
+        {!useFooter && documentPicker}
         <textarea
           ref={textareaRef}
           rows={1}
@@ -778,11 +796,11 @@ export default function Composer({
           onKeyDown={handleKeyDown}
            aria-label={t["composer.message"]}
         />
-        {!composerExpanded && modelPicker}
-        {!composerExpanded && voiceTimer}
-        {!composerExpanded && micButton}
-        {!composerExpanded && sendButton}
-        {composerExpanded && (
+        {!isPhone && !useFooter && modelPicker}
+        {!useFooter && voiceTimer}
+        {!useFooter && micButton}
+        {!useFooter && sendButton}
+        {useFooter && (
           <div className="composer-input-footer">
             {documentPicker}
             {modelPicker}
@@ -793,6 +811,12 @@ export default function Composer({
           </div>
         )}
       </div>
+      {isPhone && (
+        <div className="composer-model-row">
+          {modelPicker}
+          {modeToggle}
+        </div>
+      )}
       {hint && <p className="hint">{hint}</p>}
     </div>
   );

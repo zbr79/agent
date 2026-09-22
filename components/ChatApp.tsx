@@ -43,6 +43,7 @@ interface UiMessage {
   text: string;
   /** Agent-facing prompt when it differs from the bubble text. */
   sendText?: string;
+  command?: "commit-push";
   images?: ChatImage[];
   documents?: DocumentAttachment[];
   streaming?: boolean;
@@ -1227,7 +1228,8 @@ useEffect(() => {
       text: string,
       images?: ChatImage[],
       displayText?: string,
-      documents?: DocumentAttachment[]
+      documents?: DocumentAttachment[],
+      command?: "commit-push"
     ) => {
       const trimmed = text.trim();
       const shown = (displayText ?? "").trim() || trimmed;
@@ -1278,6 +1280,7 @@ useEffect(() => {
         role: "user",
         text: shown,
         sendText: shown === trimmed ? undefined : trimmed,
+        command,
         images,
         documents,
       };
