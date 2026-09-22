@@ -93,6 +93,10 @@ node scripts/test-path-jail.mjs
 npx tsx scripts/test-checkpoints.mts
 ```
 
+GitHub Actions runs the type-check, unit/API tests, production build, and
+Chromium Playwright suite on pushes and pull requests. External provider calls
+are mocked in CI, so no API keys or database credentials are required.
+
 ## Production deployment
 
 The included PM2 configuration runs the Next.js app on port `3002`:
