@@ -158,11 +158,11 @@ export async function extractDocument(
   if (!mime) throw new DocumentExtractionError("Unsupported document type.");
   try {
     if (mime === "text/plain") return extractText(name, buffer);
-    if (mime === "application/pdf") return extractPdf(name, buffer);
+    if (mime === "application/pdf") return await extractPdf(name, buffer);
     if (mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
-      return extractDocx(name, buffer);
+      return await extractDocx(name, buffer);
     }
-    return extractXlsx(name, buffer);
+    return await extractXlsx(name, buffer);
   } catch (error) {
     if (error instanceof DocumentExtractionError) throw error;
     throw new DocumentExtractionError(`Could not read ${name}.`);
