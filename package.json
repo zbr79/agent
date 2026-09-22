@@ -5,7 +5,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:all": "npm run test:unit && npm run test:e2e"
   },
   "dependencies": {
     "@opencode-ai/sdk": "^1.18.25",
@@ -25,9 +30,12 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.0"
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.1"
   }
 }
