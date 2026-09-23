@@ -3723,23 +3723,6 @@ span.conclude-rank-badge {
   margin-bottom: 0;
 }
 
-.auth-lang-toggle {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.auth-lang-toggle:hover {
-  color: var(--text);
-  background: rgba(0, 0, 0, 0.05);
-}
-
 .auth-form {
   display: flex;
   flex-direction: column;
@@ -5514,7 +5497,21 @@ button.settings-row {
 .guest-identity {
   display: flex;
   align-items: center;
+  flex: 1;
+  min-width: 0;
   gap: 10px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.guest-identity:hover {
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .guest-name {
@@ -6681,5 +6678,35 @@ button.settings-row {
 .tcc-row.retried .activity-status.err {
   color: var(--text-muted);
   opacity: 0.6;
+}
+
+/* Baizhan toast.css visual treatment with content-sized cards. */
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: fit-content;
+  min-width: 0;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #f7f7f7;
+  color: #333;
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  position: relative;
+}
+
+.toast-success {
+  background: #dff7e6;
+}
+
+.toast-error {
+  background: #f9d6d5;
+}
+
+.toast-info {
+  background: #e3f2ff;
 }
 

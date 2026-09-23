@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { STR, setUiLang, useUiLang } from "@/lib/i18n";
+import { STR, useUiLang } from "@/lib/i18n";
 import { X } from "lucide-react";
+import { toastError } from "@/lib/toast";
 
 interface AuthResponse {
   error?: string;
@@ -89,14 +90,6 @@ export default function AuthModal({
           </button>
           <div className="auth-card-head">
             <h2>{mode === "login" ? t["auth.signIn"] : t["auth.createAccount"]}</h2>
-            <button
-              type="button"
-              className="auth-lang-toggle"
-              onClick={() => setUiLang(lang === "zh" ? "en" : "zh")}
-              aria-label={t["settings.language"]}
-            >
-              {t["lang.button"]}
-            </button>
           </div>
           <p className="usage-sub">{t["auth.description"]}</p>
           <form onSubmit={submit} className="auth-form">
@@ -132,7 +125,11 @@ export default function AuthModal({
             type="button"
             className="auth-toggle"
             onClick={() => {
-              setMode(mode === "login" ? "register" : "login");
+              if (mode === "login") {
+                toastError(t["auth.signupDisabled"]);
+                return;
+              }
+              setMode("login");
               setError(null);
             }}
           >

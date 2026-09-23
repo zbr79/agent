@@ -910,17 +910,17 @@ export default function Sidebar({ workspace }: { workspace?: string }) {
           </div>
         ) : (
           <div className="account-row guest">
-            <div className="guest-identity">
-              <button
-                type="button"
-                className="login-circle"
-                onClick={() => setAuthOpen(true)}
-                aria-label={t["nav.signIn"]}
-              >
+            <button
+              type="button"
+              className="guest-identity"
+              onClick={() => setAuthOpen(true)}
+              aria-label={t["nav.signIn"]}
+            >
+              <span className="login-circle" aria-hidden="true">
                 <User size={20} />
-              </button>
+              </span>
               <span className="guest-name">{t["nav.guest"]}</span>
-            </div>
+            </button>
             <button
               type="button"
               className="settings-button"

@@ -30,7 +30,7 @@ export const toastError = (message: string) => {
 };
 
 export const toastInfo = (message: string) => {
-  showToast(() => toast(message));
+  showToast(() => toast(message, { className: "toast toast-info" }));
 };
 
 export const toastWarning = (message: string) => {
