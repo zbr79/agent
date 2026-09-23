@@ -7,5 +7,5 @@ Jail: lib/pathJail.ts
 Opencode perms: read/edit/list/glob/grep allow inside workspace; bash deny-by-default with allowlist for build, restart, and repo commit/origin when asked; external_directory deny; secrets deny
 After build: DONE text first, then deferred recycle script. Recycle waits until no chat is in flight. Treat script exit as success.
 Test: node scripts/test-path-jail.mjs ; npx tsx scripts/test-checkpoints.mts
-Site: https://agent.rwkit.com
+Site: https://agent.renstoolbox.com
 Remote: zbr79/agent
