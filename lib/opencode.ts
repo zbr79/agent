@@ -9,6 +9,7 @@ import { getChatChain, isDeepSeekPeak } from "./models";
 import { insertCall } from "./db";
 import { fetchPageText } from "./webfetch";
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, type ChatMessage } from "./types";
+import type { ChatReasoning } from "./chatReasoning";
 
 export const OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const OPENCODE_FREE_BASE_URL = "https://opencode.ai/zen/v1";
@@ -402,7 +403,7 @@ async function* streamResponsesOnce(
   messages: OpenAiMessage[],
   model: string,
   tools: boolean,
-  reasoningLevel: "max" | "medium" = "max"
+  reasoningLevel: ChatReasoning | "medium" | "low" = "max"
 ): AsyncGenerator<string, { toolCalls: ToolCall[] }, void> {
   const hasImageParts = messages.some(
     (message) =>
@@ -414,7 +415,7 @@ async function* streamResponsesOnce(
     input: toResponsesInput(messages),
     stream: true,
   };
-  if (!hasImageParts) {
+  if (!hasImageParts && reasoningLevel !== "none") {
     body.reasoning = {
       effort: reasoningLevel === "max" ? "high" : reasoningLevel,
     };
@@ -579,7 +580,7 @@ async function* streamOpenCodeOnce(
   messages: OpenAiMessage[],
   model: string,
   tools: boolean,
-  reasoningLevel: "max" | "medium" = "max"
+  reasoningLevel: ChatReasoning | "medium" | "low" = "max"
 ): AsyncGenerator<string, { toolCalls: ToolCall[] }, void> {
   const requestId = Math.random().toString(36).slice(2, 8);
   const hasImageParts = messages.some(
@@ -587,7 +588,7 @@ async function* streamOpenCodeOnce(
       Array.isArray(message.content) &&
       message.content.some((part) => part.type === "image_url")
   );
-  const skipReasoning = hasImageParts;
+  const skipReasoning = hasImageParts || reasoningLevel === "none";
   const body: Record<string, unknown> = {
     model,
     messages,
@@ -782,7 +783,8 @@ export async function* streamChat(
     | "gpt-6-luna"
     | "deepseek-v4-flash"
     | "qwen3.8-flash"
-    | "glm-5.3-flash"
+    | "glm-5.3-flash",
+  reasoning: ChatReasoning | "medium" | "low" = "max"
 ): AsyncGenerator<string> {
   const lastMessage = messages[messages.length - 1];
   const hasImage = (lastMessage?.images?.length ?? 0) > 0;
@@ -838,7 +840,7 @@ export async function* streamChat(
             working,
             model,
             useTools,
-            "max"
+            reasoning
           );
           while (true) {
             const { done, value } = await gen.next();
