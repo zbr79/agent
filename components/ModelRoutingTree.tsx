@@ -3,6 +3,7 @@
 import { STR, useUiLang } from "@/lib/i18n";
 
 const SHORT_NAMES: Record<string, string> = {
+  "gpt-6-luna": "GPT-6 Luna",
   "qwen3.8-flash": "Qwen3.8 Flash",
   "deepseek-v4-flash": "DS V4 Flash",
   "deepseek-v4-flash-free": "DS Flash (Free)",
@@ -14,16 +15,6 @@ const SHORT_NAMES: Record<string, string> = {
   "big-pickle": "Big Pickle",
   "glm-5.3-flash": "GLM-5.3 Flash",
 };
-
-const FREE_MODELS = [
-  "deepseek-v4-flash-free",
-  "mimo-v2.5-free",
-  "nemotron-3-ultra-free",
-  "nemotron-3.5-lightning-free",
-  "ling-3.0-flash-fin-free",
-  "laguna-s-2.1-free",
-  "big-pickle",
-];
 
 export default function ModelRoutingTree() {
   const lang = useUiLang();
@@ -50,30 +41,21 @@ export default function ModelRoutingTree() {
           <span className="routing-node">{t["routing.textChat"]}</span>
           <ul>
             <li>
-            <span className="routing-when">{t["routing.peak"]}</span>
-            <Chain models={["qwen3.8-flash"]} />
-          </li>
-            <li>
-              <span className="routing-when">{t["routing.offpeak"]}</span>
-              <Chain models={["deepseek-v4-flash", "qwen3.8-flash"]} />
+              <span className="routing-when">{t["routing.autoLabel"]}</span>
+              <Chain models={["gpt-6-luna", "glm-5.3-flash"]} />
             </li>
           </ul>
         </li>
 
         <li>
           <span className="routing-node">{t["routing.images"]}</span>
-          <Chain models={["glm-5.3-flash"]} />
-          <span className="routing-tag">{t["routing.imagesTag"]}</span>
+          <Chain models={["gpt-6-luna", "glm-5.3-flash"]} />
         </li>
 
         <li>
           <span className="routing-node">{t["routing.pinned"]}</span>
         </li>
 
-        <li>
-          <span className="routing-node">{t["routing.freeFallback"]}</span>
-          <Chain models={FREE_MODELS} />
-        </li>
       </ul>
     </section>
   );

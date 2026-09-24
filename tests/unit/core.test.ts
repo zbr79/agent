@@ -220,8 +220,9 @@ describe("question validation", () => {
 
 describe("model routing and formatting", () => {
   it("routes images to vision and excludes retired models", () => {
-    expect(getChatChain(true)).toEqual(["glm-5.3-flash"]);
+    expect(getChatChain(true)).toEqual(["gpt-6-luna", "glm-5.3-flash"]);
     expect(getChatChain(false)).not.toContain("deepseek-v4-pro");
+    expect(resolveAgentModel()).toBe("gpt-6-luna");
     expect(resolveAgentModel("qwen3.8-flash")).toBe("qwen3.8-flash");
     expect(isDeepSeekPeak(new Date("2026-09-21T02:00:00Z"))).toBe(true);
     expect(isDeepSeekPeak(new Date("2026-09-20T02:00:00Z"))).toBe(false);

@@ -57,7 +57,7 @@ const AGENT_PROMPT_TIMEOUT_MS = 900_000;
 // starting a fresh session. If the catalog has no window, use a
 // conservative 24k cap (compact at 16,800).
 const AGENT_PROVIDER_ID = "opencode-go";
-const CONFIGURED_MODEL_ID = "qwen3.8-flash";
+const CONFIGURED_MODEL_ID = "gpt-6-luna";
 
 interface OpencodeClient {
   session: {

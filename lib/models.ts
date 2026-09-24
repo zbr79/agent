@@ -14,12 +14,12 @@ export interface ModelInfo {
 // /chat/completions endpoint of https://opencode.ai/zen/go/v1.
 // Vision flags come from vendor documentation research (2026-08-29):
 // only models with documented image input are marked vision: true.
-// Models served only via /responses (grok-*, gpt-5.6-luna,
-// muse-spark-1.2-contributor) or /messages (minimax-*, qwen3.8-*)
-// are excluded from this catalog.
+// Models served only via /responses (grok-*, muse-spark-1.2-contributor)
+// or /messages (minimax-*, qwen3.8-*) are excluded from this catalog.
 export const CHAT_MODELS: ModelInfo[] = [
   { name: "deepseek-v4-pro", label: "DeepSeek V4 Pro", tier: "pro", vision: false, retired: true },
   { name: "deepseek-v4-flash", label: "DeepSeek V4 Flash", tier: "flash", vision: false },
+  { name: "gpt-6-luna", label: "GPT-6 Luna", tier: "pro", vision: true },
   { name: "qwen3.8-flash", label: "Qwen3.8 Flash", tier: "flash", vision: true },
   { name: "deepseek-v4-flash-free", label: "DeepSeek V4 Flash (Free)", tier: "flash", vision: false },
   { name: "mimo-v2.5-free", label: "MiMo-V2.5 (Free)", tier: "flash", vision: false },
@@ -59,27 +59,14 @@ const MODEL_FILE = assertAllowedAgentFile(path.join(DATA_DIR, "model.json"));
 
 export const AUTO_MODEL = "auto";
 
-// Chat chains (opencode-go). Text OFF-PEAK: deepseek-v4-flash is the
-// primary; qwen3.8-flash (flat pricing) is its fallback. During DeepSeek
-// peak hours (Mon-Fri 01:00-04:00 & 06:00-10:00 UTC) DeepSeek's price
-// doubles, so the chain drops it and qwen3.8-flash leads. Images always go to
-// GLM-5.3-Flash — the Go gateway's natively multimodal flash model, flat
-// priced with no DeepSeek peak-hours penalty.
+// GPT-6 Luna is the default paid model. GLM-5.3 Flash is the only fallback
+// for both text and image requests, matching InsChat's service policy.
+export const PRIMARY_MODEL = "gpt-6-luna";
 const TEXT_CHAIN_FULL: string[] = [
-  "deepseek-v4-flash",
-  "qwen3.8-flash",
-  "deepseek-v4-flash-free",
-  "mimo-v2.5-free",
-  "nemotron-3-ultra-free",
-  "nemotron-3.5-lightning-free",
-  "ling-3.0-flash-fin-free",
-  "laguna-s-2.1-free",
-  "big-pickle",
+  PRIMARY_MODEL,
+  "glm-5.3-flash",
 ];
-// Images always route to GLM-5.3-Flash: native vision, flat $0.15/$0.50 (no
-// peak penalty), and the largest Go image allowance. No fallback — a single,
-// strong multimodal model by design.
-export const IMAGE_CHAIN: string[] = ["glm-5.3-flash"];
+export const IMAGE_CHAIN: string[] = [PRIMARY_MODEL, "glm-5.3-flash"];
 
 // DeepSeek peak hours per official docs: 01:00-04:00 and 06:00-10:00 UTC,
 // Monday through Friday (= 09:00-12:00 and 14:00-18:00 Beijing, UTC+8).
@@ -90,37 +77,31 @@ export function isDeepSeekPeak(now: Date = new Date()): boolean {
   return (mins >= 60 && mins < 240) || (mins >= 360 && mins < 600);
 }
 
-// The bound opencode agent thread picks its model per turn: deepseek-v4-flash
-// leads OFF-PEAK (cheaper than Qwen), qwen3.8-flash (flat pricing) takes over
-// during DeepSeek peak hours. AGENT_DEFAULT_MODEL still wins when set.
+// The bound opencode agent thread uses GPT-6 Luna by default. An explicit
+// AGENT_DEFAULT_MODEL still wins when set.
 export function agentModelId(): string {
   const override = process.env.AGENT_DEFAULT_MODEL?.trim();
   if (override) return override;
-  return isDeepSeekPeak() ? "qwen3.8-flash" : "deepseek-v4-flash";
+  return PRIMARY_MODEL;
 }
 
-// Effective model for the bound opencode agent. A UI-pinned model wins, with
-// the same DeepSeek peak-hours cost guard the direct chain uses (peak doubles
-// DeepSeek's price, so a deepseek pin falls back to qwen). No pin = auto.
-export type TextModelPin = "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash";
+// Effective model for the bound opencode agent. A UI-pinned model wins.
+export type TextModelPin =
+  | "gpt-6-luna"
+  | "deepseek-v4-flash"
+  | "qwen3.8-flash"
+  | "glm-5.3-flash";
 
 export function resolveAgentModel(pinned?: TextModelPin): string {
-  if (pinned === "qwen3.8-flash" || pinned === "glm-5.3-flash") return pinned;
-  if (pinned === "deepseek-v4-flash")
-    return isDeepSeekPeak() ? "qwen3.8-flash" : "deepseek-v4-flash";
+  if (pinned) return pinned;
   return agentModelId();
 }
 
 // The Go gateway is billed per token and GLM-5.3-Flash is flat-priced, so the
 // image chain no longer needs peak-hours branching.
 
-// During peak hours deepseek-v4-flash costs 2x (output $1.32 vs $0.47 for
-// qwen3.8-flash) — drop it entirely and let qwen3.8-flash lead; off-peak it
-// stays at the head of the chain with qwen3.8-flash as fallback.
 function textChain(): string[] {
-  return isDeepSeekPeak()
-    ? TEXT_CHAIN_FULL.filter((name) => name !== "deepseek-v4-flash")
-    : TEXT_CHAIN_FULL;
+  return TEXT_CHAIN_FULL;
 }
 
 function filterChain(chain: string[]): string[] {
@@ -128,7 +109,7 @@ function filterChain(chain: string[]): string[] {
 }
 
 export function defaultModel(): string {
-  return AUTO_MODEL;
+  return PRIMARY_MODEL;
 }
 
 export function getActiveModel(): string {
@@ -156,10 +137,12 @@ export function setActiveModel(model: string): void {
 }
 
 // Images always route to the vision chain; a manually pinned model applies
-// to text-only requests. In auto mode, text uses the time-aware chain.
+// to text-only requests. The Luna default uses the same paid fallback chain.
 export function getChatChain(hasImage: boolean): string[] {
   if (hasImage) return filterChain(IMAGE_CHAIN);
   const selected = getActiveModel();
   if (selected === AUTO_MODEL) return filterChain(textChain());
-  return [selected];
+  return selected === PRIMARY_MODEL
+    ? filterChain(TEXT_CHAIN_FULL)
+    : [selected];
 }

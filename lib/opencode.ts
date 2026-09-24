@@ -12,6 +12,8 @@ import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, type ChatMessage } from "./types"
 
 export const OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const OPENCODE_FREE_BASE_URL = "https://opencode.ai/zen/v1";
+export const OPENCODE_MODEL = "gpt-6-luna";
+export const OPENCODE_VISION_MODEL = OPENCODE_MODEL;
 
 // The opencode CLI stores the current subscription key here; it changes when
 // the user rotates/reconnects the key in the TUI. Prefer it over .env so the
@@ -306,6 +308,228 @@ interface ToolCall {
   arguments: string;
 }
 
+interface ResponseEvent {
+  type?: string;
+  delta?: string;
+  item_id?: string;
+  call_id?: string;
+  name?: string;
+  arguments?: string;
+  error?: { message?: string };
+  response?: {
+    error?: { message?: string };
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      output_tokens_details?: { reasoning_tokens?: number };
+      input_tokens_details?: { cached_tokens?: number };
+    };
+    cost?: number | string;
+  };
+  item?: {
+    type?: string;
+    id?: string;
+    call_id?: string;
+    name?: string;
+    arguments?: string;
+  };
+}
+
+type ResponseUsage = NonNullable<ResponseEvent["response"]>["usage"];
+
+function toResponsesInput(messages: OpenAiMessage[]): Record<string, unknown>[] {
+  const input: Record<string, unknown>[] = [];
+  for (const message of messages) {
+    if (message.role === "tool") {
+      input.push({
+        type: "function_call_output",
+        call_id: message.tool_call_id ?? "",
+        output: typeof message.content === "string" ? message.content : "",
+      });
+      continue;
+    }
+    if (message.tool_calls?.length) {
+      for (const call of message.tool_calls) {
+        input.push({
+          type: "function_call",
+          call_id: call.id,
+          name: call.function.name,
+          arguments: call.function.arguments,
+        });
+      }
+      continue;
+    }
+    const parts: Record<string, unknown>[] = typeof message.content === "string"
+      ? [{ type: message.role === "assistant" ? "output_text" : "input_text", text: message.content }]
+      : message.content.flatMap((part): Record<string, unknown>[] => {
+          if (part.type === "image_url" && part.image_url?.url) {
+            return [{ type: "input_image", image_url: part.image_url.url }];
+          }
+          return part.text
+            ? [{ type: message.role === "assistant" ? "output_text" : "input_text", text: part.text }]
+            : [];
+        });
+    if (parts.length > 0) input.push({ role: message.role, content: parts });
+  }
+  return input;
+}
+
+function toResponsesTools(tools: boolean): Record<string, unknown>[] {
+  if (!tools) return [];
+  return [
+    {
+      type: "function",
+      name: WEB_FETCH_TOOL.function.name,
+      description: WEB_FETCH_TOOL.function.description,
+      parameters: WEB_FETCH_TOOL.function.parameters,
+    },
+  ];
+}
+
+function responseText(body: {
+  output_text?: string;
+  output?: { content?: { type?: string; text?: string }[] }[];
+}): string {
+  if (body.output_text) return body.output_text;
+  return (body.output ?? [])
+    .flatMap((item) => item.content ?? [])
+    .filter((part) => part.type === "output_text" && part.text)
+    .map((part) => part.text as string)
+    .join("");
+}
+
+async function* streamResponsesOnce(
+  messages: OpenAiMessage[],
+  model: string,
+  tools: boolean,
+  reasoningLevel: "max" | "medium" = "max"
+): AsyncGenerator<string, { toolCalls: ToolCall[] }, void> {
+  const hasImageParts = messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some((part) => part.type === "image_url")
+  );
+  const body: Record<string, unknown> = {
+    model,
+    input: toResponsesInput(messages),
+    stream: true,
+  };
+  if (!hasImageParts) {
+    body.reasoning = {
+      effort: reasoningLevel === "max" ? "high" : reasoningLevel,
+    };
+  }
+  const responseTools = toResponsesTools(tools);
+  if (responseTools.length > 0) body.tools = responseTools;
+
+  const response = await fetch(`${OPENCODE_BASE_URL}/responses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getOpenCodeKey()}`,
+      "x-opencode-session": randomUUID(),
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(hasImageParts ? 30_000 : 120_000),
+  });
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => "");
+    const error = errorFromResponse(response.status, text);
+    insertCall({ kind: "opencode", model, ok: false, error: error.message.slice(0, 300) }).catch(() => {});
+    throw error;
+  }
+
+  yield encodeModelMarker(model);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const toolAcc = new Map<string, ToolCall>();
+  let buffer = "";
+  let produced = false;
+  let lastUsage: ResponseUsage | undefined;
+  let lastCost: number | string | undefined;
+  let failed: Error | null = null;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let index: number;
+      while ((index = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, index).trim();
+        buffer = buffer.slice(index + 1);
+        if (!line.startsWith("data:")) continue;
+        const raw = line.slice(5).trim();
+        if (!raw || raw === "[DONE]") continue;
+        let event: ResponseEvent;
+        try {
+          event = JSON.parse(raw) as ResponseEvent;
+        } catch {
+          continue;
+        }
+        const eventError = event.error?.message ?? event.response?.error?.message;
+        if (eventError) throw new Error(eventError);
+        if (event.response?.usage !== undefined) lastUsage = event.response.usage;
+        if (event.response?.cost !== undefined) lastCost = event.response.cost;
+        if (event.type === "response.output_text.delta" && event.delta) {
+          produced = true;
+          yield event.delta;
+        }
+        if (event.type === "response.function_call_arguments.delta" && event.delta) {
+          const id = event.call_id ?? event.item_id ?? event.item?.call_id ?? event.item?.id ?? "";
+          const call = toolAcc.get(id) ?? { id, name: event.name ?? event.item?.name ?? "", arguments: "" };
+          call.arguments += event.delta;
+          toolAcc.set(id, call);
+        }
+        if (
+          (event.type === "response.output_item.added" ||
+            event.type === "response.output_item.done") &&
+          event.item?.type === "function_call"
+        ) {
+          const id = event.item.call_id ?? event.item.id ?? "";
+          const call = toolAcc.get(id) ?? {
+            id,
+            name: event.item.name ?? "",
+            arguments: "",
+          };
+          if (event.item.name) call.name = event.item.name;
+          if (event.item.arguments && event.item.arguments.length > call.arguments.length) {
+            call.arguments = event.item.arguments;
+          }
+          toolAcc.set(id, call);
+        }
+      }
+    }
+  } catch (error) {
+    failed = error instanceof Error ? error : new Error(String(error));
+  }
+
+  const toolCalls = [...toolAcc.values()].filter((call) => call.id && call.name);
+  if (failed) {
+    insertCall({ kind: "opencode", model, ok: false, error: failed.message.slice(0, 300) }).catch(() => {});
+    throw failed;
+  }
+  if (!produced && toolCalls.length === 0) {
+    throw new Error("OpenCode stream ended with no content.");
+  }
+  insertCall({
+    kind: "opencode",
+    model,
+    ok: true,
+    cost: typeof lastCost === "number" ? lastCost : undefined,
+    tokens: lastUsage
+      ? {
+          input: lastUsage.input_tokens ?? 0,
+          output: lastUsage.output_tokens ?? 0,
+          reasoning: lastUsage.output_tokens_details?.reasoning_tokens ?? 0,
+          cacheRead: lastUsage.input_tokens_details?.cached_tokens ?? 0,
+          cacheWrite: 0,
+        }
+      : undefined,
+  }).catch(() => {});
+  return { toolCalls };
+}
+
 function isFreeModel(model: string): boolean {
   return model.endsWith("-free") || model === "big-pickle";
 }
@@ -383,6 +607,10 @@ async function* streamOpenCodeOnce(
     throw new Error(
       "Monthly usage limit reached. Resets in 20 days. (test-limit simulation)"
     );
+  }
+
+  if (model === OPENCODE_MODEL) {
+    return yield* streamResponsesOnce(messages, model, tools, reasoningLevel);
   }
 
   const response = await postCompletion(model, body, 120_000);
@@ -550,22 +778,29 @@ const MAX_TOOL_ROUNDS = 6;
 export async function* streamChat(
   messages: ChatMessage[],
   language?: "zh" | "en",
-  modelOverride?: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash"
+  modelOverride?:
+    | "gpt-6-luna"
+    | "deepseek-v4-flash"
+    | "qwen3.8-flash"
+    | "glm-5.3-flash"
 ): AsyncGenerator<string> {
   const lastMessage = messages[messages.length - 1];
   const hasImage = (lastMessage?.images?.length ?? 0) > 0;
   const useTools = !hasImage;
   const requestId = Math.random().toString(36).slice(2, 8);
-  // Strict selection: the pinned model runs as-is, for text AND images — no
-  // auto chain, no cross-model fallback. The one substitution is DeepSeek peak
-  // hours (price doubles), where a DeepSeek send is served by Qwen instead.
+  // GPT-6 Luna uses the same fallback chain as auto mode. Other pinned
+  // selections run as-is, except for the existing DeepSeek peak guard.
   let chain = getChatChain(hasImage);
   if (modelOverride) {
-    const effective =
-      modelOverride === "deepseek-v4-flash" && isDeepSeekPeak()
-        ? "qwen3.8-flash"
-        : modelOverride;
-    chain = [effective];
+    if (modelOverride === OPENCODE_MODEL) {
+      chain = getChatChain(hasImage);
+    } else {
+      const effective =
+        modelOverride === "deepseek-v4-flash" && isDeepSeekPeak()
+          ? "qwen3.8-flash"
+          : modelOverride;
+      chain = [effective];
+    }
   }
   // Text-only sends must not pass earlier photo parts to text models — the
   // free gateway rejects image content (404 "No endpoints for image").
@@ -676,6 +911,52 @@ export async function* streamChat(
 }
 
 // Non-streaming completion, used by the health probe.
+async function completeResponses(
+  model: string,
+  messages: OpenAiMessage[],
+  options?: {
+    maxTokens?: number;
+    json?: boolean;
+    reasoning?: "none" | "minimal" | "low" | "medium" | "high" | "max";
+  }
+): Promise<string> {
+  const body: Record<string, unknown> = {
+    model,
+    input: toResponsesInput(messages),
+    max_output_tokens: Math.max(options?.maxTokens ?? 2048, 16),
+  };
+  if (options?.json) body.text = { format: { type: "json_object" } };
+  if (options?.reasoning && options.reasoning !== "none") {
+    body.reasoning = {
+      effort: options.reasoning === "max" ? "high" : options.reasoning,
+    };
+  }
+  const response = await fetch(`${OPENCODE_BASE_URL}/responses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getOpenCodeKey()}`,
+      "x-opencode-session": randomUUID(),
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const text = await response.text();
+  if (!response.ok) throw errorFromResponse(response.status, text);
+  let parsed: {
+    output_text?: string;
+    output?: { content?: { type?: string; text?: string }[] }[];
+  };
+  try {
+    parsed = JSON.parse(text) as typeof parsed;
+  } catch {
+    throw new Error("OpenCode returned an invalid Responses payload.");
+  }
+  const content = responseText(parsed);
+  if (!content) throw new Error("OpenCode returned an empty response.");
+  return content;
+}
+
 export async function completeOpenCode(
   model: string,
   messages: ChatMessage[],
@@ -686,9 +967,13 @@ export async function completeOpenCode(
     reasoning?: "none" | "minimal" | "low" | "medium" | "high" | "max";
   }
 ): Promise<string> {
+  const openAiMessages = toOpenAiMessages(messages, undefined, options?.systemPrompt);
+  if (model === OPENCODE_MODEL) {
+    return completeResponses(model, openAiMessages, options);
+  }
   const body: Record<string, unknown> = {
     model,
-    messages: toOpenAiMessages(messages, undefined, options?.systemPrompt),
+    messages: openAiMessages,
     stream: false,
     temperature: options?.json ? 0.1 : 0.7,
     reasoning_effort: options?.reasoning ?? "high",
