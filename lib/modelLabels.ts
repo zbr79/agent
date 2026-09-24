@@ -3,6 +3,7 @@
 const LABELS: Record<string, string> = {
   "deepseek-v4-pro": "DeepSeek V4 Pro",
   "deepseek-v4-flash": "DeepSeek V4 Flash",
+  "gpt-6-luna": "GPT-6 Luna",
   "qwen3.8-flash": "Qwen3.8 Flash",
   "deepseek-v4-flash-free": "DeepSeek V4 Flash (Free)",
   "mimo-v2.5-free": "MiMo-V2.5 (Free)",

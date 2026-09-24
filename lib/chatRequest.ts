@@ -24,7 +24,7 @@ export interface ChatRequest {
   language?: "zh" | "en";
   reasoning?: "max";
   mode?: "build" | "plan";
-  model?: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash";
+  model?: "gpt-6-luna" | "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash";
   sessionId?: string;
   messageId?: string;
   workspaceId?: WorkspaceId;
@@ -176,15 +176,21 @@ export function parseChatBody(body: unknown): ChatRequest {
   const reasoning: "max" = "max";
 
   const rawModel = (body as { model?: unknown }).model;
-  let model: "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash" | undefined;
+  let model:
+    | "gpt-6-luna"
+    | "deepseek-v4-flash"
+    | "qwen3.8-flash"
+    | "glm-5.3-flash"
+    | undefined;
   if (rawModel !== undefined && rawModel !== null) {
     if (
+      rawModel !== "gpt-6-luna" &&
       rawModel !== "deepseek-v4-flash" &&
       rawModel !== "qwen3.8-flash" &&
       rawModel !== "glm-5.3-flash"
     ) {
       throw new ChatValidationError(
-        '"model" must be "deepseek-v4-flash", "qwen3.8-flash", or "glm-5.3-flash".'
+        '"model" must be "gpt-6-luna", "deepseek-v4-flash", "qwen3.8-flash", or "glm-5.3-flash".'
       );
     }
     model = rawModel;

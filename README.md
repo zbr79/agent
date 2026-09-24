@@ -32,9 +32,9 @@ API keys stay on the server and are never sent to the browser.
 - Optional local whisper.cpp server for speech-to-text
 - Vitest for unit/API tests and Playwright for browser tests
 
-The default text chain starts with `deepseek-v4-flash` and falls back through
-compatible models. Image requests route to `glm-5.3-flash`. The available
-catalog and routing rules live in `lib/models.ts`.
+The default text and image chain starts with `gpt-6-luna` and falls back to
+`glm-5.3-flash`. Other models remain available from the model picker. The
+available catalog and routing rules live in `lib/models.ts`.
 
 ## Setup
 

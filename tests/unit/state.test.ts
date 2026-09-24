@@ -57,6 +57,7 @@ describe("browser preferences", () => {
     expect(getCompressImages()).toBe(true);
     setCompressImages(false);
     expect(getCompressImages()).toBe(false);
+    expect(getSelectedModel()).toBe("gpt-6-luna");
     setSelectedModel("glm-5.3-flash");
     expect(getSelectedModel()).toBe("glm-5.3-flash");
     setChatMode("plan");
@@ -109,6 +110,7 @@ describe("workspace, labels, and auth boundaries", () => {
   it("formats paths and model labels for user-visible output", () => {
     expect(toWorkspaceRelative("/home/ubuntu/agent/lib/prompt.ts")).toBe("lib/prompt.ts");
     expect(toWorkspaceRelative("plain text")).toBe("plain text");
+    expect(modelLabel("gpt-6-luna")).toBe("GPT-6 Luna");
     expect(modelLabel("qwen3.8-flash")).toBe("Qwen3.8 Flash");
     expect(modelLabel("future-model")).toBe("future-model");
   });

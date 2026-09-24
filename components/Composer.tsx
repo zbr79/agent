@@ -193,7 +193,13 @@ export default function Composer({
 
   const modelLocked = peak && model === "deepseek-v4-flash";
   const modelKey =
-    model === "qwen3.8-flash" ? "qwen" : model === "glm-5.3-flash" ? "glm" : "ds";
+    model === "gpt-6-luna"
+      ? "luna"
+      : model === "qwen3.8-flash"
+        ? "qwen"
+        : model === "glm-5.3-flash"
+          ? "glm"
+          : "ds";
   const effectiveMode: ChatMode = signedIn ? mode : "plan";
   const canSend =
     (text.trim().length > 0 || images.length > 0 || documents.length > 0) &&
@@ -546,6 +552,7 @@ export default function Composer({
         <div className="composer-picker-menu composer-model-menu">
           {(
             [
+              ["gpt-6-luna", t["composer.model.luna"]],
               ["deepseek-v4-flash", t["composer.model.ds"]],
               ["qwen3.8-flash", t["composer.model.qwen"]],
               ["glm-5.3-flash", t["composer.model.glm"]],

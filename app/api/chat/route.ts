@@ -1,5 +1,6 @@
 import {
   chatErrorMessage,
+  getOpenCodeOfficialUsage,
   imageExhaustedText,
   isBalanceError,
   quotaResetInfo,
@@ -21,6 +22,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import {
   activityTrailLabel,
   encodeKeepMarker,
+  encodeLimitMarker,
   ModelMarkerParser,
   type ActivityEvent,
 } from "@/lib/markers";
@@ -146,6 +148,22 @@ export async function POST(req: Request) {
   // paid-only vision chain.
   const lastMessage = messages[messages.length - 1];
   const hasImage = (lastMessage?.images?.length ?? 0) > 0;
+
+  // Avoid handing a known-exhausted subscription to the bound agent. The
+  // OpenCode session can remain pending for minutes after a monthly limit is
+  // reached, which looks like a frozen chat instead of a useful warning.
+  const officialUsage = await getOpenCodeOfficialUsage();
+  if (officialUsage?.monthly?.status === "rate-limited") {
+    const message = await chatErrorMessage(new Error("Monthly usage limit reached"), language);
+    const resetAt = officialUsage.monthly.resetsAt;
+    const marker = resetAt ? encodeLimitMarker(`monthly|${resetAt}`) : "";
+    return new Response(`${marker}\n\n[${message}]`, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+      },
+    });
+  }
 
   // Server-side run persistence (signed-in users with an owned session):
   // insert a pending model message before generating, stream progress into
@@ -645,6 +663,13 @@ export async function POST(req: Request) {
             note = imageExhaustedText(language, resetAt);
           } else {
             note = `\n\n[${message}]`;
+          }
+          if (
+            !(error instanceof ChatValidationError) &&
+            isBalanceError(error)
+          ) {
+            const { window, resetAt } = await quotaResetInfo();
+            if (resetAt) enqueue(encodeLimitMarker(`${window}|${resetAt}`));
           }
           enqueue(note);
           finishRun("failed", note);

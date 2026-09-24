@@ -37,21 +37,27 @@ export function useCompressImages(): [boolean, (on: boolean) => void] {
   return [on, setCompressImages];
 }
 
-// The three user-selectable text models. DeepSeek V4 Flash is off-peak and
-// text-only (no image input); Qwen3.8 Flash is flat-priced and accepts images
-// (poorly); GLM-5.3-Flash is flat-priced and natively multimodal. Selection is
-// strict — the chosen model runs as-is; the only exception is DeepSeek peak
-// hours (price doubles), where a DeepSeek pin is not available at all: the
-// selection auto-switches to Qwen3.8 Flash before the user ever opens the
-// picker, and DeepSeek is locked in the menu until peak ends.
-export type SelectedModel = "deepseek-v4-flash" | "qwen3.8-flash" | "glm-5.3-flash";
+// GPT-6 Luna is the default model. The other models remain available as
+// explicit choices, while DeepSeek is still locked during its peak window.
+export type SelectedModel =
+  | "gpt-6-luna"
+  | "deepseek-v4-flash"
+  | "qwen3.8-flash"
+  | "glm-5.3-flash";
 
 const MODEL_KEY = "inschat_model";
 const MODEL_EVENT = "inschat-model";
 
 function normalizeModel(value: unknown): SelectedModel {
-  if (value === "qwen3.8-flash" || value === "glm-5.3-flash") return value;
-  return "deepseek-v4-flash";
+  if (
+    value === "gpt-6-luna" ||
+    value === "deepseek-v4-flash" ||
+    value === "qwen3.8-flash" ||
+    value === "glm-5.3-flash"
+  ) {
+    return value;
+  }
+  return "gpt-6-luna";
 }
 
 // Peak-hours guard: DeepSeek V4 Flash is unavailable while its price is
@@ -63,11 +69,11 @@ function effectiveModel(value: SelectedModel): SelectedModel {
 }
 
 export function getSelectedModel(): SelectedModel {
-  if (typeof window === "undefined") return "deepseek-v4-flash";
+  if (typeof window === "undefined") return "gpt-6-luna";
   try {
     return effectiveModel(normalizeModel(window.localStorage.getItem(MODEL_KEY)));
   } catch {
-    return "deepseek-v4-flash";
+    return "gpt-6-luna";
   }
 }
 

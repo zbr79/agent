@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AlertTriangle } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import ChatErrorBoundary from "./ChatErrorBoundary";
 import Composer from "./Composer";
@@ -36,6 +37,7 @@ import {
 import { putGuestImage, getGuestImage } from "@/lib/guestImages";
 import { STR, useUiLang } from "@/lib/i18n";
 import { getChatMode, useSelectedModel } from "@/lib/prefs";
+import { formatLimitReset, parseLimitPayload, type LimitWindow } from "@/lib/format";
 
 interface UiMessage {
   id: number;
@@ -463,6 +465,8 @@ export default function ChatApp() {
   const userStoppedRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const [freeNotice, setFreeNotice] = useState(false);
+  const [limitReset, setLimitReset] = useState<number | null>(null);
+  const [limitWindow, setLimitWindow] = useState<LimitWindow | null>(null);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [activitiesMsgId, setActivitiesMsgId] = useState<number | null>(null);
   const [activityLive, setActivityLive] = useState(false);
@@ -621,6 +625,22 @@ export default function ChatApp() {
     const timer = setTimeout(() => setFreeNotice(false), 6000);
     return () => clearTimeout(timer);
   }, [freeNotice]);
+
+  useEffect(() => {
+    if (limitReset === null) return;
+    const delay = Math.max(0, limitReset - Date.now());
+    const timer = window.setTimeout(() => {
+      setLimitReset(null);
+      setLimitWindow(null);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [limitReset]);
+
+  const limitTimeLabel =
+    limitReset !== null ? formatLimitReset(limitReset, lang) : "";
+  const limitWindowLabel = limitWindow
+    ? t[`limit.window.${limitWindow}`]
+    : t["limit.window.monthly"];
 
   useEffect(() => {
     activitiesRef.current = activities;
@@ -933,6 +953,7 @@ useEffect(() => {
         const decoder = new TextDecoder();
         const parser = new ModelMarkerParser();
         let modelName: string | undefined;
+        let limitHit = false;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -942,6 +963,7 @@ useEffect(() => {
             trying,
             tryings,
             free,
+            limit,
             activities: incomingActivities,
             questions,
             questionClear,
@@ -966,6 +988,14 @@ useEffect(() => {
           }
           if (free) {
             setFreeNotice(true);
+          }
+          if (limit !== undefined) {
+            limitHit = true;
+            const parsed = parseLimitPayload(limit);
+            if (parsed) {
+              setLimitWindow(parsed.window);
+              setLimitReset(parsed.resetAt);
+            }
           }
           if (model) {
             modelName = model;
@@ -998,7 +1028,7 @@ useEffect(() => {
               })
             );
           }
-          if (text) {
+          if (text && !limitHit) {
             // Ignore whitespace-only flushes so chips stay visible until
             // real answer tokens arrive (and still keep the trail after).
             if (!text.trim() && !modelText) {
@@ -1024,6 +1054,16 @@ useEffect(() => {
           }
         }
         const tail = parser.flush();
+        if (limitHit) {
+          setMessages((prev) => prev.filter((message) => message.id !== modelMessage.id));
+          setActivities([]);
+          activitiesRef.current = [];
+          setActivitiesMsgId(null);
+          setActivityEndHint(null);
+          setAssistantSnippet("");
+          clearWorkLog();
+          return;
+        }
         if (tail) {
           modelText += tail;
           const openIdx = modelText.indexOf("<CONCLUDE>");
@@ -1666,14 +1706,25 @@ useEffect(() => {
           }}
         />
       ) : null}
+      {limitReset !== null && (
+        <p className="limit-banner" role="status">
+          <AlertTriangle size={15} aria-hidden="true" />
+          {limitWindowLabel} {t["limit.exhausted"]} ·{" "}
+          {t["limit.banner"].replace("{time}", limitTimeLabel)}
+        </p>
+      )}
       <Composer
         onSend={send}
         onStop={stop}
         sending={sending}
         stopping={stopping}
-        disabled={Boolean(pendingQuestion)}
+        disabled={Boolean(pendingQuestion) || limitReset !== null}
         placeholder={
-          pendingQuestion ? t["question.composerLocked"] : t["composer.placeholder"]
+          pendingQuestion
+            ? t["question.composerLocked"]
+            : limitReset !== null
+              ? t["limit.placeholder"]
+              : t["composer.placeholder"]
         }
         signedIn={isAuthed === true}
         changes={workspaceChanges}
