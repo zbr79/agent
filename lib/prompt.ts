@@ -1,5 +1,6 @@
-// Free-chat system prompts only. The legacy insulin/preset persona and
-// template branch were removed.
+// Free-chat system prompts only. The insulin (preset) persona file
+// SYSTEM_PROMPT.md and its template branch were removed — see
+// PLAN_REMOVE_INSULIN_MODE.md.
 
 // Used by the local opencode serve path (file tools under AGENT_ROOT).
 const AGENT_WORKSPACE_TOOLS =
