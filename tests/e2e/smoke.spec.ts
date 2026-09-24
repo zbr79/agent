@@ -144,11 +144,14 @@ test.describe("guest chat shell", () => {
     await expect(buildButton).toHaveAttribute("aria-disabled", "true");
   });
 
-  test("auth modal switches between sign-in and registration", async ({ page }) => {
+  test("auth modal blocks disabled signup", async ({ page }) => {
     await page.locator(".login-circle").click();
     await expect(page.locator(".auth-modal")).toBeVisible();
     await page.locator(".auth-toggle").click();
-    await expect(page.locator(".auth-modal h2")).toContainText(/创建|Create|注册/);
+    await expect(page.locator(".auth-modal h2")).toContainText(/登录|Sign in/);
+    await expect(page.locator(".toast-error")).toContainText(
+      /注册暂时不可用|Sign up Temporarily disabled/,
+    );
   });
 
   test("opens the model picker and uploads a document attachment", async ({ page }) => {
