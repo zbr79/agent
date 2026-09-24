@@ -2936,10 +2936,13 @@ span.conclude-rank-badge {
   color: #b45309;
 }
 
-/* model pill is the long one: name left, chevron right */
+/* model pill sizes to its label so the chevron stays close to the name */
 .composer-model-pill {
-  min-width: 136px;
-  justify-content: space-between;
+  min-width: 0;
+  width: max-content;
+  justify-content: flex-start;
+  gap: 3px;
+  font-size: 13.2px;
 }
 
 /* Popover for the model picker. Opens upward because the composer is
