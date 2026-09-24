@@ -206,7 +206,15 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
   );
 }
 
-const MARKDOWN_COMPONENTS = { pre: MarkdownPre };
+function MarkdownTable({ children }: { children?: ReactNode }) {
+  return (
+    <div className="md-table-scroll">
+      <table>{children}</table>
+    </div>
+  );
+}
+
+const MARKDOWN_COMPONENTS = { pre: MarkdownPre, table: MarkdownTable };
 
 // The agent's own "Files changed: a.ts, b.ts" manifest line — redundant next
 // to the ChangesSummary card, so it is dropped from the rendered prose.

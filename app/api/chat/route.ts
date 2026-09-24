@@ -18,6 +18,7 @@ import {
 } from "@/lib/agent";
 import { ChatValidationError } from "@/lib/errors";
 import { parseChatBody, type ChatRequest } from "@/lib/chatRequest";
+import { chooseChatReasoning } from "@/lib/chatReasoning";
 import { getUserFromRequest } from "@/lib/auth";
 import {
   activityTrailLabel,
@@ -148,6 +149,7 @@ export async function POST(req: Request) {
   // paid-only vision chain.
   const lastMessage = messages[messages.length - 1];
   const hasImage = (lastMessage?.images?.length ?? 0) > 0;
+  const chatReasoning = chooseChatReasoning(messages, mode ?? "plan", hasImage);
 
   // Avoid handing a known-exhausted subscription to the bound agent. The
   // OpenCode session can remain pending for minutes after a monthly limit is
@@ -593,7 +595,7 @@ export async function POST(req: Request) {
             let produced = false;
             try {
               for await (const text of tapped(
-                streamChat(messages, language, model)
+                streamChat(messages, language, model, chatReasoning)
               )) {
                 produced = true;
                 enqueue(text);
@@ -614,7 +616,7 @@ export async function POST(req: Request) {
             }
           }
           for await (const text of tapped(
-            streamChat(messages, language, model)
+            streamChat(messages, language, model, chatReasoning)
           )) {
             enqueue(text);
           }

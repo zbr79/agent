@@ -3811,8 +3811,8 @@ span.conclude-rank-badge {
 }
 
 .action-button {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3821,6 +3821,25 @@ span.conclude-rank-badge {
   color: var(--text-muted);
   cursor: pointer;
   padding: 0;
+}
+
+@media (hover: none) {
+  .action-button {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+.action-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+@media (hover: none) {
+  .action-button svg {
+    width: 16px;
+    height: 16px;
+  }
 }
 
 .action-button:hover {
@@ -4079,7 +4098,8 @@ span.conclude-rank-badge {
 .reply-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  min-height: 28px;
   width: 100%;
   gap: 8px;
 }
@@ -4097,6 +4117,12 @@ span.conclude-rank-badge {
   margin-top: 0;
   /* keep model/usage on the right even while streaming (no action buttons yet) */
   margin-left: auto;
+}
+
+@media (hover: none) {
+  .reply-footer {
+    min-height: 32px;
+  }
 }
 
 /* ---- sidebar: search, hide/collapse, pin ---- */
@@ -6126,6 +6152,39 @@ button.settings-row {
 .transcript-body th {
   background: rgba(0, 0, 0, 0.05);
   font-weight: 600;
+}
+
+.md-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.md-table-scroll table {
+  width: 100%;
+  min-width: 320px;
+  max-width: none;
+  display: table;
+  overflow: visible;
+  margin: 0;
+  border-collapse: collapse;
+}
+
+.md-table-scroll th,
+.md-table-scroll td {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 9px 14px;
+}
+
+.md-table-scroll th {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.md-table-scroll tr:last-child td {
+  border-bottom: none;
 }
 
 .transcript-body ul,
