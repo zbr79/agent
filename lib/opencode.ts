@@ -12,8 +12,6 @@ import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, type ChatMessage } from "./types"
 
 export const OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const OPENCODE_FREE_BASE_URL = "https://opencode.ai/zen/v1";
-export const OPENCODE_MODEL = "deepseek-v4-pro";
-export const OPENCODE_VISION_MODEL = "glm-5.3-flash";
 
 // The opencode CLI stores the current subscription key here; it changes when
 // the user rotates/reconnects the key in the TUI. Prefer it over .env so the
