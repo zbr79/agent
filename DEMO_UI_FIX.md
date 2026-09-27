@@ -1,1 +1,0 @@
-UI path wired to local opencode agent with file tools.
