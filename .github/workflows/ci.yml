@@ -36,6 +36,12 @@ jobs:
       - name: Run unit and API tests
         run: npm run test:unit
 
+      - name: Run path-jail security probe
+        run: node scripts/test-path-jail.mjs
+
+      - name: Run checkpoint security probe
+        run: npx tsx scripts/test-checkpoints.mts
+
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
